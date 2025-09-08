@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import platform
@@ -22,6 +23,7 @@ from ..deployer import (  # noqa: TID252
     delete_workload,
     get_workload,
     list_workloads,
+    logs_workload,
 )
 from .__types__ import SubCommand
 
@@ -201,6 +203,15 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         create_workload(plan)
         print(f"Created workload '{self.name}'.")
 
+        try:
+            print("\033[2J\033[H", end="")
+            logs_stream = logs_workload(self.name, tail=-1, follow=True)
+            with contextlib.closing(logs_stream) as logs:
+                for line in logs:
+                    print(line.decode("utf-8").rstrip())
+        except KeyboardInterrupt:
+            print("\033[2J\033[H", end="")
+
 
 class CreateWorkloadSubCommand(SubCommand):
     """
@@ -331,6 +342,15 @@ class CreateWorkloadSubCommand(SubCommand):
         )
         create_workload(plan)
         print(f"Created workload '{self.name}'.")
+
+        try:
+            print("\033[2J\033[H", end="")
+            logs_stream = logs_workload(self.name, tail=-1, follow=True)
+            with contextlib.closing(logs_stream) as logs:
+                for line in logs:
+                    print(line.decode("utf-8").rstrip())
+        except KeyboardInterrupt:
+            print("\033[2J\033[H", end="")
 
 
 class DeleteWorkloadSubCommand(SubCommand):

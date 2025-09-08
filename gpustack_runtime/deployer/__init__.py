@@ -22,6 +22,7 @@ from .__types__ import (
     ContainerSecurity,
     OperationError,
     UnsupportedError,
+    WorkloadOperationToken,
     WorkloadPlan,
     WorkloadSecurity,
     WorkloadSecuritySysctl,
@@ -148,6 +149,51 @@ def list_workloads(labels: dict[str, str] | None = None) -> list[WorkloadStatus]
     raise UnsupportedError(msg)
 
 
+def logs_workload(
+    name: WorkloadName,
+    token: WorkloadOperationToken | None = None,
+    timestamps: bool = False,
+    tail: int | None = None,
+    since: int | None = None,
+    follow: bool = False,
+):
+    """
+    Get the logs of a workload.
+
+    Args:
+        name:
+            The name of the workload to get logs.
+        token:
+            The operation token for authentication.
+        timestamps:
+            Whether to include timestamps in the logs.
+        tail:
+            The number of lines from the end of the logs to show.
+        since:
+            Show logs since a given time (in seconds).
+        follow:
+            Whether to follow the logs.
+
+    Returns:
+        The logs as a byte string or a generator yielding byte strings if follow is True.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to get the logs of the workload.
+
+    """
+    for dep in deployers:
+        if not dep.is_supported():
+            continue
+
+        return dep.logs(name, token, timestamps, tail, since, follow)
+
+    msg = "No deployer supports"
+    raise UnsupportedError(msg)
+
+
 __all__ = [
     "Container",
     "ContainerCapabilities",
@@ -170,6 +216,7 @@ __all__ = [
     "DockerWorkloadStatus",
     "OperationError",
     "UnsupportedError",
+    "WorkloadOperationToken",
     "WorkloadPlan",
     "WorkloadPlan",
     "WorkloadSecurity",
@@ -180,4 +227,5 @@ __all__ = [
     "delete_workload",
     "get_workload",
     "list_workloads",
+    "logs_workload",
 ]

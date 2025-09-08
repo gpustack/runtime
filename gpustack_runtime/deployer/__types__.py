@@ -874,3 +874,43 @@ class Deployer(ABC):
 
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def logs(
+        self,
+        name: WorkloadName,
+        token: WorkloadOperationToken | None = None,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+    ):
+        """
+        Get the logs of a workload.
+
+        Args:
+            name:
+                The name of the workload.
+            token:
+                The operation token of the workload.
+                If not specified, get logs from the first executable container.
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to get logs.
+
+        """
+        raise NotImplementedError

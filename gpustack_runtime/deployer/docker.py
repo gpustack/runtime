@@ -28,6 +28,7 @@ from .__types__ import (
     OperationError,
     UnsupportedError,
     WorkloadName,
+    WorkloadOperationToken,
     WorkloadPlan,
     WorkloadStatus,
     WorkloadStatusOperation,
@@ -1065,6 +1066,88 @@ class DockerDeployer(Deployer):
             )
             for name, d_containers in workload_mapping.items()
         ]
+
+    @_supported
+    def logs(
+        self,
+        name: WorkloadName,
+        token: WorkloadOperationToken | None = None,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+    ):
+        """
+        Get logs of a Docker workload or a specific container.
+
+        Args:
+            name:
+                The name of the workload.
+            token:
+                The operation token representing a specific container ID.
+                If None, fetch logs from the main RUN container of the workload.
+            timestamps:
+                Whether to include timestamps in the logs.
+            tail:
+                Number of lines from the end of the logs to show. If None, show all logs.
+            since:
+                Show logs since this time (in seconds since epoch). If None, show all logs.
+            follow:
+                Whether to stream the logs in real-time.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If Docker is not supported in the current environment.
+            OperationError:
+                If the Docker workload fails to fetch logs.
+
+        """
+        if token:
+            try:
+                container = self._client.containers.get(container_id=token)
+            except docker.errors.NotFound as e:
+                msg = f"Container with ID {token} not found"
+                raise OperationError(msg) from e
+        else:
+            workload = self.get(name)
+            if not workload:
+                msg = f"Workload {name} not found"
+                raise OperationError(msg)
+
+            container = next(
+                (
+                    c
+                    for c in getattr(workload, "d_containers", [])
+                    if c.labels.get(_LABEL_COMPONENT) == "run"
+                ),
+                None,
+            )
+            if not container:
+                msg = f"Container for workload {name} not found"
+                raise OperationError(msg)
+
+        kwargs = {
+            "timestamps": timestamps,
+            "follow": follow,
+        }
+        if tail is not None:
+            kwargs["tail"] = tail
+        if since is not None:
+            kwargs["since"] = since
+
+        try:
+            output = container.logs(
+                stream=True,
+                **kwargs,
+            )
+        except docker.errors.APIError as e:
+            msg = f"Failed to fetch logs for container {container.name} of workload {name}"
+            raise OperationError(msg) from e
+        else:
+            return output
 
 
 def _has_restart_policy(
