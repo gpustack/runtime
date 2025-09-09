@@ -91,9 +91,9 @@ class ContainerExecution(ContainerSecurity):
     Attributes:
         working_dir (str | None):
             Working directory for the container.
-        command (str | list[str] | None):
+        command (list[str] | None):
             Command to run in the container.
-        args (str | list[str] | None):
+        args (list[str] | None):
             Arguments to pass to the command.
 
     """
@@ -102,11 +102,11 @@ class ContainerExecution(ContainerSecurity):
     """
     Working directory for the container.
     """
-    command: str | list[str] | None = None
+    command: list[str] | None = None
     """
     Command to run in the container.
     """
-    args: str | list[str] | None = None
+    args: list[str] | None = None
     """
     Arguments to pass to the command.
     """
@@ -444,11 +444,11 @@ class ContainerProfileEnum(str, Enum):
     Enum for container profiles.
     """
 
-    RUN = "RUN"
+    RUN = "Run"
     """
     Run profile.
     """
-    INIT = "INIT"
+    INIT = "Init"
     """
     Init profile.
     """
@@ -686,27 +686,27 @@ class WorkloadStatusStateEnum(str, Enum):
     ```
     """
 
-    UNKNOWN = "UNKNOWN"
+    UNKNOWN = "Unknown"
     """
     The workload state is unknown.
     """
-    PENDING = "PENDING"
+    PENDING = "Pending"
     """
     The workload is pending.
     """
-    INITIALIZING = "INITIALIZING"
+    INITIALIZING = "Initializing"
     """
     The workload is initializing.
     """
-    RUNNING = "RUNNING"
+    RUNNING = "Running"
     """
     The workload is running.
     """
-    UNHEALTHY = "UNHEALTHY"
+    UNHEALTHY = "Unhealthy"
     """
     The workload is unhealthy.
     """
-    FAILED = "FAILED"
+    FAILED = "Failed"
     """
     The workload has failed.
     """
