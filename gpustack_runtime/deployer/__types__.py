@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from dataclasses_json import dataclass_json
@@ -745,6 +745,8 @@ class WorkloadStatus:
             Name for the workload, it should be unique in the deployer.
         created_at (str | None):
             Creation time of the workload.
+        labels (dict[str, str] | None):
+            Labels for the workload.
         executable (list[WorkloadStatusOperation]):
             The operation for the executable containers of the workload.
         loggable (list[WorkloadStatusOperation]):
@@ -763,11 +765,15 @@ class WorkloadStatus:
     """
     Creation time of the workload.
     """
-    executable: list[WorkloadStatusOperation] | None = None
+    labels: dict[str, str] | None = field(default_factory=dict)
+    """
+    Labels for the workload.
+    """
+    executable: list[WorkloadStatusOperation] | None = field(default_factory=list)
     """
     The operation for the executable containers of the workload.
     """
-    loggable: list[WorkloadStatusOperation] | None = None
+    loggable: list[WorkloadStatusOperation] | None = field(default_factory=list)
     """
     The operation for the loggable containers of the workload.
     """

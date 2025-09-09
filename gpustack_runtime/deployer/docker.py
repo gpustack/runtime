@@ -138,20 +138,25 @@ class DockerWorkloadStatus(WorkloadStatus):
     def __init__(
         self,
         name: WorkloadName,
-        created_at: str,
         d_containers: list[docker.models.containers],
         **kwargs,
     ):
+        created_at = d_containers[0].attrs["Created"]
+        labels = {
+            k: v
+            for k, v in d_containers[0].labels.items()
+            if not k.startswith("runtime.gpustack.ai/")
+        }
+
         super().__init__(
             name=name,
             created_at=created_at,
+            labels=labels,
             **kwargs,
         )
 
         self.d_containers = d_containers
 
-        self.executable = []
-        self.loggable = []
         for c in d_containers:
             op = WorkloadStatusOperation(
                 name=c.labels.get(_LABEL_COMPONENT_NAME, "") or c.name,
@@ -928,7 +933,6 @@ class DockerDeployer(Deployer):
 
         return DockerWorkloadStatus(
             name=name,
-            created_at=d_containers[0].attrs["Created"],
             d_containers=d_containers,
         )
 
@@ -1061,7 +1065,6 @@ class DockerDeployer(Deployer):
         return [
             DockerWorkloadStatus(
                 name=name,
-                created_at=d_containers[0].attrs["Created"],
                 d_containers=d_containers,
             )
             for name, d_containers in workload_mapping.items()
