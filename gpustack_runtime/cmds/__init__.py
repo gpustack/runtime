@@ -6,6 +6,7 @@ from .deployer import (
     DeleteWorkloadSubCommand,
     GetWorkloadSubCommand,
     ListWorkloadsSubCommand,
+    LogsWorkloadSubCommand,
 )
 from .detector import DetectDevicesSubCommand
 
@@ -16,4 +17,5 @@ __all__ = [
     "DetectDevicesSubCommand",
     "GetWorkloadSubCommand",
     "ListWorkloadsSubCommand",
+    "LogsWorkloadSubCommand",
 ]

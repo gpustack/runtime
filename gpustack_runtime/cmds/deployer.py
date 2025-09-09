@@ -511,6 +511,64 @@ class ListWorkloadsSubCommand(SubCommand):
             print("\033[2J\033[H", end="")
 
 
+class LogsWorkloadSubCommand(SubCommand):
+    """
+    Command to get the logs of a workload deployment.
+    """
+
+    name: str
+    tail: int = 100
+    follow: bool = False
+
+    @staticmethod
+    def register(parser: _SubParsersAction):
+        logs_parser = parser.add_parser(
+            "logs",
+            help="get the logs of a workload deployment",
+        )
+
+        logs_parser.add_argument(
+            "name",
+            type=str,
+            help="name of the workload",
+        )
+
+        logs_parser.add_argument(
+            "--tail",
+            type=int,
+            default=-1,
+            help="number of lines to show from the end of the logs (default: -1)",
+        )
+
+        logs_parser.add_argument(
+            "--follow",
+            "-f",
+            action="store_true",
+            help="follow the logs in real-time",
+        )
+
+        logs_parser.set_defaults(func=LogsWorkloadSubCommand)
+
+    def __init__(self, args: Namespace):
+        self.name = args.name
+        self.tail = args.tail
+        self.follow = args.follow
+
+        if not self.name:
+            msg = "The name argument is required."
+            raise ValueError(msg)
+
+    def run(self):
+        try:
+            print("\033[2J\033[H", end="")
+            logs_stream = logs_workload(self.name, tail=self.tail, follow=self.follow)
+            with contextlib.closing(logs_stream) as logs:
+                for line in logs:
+                    print(line.decode("utf-8").rstrip())
+        except KeyboardInterrupt:
+            print("\033[2J\033[H", end="")
+
+
 def format_workloads_json(sts: list[WorkloadStatus]) -> str:
     return json.dumps([st.to_dict() for st in sts], indent=2)
 

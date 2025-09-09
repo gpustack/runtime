@@ -11,6 +11,7 @@ from .cmds import (
     DetectDevicesSubCommand,
     GetWorkloadSubCommand,
     ListWorkloadsSubCommand,
+    LogsWorkloadSubCommand,
 )
 from .logging import setup_logging
 
@@ -36,6 +37,7 @@ def main():
     DeleteWorkloadSubCommand.register(subcommand_parser)
     GetWorkloadSubCommand.register(subcommand_parser)
     ListWorkloadsSubCommand.register(subcommand_parser)
+    LogsWorkloadSubCommand.register(subcommand_parser)
     DetectDevicesSubCommand.register(subcommand_parser)
 
     # Parse
