@@ -109,9 +109,13 @@ def format_devices_table(devs: Devices, width: int = 100) -> str:
 
     # Device rows
     device_lines = []
-    for i, dev in enumerate(devs):
+    for dev in devs:
         row_data = [
-            str(i),
+            str(
+                dev.indexes[0]
+                if dev.indexes and len(dev.indexes) == 1
+                else ", ".join(str(i) for i in dev.indexes),
+            ),
             dev.name,
             f"{dev.memory_used}MiB / {dev.memory}MiB",
             f"{dev.cores_utilization}%",

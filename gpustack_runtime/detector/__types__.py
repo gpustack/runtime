@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from dataclasses_json import dataclass_json
@@ -17,7 +17,14 @@ class Device:
 
     manufacturer: ManufacturerEnum = ManufacturerEnum.UNKNOWN
     """
-    Machine type of the device.
+    Manufacturer of the device.
+    """
+    indexes: list[int] = field(default_factory=list)
+    """
+    Indexes of the device.
+    For most devices, this field usually contains only one index.
+    However, some devices use the chip on the device as the actual device,
+    so this field may contain multiple indexes.
     """
     name: str = ""
     """

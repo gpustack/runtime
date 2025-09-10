@@ -7,6 +7,8 @@ from math import ceil
 
 import pynvml
 
+from gpustack_runtime import envs
+
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 
 logger = logging.getLogger(__name__)
@@ -73,6 +75,15 @@ class NVIDIADetector(Detector):
             for dev_idx in range(dev_count):
                 dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
 
+                dev_index = dev_idx
+                if envs.GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX:
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
+                        dev_index = (
+                            dev_pci_info.bus - 1
+                            if dev_pci_info.bus > 0
+                            else dev_pci_info.bus
+                        )
                 dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
                 dev_mem = pynvml.nvmlDeviceGetMemoryInfo(dev)
                 dev_util = pynvml.nvmlDeviceGetUtilizationRates(dev)
@@ -110,6 +121,7 @@ class NVIDIADetector(Detector):
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
+                            indexes=[dev_index],
                             name=dev_name,
                             uuid=dev_uuid,
                             driver_version=sys_driver_ver,
@@ -139,6 +151,7 @@ class NVIDIADetector(Detector):
                 for mdev_idx in range(mdev_count):
                     mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
 
+                    mdev_index = mdev_idx
                     mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
                     mdev_mem = pynvml.nvmlDeviceGetMemoryInfo(mdev)
                     mdev_temp = pynvml.nvmlDeviceGetTemperature(
@@ -224,6 +237,7 @@ class NVIDIADetector(Detector):
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
+                            indexes=[mdev_index],
                             name=mdev_name,
                             uuid=mdev_uuid,
                             driver_version=sys_driver_ver,

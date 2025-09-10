@@ -29,6 +29,13 @@ if TYPE_CHECKING:
     Directory for storing ephemeral files for Docker.
     """
 
+    # Detect
+
+    GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX: bool | None = None
+    """
+    Whether to detect GPU index in bus index.
+    """
+
 # --8<-- [start:env-vars-definition]
 
 variables: dict[str, Callable[[], Any]] = {
@@ -49,6 +56,10 @@ variables: dict[str, Callable[[], Any]] = {
             "GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR",
             expand_path("~/.cache/gpustack-runtime"),
         ),
+    ),
+    "GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX": lambda: (
+        getenv("GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX", "1")
+        in ("1", "true", "True")
     ),
 }
 
