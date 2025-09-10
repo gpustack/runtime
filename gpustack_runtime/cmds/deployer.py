@@ -396,7 +396,7 @@ class GetWorkloadSubCommand(SubCommand):
     """
 
     name: str
-    json: bool = False
+    format: str = "table"
     watch: int = 0
 
     @staticmethod
@@ -413,9 +413,11 @@ class GetWorkloadSubCommand(SubCommand):
         )
 
         get_parser.add_argument(
-            "--json",
-            action="store_true",
-            help="output in JSON format",
+            "--format",
+            type=str,
+            choices=["table", "json"],
+            default="table",
+            help="output format",
         )
 
         get_parser.add_argument(
@@ -429,7 +431,7 @@ class GetWorkloadSubCommand(SubCommand):
 
     def __init__(self, args: Namespace):
         self.name = args.name
-        self.json = args.json
+        self.format = args.format
         self.watch = args.watch
 
         if not self.name:
@@ -441,10 +443,11 @@ class GetWorkloadSubCommand(SubCommand):
             while True:
                 sts: list[WorkloadStatus] = [get_workload(self.name)]
                 print("\033[2J\033[H", end="")
-                if self.json:
-                    print(format_workloads_json(sts))
-                else:
-                    print(format_workloads_table(sts))
+                match self.format.lower():
+                    case "json":
+                        print(format_workloads_json(sts))
+                    case _:
+                        print(format_workloads_table(sts))
                 if not self.watch:
                     break
                 time.sleep(self.watch)
@@ -458,7 +461,7 @@ class ListWorkloadsSubCommand(SubCommand):
     """
 
     labels: dict[str, str] | None = None
-    json: bool = False
+    format: str = "table"
     watch: int = 0
 
     @staticmethod
@@ -476,9 +479,11 @@ class ListWorkloadsSubCommand(SubCommand):
         )
 
         list_parser.add_argument(
-            "--json",
-            action="store_true",
-            help="output in JSON format",
+            "--format",
+            type=str,
+            choices=["table", "json"],
+            default="table",
+            help="output format",
         )
 
         list_parser.add_argument(
@@ -492,7 +497,7 @@ class ListWorkloadsSubCommand(SubCommand):
 
     def __init__(self, args: Namespace):
         self.labels = args.labels
-        self.json = args.json
+        self.format = args.format
         self.watch = args.watch
 
     def run(self):
@@ -500,10 +505,11 @@ class ListWorkloadsSubCommand(SubCommand):
             while True:
                 sts: list[WorkloadStatus] = list_workloads(self.labels)
                 print("\033[2J\033[H", end="")
-                if self.json:
-                    print(format_workloads_json(sts))
-                else:
-                    print(format_workloads_table(sts))
+                match self.format.lower():
+                    case "json":
+                        print(format_workloads_json(sts))
+                    case _:
+                        print(format_workloads_table(sts))
                 if not self.watch:
                     break
                 time.sleep(self.watch)
@@ -570,7 +576,7 @@ class LogsWorkloadSubCommand(SubCommand):
 
 
 def format_workloads_json(sts: list[WorkloadStatus]) -> str:
-    return json.dumps([st.to_dict() for st in sts], indent=2)
+    return json.dumps([st.__dict__ for st in sts], indent=2)
 
 
 def format_workloads_table(sts: list[WorkloadStatus], width: int = 100) -> str:

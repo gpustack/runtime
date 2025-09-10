@@ -17,7 +17,7 @@ class DetectDevicesSubCommand(SubCommand):
     Command to detect GPUs and their properties.
     """
 
-    json: bool = False
+    format: str = "table"
     watch: int = 0
 
     @staticmethod
@@ -28,10 +28,11 @@ class DetectDevicesSubCommand(SubCommand):
         )
 
         detect_parser.add_argument(
-            "--json",
-            "-j",
-            action="store_true",
-            help="output in JSON format",
+            "--format",
+            type=str,
+            choices=["table", "json"],
+            default="table",
+            help="output format",
         )
 
         detect_parser.add_argument(
@@ -44,7 +45,7 @@ class DetectDevicesSubCommand(SubCommand):
         detect_parser.set_defaults(func=DetectDevicesSubCommand)
 
     def __init__(self, args: Namespace):
-        self.json = args.json
+        self.format = args.format
         self.watch = args.watch
 
     def run(self):
@@ -52,10 +53,11 @@ class DetectDevicesSubCommand(SubCommand):
             while True:
                 devs: Devices = detect_devices()
                 print("\033[2J\033[H", end="")
-                if self.json:
-                    print(format_devices_json(devs))
-                else:
-                    print(format_devices_table(devs))
+                match self.format.lower():
+                    case "json":
+                        print(format_devices_json(devs))
+                    case _:
+                        print(format_devices_table(devs))
                 if not self.watch:
                     break
                 time.sleep(self.watch)
