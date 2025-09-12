@@ -11,8 +11,10 @@
 # Argument usage:
 # - PYTHON_VERSION: Version of Python to use.
 # - GPUSTACK_RUNTIME_BASE_IMAGE: Base image for the gpustack-runtime stage.
+# - GPUSTACK_RUNTIME_VENV_INSTALL: Whether to install GPUStack runtime in a virtual environment.
 ARG PYTHON_VERSION=3.11
 ARG GPUSTACK_RUNTIME_BASE_IMAGE=runtime
+ARG GPUSTACK_RUNTIME_VENV_INSTALL=true
 
 FROM ubuntu:22.04@sha256:3c61d3759c2639d4b836d32a2d3c83fa0214e36f195a3421018dbaaf79cbe37f AS runtime
 SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
@@ -232,14 +234,30 @@ ARG TARGETARCH
 
 ## Install
 
-RUN --mount=type=bind,target=/workspace/runtime,rw <<EOF
-    export UV_SYSTEM_PYTHON=1
-    export UV_PRERELEASE=allow
+ARG GPUSTACK_RUNTIME_VENV_INSTALL
 
+RUN --mount=type=bind,target=/workspace/runtime,rw <<EOF
+    # Prepare environment
+    if [[ "${GPUSTACK_RUNTIME_VENV_INSTALL}" == "true" ]]; then
+        echo "Installing GPUStack runtime in a virtual environment..."
+        uv venv /opt/gpustack-runtime
+        source /opt/gpustack-runtime/bin/activate
+    else
+        echo "Installing GPUStack runtime in the system Python environment..."
+        export UV_SYSTEM_PYTHON=1
+    fi
+
+    # Install gpustack-runtime
+    export UV_PRERELEASE=allow
+    export UV_NO_CACHE=1
     uv pip install \
         /workspace/runtime
-
     uv pip tree
+
+    # Symlink gpustack-runtime if installed in a virtual environment
+    if [[ $(which gpustack-runtime) == "/opt/gpustack-runtime/bin/gpustack-runtime" ]]; then
+        ln -s /opt/gpustack-runtime/bin/gpustack-runtime /usr/bin/gpustack-runtime
+    fi
 EOF
 
 ## Entrypoint
