@@ -1117,6 +1117,9 @@ class DockerDeployer(Deployer):
             except docker.errors.NotFound as e:
                 msg = f"Container with ID {token} not found"
                 raise OperationError(msg) from e
+            except docker.errors.APIError as e:
+                msg = f"Failed to get container with ID {token}"
+                raise OperationError(msg) from e
         else:
             workload = self.get(name)
             if not workload:
@@ -1132,7 +1135,7 @@ class DockerDeployer(Deployer):
                 None,
             )
             if not container:
-                msg = f"Container for workload {name} not found"
+                msg = f"Loggable container of workload {name} not found"
                 raise OperationError(msg)
 
         kwargs = {
@@ -1146,7 +1149,7 @@ class DockerDeployer(Deployer):
 
         try:
             output = container.logs(
-                stream=True,
+                stream=follow,
                 **kwargs,
             )
         except docker.errors.APIError as e:
