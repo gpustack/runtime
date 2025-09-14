@@ -630,6 +630,7 @@ class WorkloadPlan(WorkloadSecurity):
             Labels for the workload.
         host_network (bool):
             Indicates if the workload uses the host network.
+
         shm_size (int | str | None):
             Configure shared memory size for the workload.
         run_as_user (int | None):
@@ -658,6 +659,10 @@ class WorkloadPlan(WorkloadSecurity):
     host_network: bool = False
     """
     Indicates if the workload uses the host network.
+    """
+    pid_shared: bool = False
+    """
+    Indicates if the workload shares the PID namespace.
     """
     shm_size: int | str | None = None
     """

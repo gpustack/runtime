@@ -643,6 +643,9 @@ class DockerDeployer(Deployer):
             if not workload.host_network:
                 create_params["hostname"] = c.name
 
+            if workload.pid_shared:
+                create_params["pid_mode"] = "container:{workload.name}-pause"
+
             if workload.shm_size:
                 create_params["shm_size"] = workload.shm_size
 
