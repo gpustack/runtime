@@ -22,6 +22,7 @@ from .__types__ import (
     ContainerSecurity,
     OperationError,
     UnsupportedError,
+    WorkloadExecResult,
     WorkloadOperationToken,
     WorkloadPlan,
     WorkloadSecurity,
@@ -32,6 +33,8 @@ from .__types__ import (
 from .docker import DockerDeployer, DockerWorkloadPlan, DockerWorkloadStatus
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from .__types__ import Deployer, WorkloadName
 
 deployers: list[Deployer] = [
@@ -156,7 +159,7 @@ def logs_workload(
     tail: int | None = None,
     since: int | None = None,
     follow: bool = False,
-):
+) -> Generator[bytes, None, None] | bytes:
     """
     Get the logs of a workload.
 
@@ -164,7 +167,7 @@ def logs_workload(
         name:
             The name of the workload to get logs.
         token:
-            The operation token for authentication.
+            The token for operation.
         timestamps:
             Whether to include timestamps in the logs.
         tail:
@@ -194,6 +197,49 @@ def logs_workload(
     raise UnsupportedError(msg)
 
 
+def exec_workload(
+    name: WorkloadName,
+    token: WorkloadOperationToken | None = None,
+    detach: bool = True,
+    command: list[str] | None = None,
+    args: list[str] | None = None,
+) -> WorkloadExecResult:
+    """
+    Execute a command in a running workload.
+
+    Args:
+        name:
+            The name of the workload to execute the command in.
+        token:
+            The token for operation.
+        detach:
+            Whether to detach from the command execution.
+        command:
+            The command to execute.
+        args:
+            The arguments to pass to the command.
+
+    Returns:
+        If detach is False, return a socket object in the output of WorkloadExecResult.
+            otherwise, return the exit code and output of the command in WorkloadExecResult.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to execute the command in the workload.
+
+    """
+    for dep in deployers:
+        if not dep.is_supported():
+            continue
+
+        return dep.exec(name, token, detach, command, args)
+
+    msg = "No deployer supports"
+    raise UnsupportedError(msg)
+
+
 __all__ = [
     "Container",
     "ContainerCapabilities",
@@ -216,6 +262,7 @@ __all__ = [
     "DockerWorkloadStatus",
     "OperationError",
     "UnsupportedError",
+    "WorkloadExecResult",
     "WorkloadOperationToken",
     "WorkloadPlan",
     "WorkloadPlan",
@@ -225,6 +272,7 @@ __all__ = [
     "WorkloadStatusStateEnum",
     "create_workload",
     "delete_workload",
+    "exec_workload",
     "get_workload",
     "list_workloads",
     "logs_workload",

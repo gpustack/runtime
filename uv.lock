@@ -174,6 +174,15 @@ wheels = [
 ]
 
 [[package]]
+name = "dockerpty"
+version = "0.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/ee/e9ecce4c32204a6738e0a5d5883d3413794d7498fe8b06f44becc028d3ba/dockerpty-0.4.1.tar.gz", hash = "sha256:69a9d69d573a0daa31bcd1c0774eeed5c15c295fe719c61aca550ed1393156ce", size = 13924, upload-time = "2016-02-04T18:57:13.442Z" }
+
+[[package]]
 name = "durationpy"
 version = "0.10"
 source = { registry = "https://pypi.org/simple" }
@@ -253,6 +262,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "dockerpty" },
     { name = "hatch-vcs" },
     { name = "hatchling" },
     { name = "mkdocs" },
@@ -274,6 +284,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "dockerpty", specifier = ">=0.4.1" },
     { name = "hatch-vcs" },
     { name = "hatchling" },
     { name = "mkdocs", specifier = ">=1.6.1" },

@@ -69,9 +69,11 @@ def format_devices_json(devs: Devices) -> str:
     return json.dumps([dev.__dict__ for dev in devs], indent=2)
 
 
-def format_devices_table(devs: Devices, width: int = 100) -> str:
+def format_devices_table(devs: Devices) -> str:
     if not devs:
         return "No GPUs detected."
+
+    width = 100
 
     # Header section
     dev = devs[0]

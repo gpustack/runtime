@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 import platform
+import sys
 import time
 from argparse import REMAINDER
 from typing import TYPE_CHECKING
@@ -21,6 +22,7 @@ from ..deployer import (  # noqa: TID252
     WorkloadStatus,
     create_workload,
     delete_workload,
+    exec_workload,
     get_workload,
     list_workloads,
     logs_workload,
@@ -567,10 +569,118 @@ class LogsWorkloadSubCommand(SubCommand):
     def run(self):
         try:
             print("\033[2J\033[H", end="")
-            logs_stream = logs_workload(self.name, tail=self.tail, follow=self.follow)
+            logs_stream = logs_workload(
+                self.name,
+                tail=self.tail,
+                follow=self.follow,
+            )
             with contextlib.closing(logs_stream) as logs:
                 for line in logs:
                     print(line.decode("utf-8").rstrip())
+        except KeyboardInterrupt:
+            print("\033[2J\033[H", end="")
+
+
+class ExecWorkloadSubCommand(SubCommand):
+    """
+    Command to execute a command in a workload deployment.
+    """
+
+    name: str
+    command: list[str]
+    interactive: bool = False
+
+    @staticmethod
+    def register(parser: _SubParsersAction):
+        exec_parser = parser.add_parser(
+            "exec",
+            help="execute a command in a workload deployment",
+        )
+
+        exec_parser.add_argument(
+            "name",
+            type=str,
+            help="name of the workload",
+        )
+
+        exec_parser.add_argument(
+            "command",
+            nargs=REMAINDER,
+            help="command to execute in the workload",
+        )
+
+        exec_parser.add_argument(
+            "--interactive",
+            "-i",
+            action="store_true",
+            help="interactive mode",
+        )
+
+        exec_parser.set_defaults(func=ExecWorkloadSubCommand)
+
+    def __init__(self, args: Namespace):
+        self.name = args.name
+        self.command = args.command
+        self.interactive = args.interactive
+
+        if not self.name:
+            msg = "The name argument is required."
+            raise ValueError(msg)
+
+    def run(self):
+        try:
+            if self.interactive:
+                from dockerpty import io, pty  # noqa: PLC0415
+        except ImportError:
+            print(
+                "dockerpty is required for interactive mode. "
+                "Please install it via 'pip install dockerpty'.",
+            )
+            sys.exit(1)
+
+        try:
+            print("\033[2J\033[H", end="")
+            exec_result = exec_workload(
+                self.name,
+                detach=not self.interactive,
+                command=self.command,
+            )
+
+            # Non-interactive mode: print output and exit with the command's exit code
+
+            if not self.interactive:
+                if isinstance(exec_result.output, bytes):
+                    print(exec_result.output.decode("utf-8").rstrip())
+                else:
+                    print(exec_result.output)
+                sys.exit(exec_result.exit_code)
+
+            # Interactive mode: use dockerpty to attach to the exec session
+
+            class ExecOperation(pty.Operation):
+                def __init__(self, socket):
+                    self.stdin = sys.stdin
+                    self.stdout = sys.stdout
+                    self.socket = io.Stream(socket)
+
+                def israw(self, **_):
+                    return self.stdout.isatty()
+
+                def start(self, **_):
+                    stream = self.sockets()
+                    return [
+                        io.Pump(io.Stream(self.stdin), stream, wait_for_output=False),
+                        io.Pump(stream, io.Stream(self.stdout), propagate_close=False),
+                    ]
+
+                def resize(self, height, width, **_):
+                    pass
+
+                def sockets(self):
+                    return self.socket
+
+            exec_op = ExecOperation(exec_result.output)
+            pty.PseudoTerminal(None, exec_op).start()
         except KeyboardInterrupt:
             print("\033[2J\033[H", end="")
 
@@ -579,9 +689,11 @@ def format_workloads_json(sts: list[WorkloadStatus]) -> str:
     return json.dumps([st.__dict__ for st in sts], indent=2)
 
 
-def format_workloads_table(sts: list[WorkloadStatus], width: int = 100) -> str:
+def format_workloads_table(sts: list[WorkloadStatus]) -> str:
     if not sts:
         return "No workloads found."
+
+    width = 100
 
     headers = ["Name", "State", "Created At"]
     col_widths = [

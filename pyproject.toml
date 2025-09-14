@@ -41,4 +41,5 @@ dev=[
     "mkdocstrings-python>=1.18.0",
     "mkdocs-material>=9.6.18",
     "pymdown-extensions>=10.16.1",
+    "dockerpty>=0.4.1",
 ]

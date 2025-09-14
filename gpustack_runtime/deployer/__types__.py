@@ -3,8 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING, NamedTuple
 
 from dataclasses_json import dataclass_json
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 class UnsupportedError(Exception):
@@ -788,6 +792,16 @@ class WorkloadStatus:
     """
 
 
+class WorkloadExecResult(NamedTuple):
+    """
+    Result of an exec command.
+
+    """
+
+    exit_code: int | None
+    output: str | bytes | object | None
+
+
 class Deployer(ABC):
     """
     Base class for all deployers.
@@ -895,7 +909,7 @@ class Deployer(ABC):
         tail: int | None = None,
         since: int | None = None,
         follow: bool = False,
-    ):
+    ) -> Generator[bytes, None, None] | bytes:
         """
         Get the logs of a workload.
 
@@ -922,6 +936,45 @@ class Deployer(ABC):
                 If the deployer is not supported in the current environment.
             OperationError:
                 If the workload fails to get logs.
+
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def exec(
+        self,
+        name: WorkloadName,
+        token: WorkloadOperationToken | None = None,
+        detach: bool = True,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+    ) -> WorkloadExecResult:
+        """
+        Execute a command in a workload.
+
+        Args:
+            name:
+                The name of the workload.
+            token:
+                The operation token of the workload.
+                If not specified, execute in the first executable container.
+            detach:
+                Whether to detach from the command.
+            command:
+                The command to execute.
+                If not specified, use /bin/sh and implicitly attach.
+            args:
+                The arguments to pass to the command.
+
+        Returns:
+            If detach is False, return a socket object in the output of WorkloadExecResult.
+            otherwise, return the exit code and output of the command in WorkloadExecResult.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to execute the command.
 
         """
         raise NotImplementedError

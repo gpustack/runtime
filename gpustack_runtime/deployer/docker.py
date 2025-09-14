@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from math import ceil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import docker
 import docker.errors
@@ -27,6 +27,7 @@ from .__types__ import (
     Deployer,
     OperationError,
     UnsupportedError,
+    WorkloadExecResult,
     WorkloadName,
     WorkloadOperationToken,
     WorkloadPlan,
@@ -34,6 +35,9 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 
@@ -1082,7 +1086,7 @@ class DockerDeployer(Deployer):
         tail: int | None = None,
         since: int | None = None,
         follow: bool = False,
-    ):
+    ) -> Generator[bytes, None, None] | bytes:
         """
         Get logs of a Docker workload or a specific container.
 
@@ -1157,6 +1161,89 @@ class DockerDeployer(Deployer):
             raise OperationError(msg) from e
         else:
             return output
+
+    @_supported
+    def exec(
+        self,
+        name: WorkloadName,
+        token: WorkloadOperationToken | None = None,
+        detach: bool = True,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+    ) -> WorkloadExecResult:
+        """
+        Execute a command in a Docker workload or a specific container.
+
+        Args:
+            name:
+                The name of the workload.
+            token:
+                The operation token representing a specific container ID.
+                If None, execute in the main RUN container of the workload.
+            detach:
+                Whether to run the command in detached mode.
+            command:
+                The command to execute. If None, defaults to "/bin/sh".
+            args:
+                Additional arguments for the command.
+
+        Returns:
+            A WorkloadExecResult containing the exit code and output.
+
+        Raises:
+            UnsupportedError:
+                If Docker is not supported in the current environment.
+            OperationError:
+                If the Docker workload fails to execute the command.
+
+        """
+        if token:
+            try:
+                container = self._client.containers.get(container_id=token)
+            except docker.errors.NotFound as e:
+                msg = f"Container with ID {token} not found"
+                raise OperationError(msg) from e
+            except docker.errors.APIError as e:
+                msg = f"Failed to get container with ID {token}"
+                raise OperationError(msg) from e
+        else:
+            workload = self.get(name)
+            if not workload:
+                msg = f"Workload {name} not found"
+                raise OperationError(msg)
+
+            container = next(
+                (
+                    c
+                    for c in getattr(workload, "d_containers", [])
+                    if c.labels.get(_LABEL_COMPONENT) == "run"
+                ),
+                None,
+            )
+            if not container:
+                msg = f"Executable container of workload {name} not found"
+                raise OperationError(msg)
+
+        attach = not detach
+        if not command:
+            attach = True
+            command = ["/bin/sh"]
+
+        try:
+            result = container.exec_run(
+                socket=attach,
+                stdin=attach,
+                tty=attach,
+                cmd=[*command, *(args or [])],
+            )
+        except docker.errors.APIError as e:
+            msg = f"Failed to exec command in container {container.name} of workload {name}"
+            raise OperationError(msg) from e
+        else:
+            return WorkloadExecResult(
+                exit_code=result.exit_code,
+                output=result.output,
+            )
 
 
 def _has_restart_policy(
