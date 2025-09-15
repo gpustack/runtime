@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING
 
 from gpustack_runner import container_backend_visible_devices_env, list_service_runners
 
-from gpustack_runtime.detector import detect_backend, detect_devices
-
 from ..deployer import (  # noqa: TID252
     Container,
     ContainerEnv,
@@ -27,6 +25,7 @@ from ..deployer import (  # noqa: TID252
     list_workloads,
     logs_workload,
 )
+from ..detector import detect_backend, detect_devices  # noqa: TID252
 from .__types__ import SubCommand
 
 if TYPE_CHECKING:

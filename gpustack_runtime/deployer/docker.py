@@ -15,8 +15,7 @@ import docker.models.volumes
 import docker.types
 from dataclasses_json import dataclass_json
 
-from gpustack_runtime import envs
-
+from .. import envs  # noqa: TID252
 from .__types__ import (
     Container,
     ContainerExecution,
