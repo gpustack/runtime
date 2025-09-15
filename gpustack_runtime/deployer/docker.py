@@ -123,19 +123,10 @@ class DockerWorkloadStatus(WorkloadStatus):
     Workload status implementation for Docker containers.
     """
 
-    d_containers: list[docker.models.containers.Container] = field(
-        default_factory=list,
-        repr=False,
-        metadata={
-            "dataclasses_json": {
-                "exclude": lambda _: True,
-                "encoder": lambda _: None,
-                "decoder": lambda _: [],
-            },
-        },
-    )
+    _d_containers: list[docker.models.containers.Container] | None = None
     """
-    List of Docker containers in the workload.
+    List of Docker containers in the workload,
+    internal use only.
     """
 
     def __init__(
@@ -158,7 +149,7 @@ class DockerWorkloadStatus(WorkloadStatus):
             **kwargs,
         )
 
-        self.d_containers = d_containers
+        self._d_containers = d_containers
 
         for c in d_containers:
             op = WorkloadStatusOperation(
@@ -968,7 +959,7 @@ class DockerDeployer(Deployer):
 
         # Remove all containers with the workload label.
         try:
-            for c in getattr(workload, "d_containers", []) or []:
+            for c in getattr(workload, "_d_containers", []) or []:
                 c.remove(
                     force=True,
                 )
@@ -1132,7 +1123,7 @@ class DockerDeployer(Deployer):
             container = next(
                 (
                     c
-                    for c in getattr(workload, "d_containers", [])
+                    for c in getattr(workload, "_d_containers", [])
                     if c.labels.get(_LABEL_COMPONENT) == "run"
                 ),
                 None,
@@ -1214,7 +1205,7 @@ class DockerDeployer(Deployer):
             container = next(
                 (
                     c
-                    for c in getattr(workload, "d_containers", [])
+                    for c in getattr(workload, "_d_containers", [])
                     if c.labels.get(_LABEL_COMPONENT) == "run"
                 ),
                 None,

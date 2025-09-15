@@ -687,7 +687,7 @@ class WorkloadStatusStateEnum(str, Enum):
     ```
                                     > - - - - - - - -
                                    |                |
-    UNKNOWN - -> PENDING - -> INITIALIZING          - - - - - > FAILED | UNHEALTHY
+    UNKNOWN - -> PENDING - -> INITIALIZING          - - - - - > FAILED | UNHEALTHY | INACTIVE
                    |               |                |                        |
                    |               - - - - - - > RUNNING <- - - - - - - - - -
                    |                               |
@@ -718,6 +718,10 @@ class WorkloadStatusStateEnum(str, Enum):
     FAILED = "Failed"
     """
     The workload has failed.
+    """
+    INACTIVE = "Inactive"
+    """
+    The workload is inactive.
     """
 
 
