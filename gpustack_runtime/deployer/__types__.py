@@ -662,11 +662,15 @@ class WorkloadPlan(WorkloadSecurity):
     """
     host_network: bool = False
     """
-    Indicates if the workload uses the host network.
+    Indicates if the containers of the workload use the host network.
+    """
+    host_ipc: bool = False
+    """
+    Indicates if the containers of the workload use the host IPC.
     """
     pid_shared: bool = False
     """
-    Indicates if the workload shares the PID namespace.
+    Indicates if the containers of the workload share the PID namespace.
     """
     shm_size: int | str | None = None
     """

@@ -245,30 +245,32 @@ class DockerDeployer(Deployer):
             True if supported, False otherwise.
 
         """
+        supported = False
+
         client = DockerDeployer._get_client()
         if client:
             try:
-                if client.ping():
-                    return True
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Docker ping failed")
+                supported = client.ping()
             except docker.errors.APIError:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.exception("Docker ping failed")
 
-        return False
+        return supported
 
     @staticmethod
     def _get_client() -> docker.DockerClient | None:
+        client = None
+
         try:
             if Path("/var/run/docker.sock").exists():
-                return docker.DockerClient(base_url="unix://var/run/docker.sock")
-            return docker.from_env()
+                client = docker.DockerClient(base_url="unix://var/run/docker.sock")
+            else:
+                client = docker.from_env()
         except docker.errors.DockerException:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Failed to get Docker client")
 
-        return None
+        return client
 
     @staticmethod
     def _supported(func):
@@ -357,8 +359,8 @@ class DockerDeployer(Deployer):
         create_params: dict[str, Any] = {
             "name": container_name,
             "restart_policy": {"Name": "always"},
-            "ipc_mode": "shareable",
             "network_mode": "bridge",
+            "ipc_mode": "shareable",
             "labels": {
                 **workload.labels,
                 _LABEL_COMPONENT: "pause",
@@ -377,6 +379,9 @@ class DockerDeployer(Deployer):
             }
             if port_mapping:
                 create_params["ports"] = port_mapping
+
+        if workload.host_ipc:
+            create_params["ipc_mode"] = "host"
 
         try:
             d_container = self._client.containers.create(
@@ -418,8 +423,7 @@ class DockerDeployer(Deployer):
         create_params: dict[str, Any] = {
             "name": container_name,
             "restart_policy": {"Name": "always"},
-            "ipc_mode": "shareable",
-            "network_mode": "container:{workload.name}-pause",
+            "network_mode": "none",
             "labels": {
                 **workload.labels,
                 _LABEL_COMPONENT: "unhealthy-restart",
@@ -603,6 +607,7 @@ class DockerDeployer(Deployer):
         d_init_containers: list[docker.models.containers.Container] = []
         d_run_containers: list[docker.models.containers.Container] = []
 
+        pause_container_namespace = f"container:{workload.name}-pause"
         for ci, c in enumerate(workload.containers):
             container_name = f"{workload.name}-{c.profile.lower()}-{ci}"
             try:
@@ -624,8 +629,8 @@ class DockerDeployer(Deployer):
 
             create_params: dict[str, Any] = {
                 "name": container_name,
-                "ipc_mode": "shareable",
-                "network_mode": f"container:{workload.name}-pause",
+                "network_mode": pause_container_namespace,
+                "ipc_mode": pause_container_namespace,
                 "labels": {
                     **workload.labels,
                     _LABEL_COMPONENT: f"{c.profile.lower()}",
@@ -638,7 +643,7 @@ class DockerDeployer(Deployer):
                 create_params["hostname"] = c.name
 
             if workload.pid_shared:
-                create_params["pid_mode"] = "container:{workload.name}-pause"
+                create_params["pid_mode"] = pause_container_namespace
 
             if workload.shm_size:
                 create_params["shm_size"] = workload.shm_size
@@ -959,7 +964,8 @@ class DockerDeployer(Deployer):
 
         # Remove all containers with the workload label.
         try:
-            for c in getattr(workload, "_d_containers", []) or []:
+            d_containers = getattr(workload, "_d_containers", [])
+            for c in d_containers:
                 c.remove(
                     force=True,
                 )
@@ -1105,32 +1111,23 @@ class DockerDeployer(Deployer):
                 If the Docker workload fails to fetch logs.
 
         """
-        if token:
-            try:
-                container = self._client.containers.get(container_id=token)
-            except docker.errors.NotFound as e:
-                msg = f"Container with ID {token} not found"
-                raise OperationError(msg) from e
-            except docker.errors.APIError as e:
-                msg = f"Failed to get container with ID {token}"
-                raise OperationError(msg) from e
-        else:
-            workload = self.get(name)
-            if not workload:
-                msg = f"Workload {name} not found"
-                raise OperationError(msg)
+        workload = self.get(name)
+        if not workload:
+            msg = f"Workload {name} not found"
+            raise OperationError(msg)
 
-            container = next(
-                (
-                    c
-                    for c in getattr(workload, "_d_containers", [])
-                    if c.labels.get(_LABEL_COMPONENT) == "run"
-                ),
-                None,
-            )
-            if not container:
-                msg = f"Loggable container of workload {name} not found"
-                raise OperationError(msg)
+        d_containers = getattr(workload, "_d_containers", [])
+        container = next(
+            (
+                c
+                for c in d_containers
+                if (c.id == token if token else c.labels.get(_LABEL_COMPONENT) == "run")
+            ),
+            None,
+        )
+        if not container:
+            msg = f"Loggable container of workload {name} not found"
+            raise OperationError(msg)
 
         kwargs = {
             "timestamps": timestamps,
@@ -1187,32 +1184,23 @@ class DockerDeployer(Deployer):
                 If the Docker workload fails to execute the command.
 
         """
-        if token:
-            try:
-                container = self._client.containers.get(container_id=token)
-            except docker.errors.NotFound as e:
-                msg = f"Container with ID {token} not found"
-                raise OperationError(msg) from e
-            except docker.errors.APIError as e:
-                msg = f"Failed to get container with ID {token}"
-                raise OperationError(msg) from e
-        else:
-            workload = self.get(name)
-            if not workload:
-                msg = f"Workload {name} not found"
-                raise OperationError(msg)
+        workload = self.get(name)
+        if not workload:
+            msg = f"Workload {name} not found"
+            raise OperationError(msg)
 
-            container = next(
-                (
-                    c
-                    for c in getattr(workload, "_d_containers", [])
-                    if c.labels.get(_LABEL_COMPONENT) == "run"
-                ),
-                None,
-            )
-            if not container:
-                msg = f"Executable container of workload {name} not found"
-                raise OperationError(msg)
+        d_containers = getattr(workload, "_d_containers", [])
+        container = next(
+            (
+                c
+                for c in d_containers
+                if (c.id == token if token else c.labels.get(_LABEL_COMPONENT) == "run")
+            ),
+            None,
+        )
+        if not container:
+            msg = f"Executable container of workload {name} not found"
+            raise OperationError(msg)
 
         attach = not detach
         if not command:
