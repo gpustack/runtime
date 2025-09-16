@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from gpustack_runtime import envs
+from . import envs
 
 _LOG_QUEUE: queue.Queue[Any] = queue.Queue()
 

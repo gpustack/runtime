@@ -2,10 +2,124 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from dataclasses_json import dataclass_json
-from gpustack_runner import ManufacturerEnum, manufacturer_to_backend
+
+
+class ManufacturerEnum(str, Enum):
+    """
+    Enum for Manufacturers.
+    """
+
+    UNKNOWN = "unknown"
+    """
+    Unknown Manufacturer
+    """
+    NVIDIA = "nvidia"
+    """
+    NVIDIA Corporation
+    """
+    AMD = "amd"
+    """
+    Advanced Micro Devices, Inc.
+    """
+    ASCEND = "ascend"
+    """
+    Huawei Ascend
+    """
+    MTHREADS = "mthreads"
+    """
+    MThreads Technologies Co., Ltd.
+    """
+    HYGON = "hygon"
+    """
+    Hygon Information Technology Co., Ltd.
+    """
+    ILUVATAR = "iluvatar"
+    """
+    Iluvatar CoreX
+    """
+    CAMBRICON = "cambricon"
+    """
+    Cambricon Technologies Corporation Limited
+    """
+
+
+_MANUFACTURER_BACKEND_MAPPING: dict[ManufacturerEnum, str] = {
+    ManufacturerEnum.NVIDIA: "cuda",
+    ManufacturerEnum.AMD: "rocm",
+    ManufacturerEnum.ASCEND: "cann",
+    ManufacturerEnum.MTHREADS: "musa",
+    ManufacturerEnum.HYGON: "dtk",
+    ManufacturerEnum.ILUVATAR: "corex",
+    ManufacturerEnum.CAMBRICON: "cnrt",
+}
+"""
+Mapping of manufacturer to runtime backend.
+"""
+
+
+def manufacturer_to_backend(manufacturer: ManufacturerEnum) -> str | None:
+    """
+    Convert manufacturer to runtime backend,
+    e.g., NVIDIA -> cuda, AMD -> rocm.
+
+    This is used to determine the appropriate runtime backend
+    based on the device manufacturer.
+
+    Args:
+        manufacturer: The manufacturer of the device.
+
+    Returns:
+        The corresponding runtime backend. None if the manufacturer is unknown.
+
+    """
+    return _MANUFACTURER_BACKEND_MAPPING.get(manufacturer)
+
+
+def backend_to_manufacturer(backend: str) -> ManufacturerEnum | None:
+    """
+    Convert runtime backend to manufacturer,
+    e.g., cuda -> NVIDIA, rocm -> AMD.
+
+    This is used to determine the device manufacturer
+    based on the runtime backend.
+
+    Args:
+        backend: The runtime backend.
+
+    Returns:
+        The corresponding manufacturer. None if the backend is unknown.
+
+    """
+    for manufacturer, mapped_backend in _MANUFACTURER_BACKEND_MAPPING.items():
+        if mapped_backend == backend:
+            return manufacturer
+    return None
+
+
+def supported_manufacturers() -> list[ManufacturerEnum]:
+    """
+    Get a list of supported manufacturers.
+
+    Returns:
+        A list of supported manufacturers.
+
+    """
+    return list(_MANUFACTURER_BACKEND_MAPPING.keys())
+
+
+def supported_backends() -> list[str]:
+    """
+    Get a list of supported backends.
+
+    Returns:
+        A list of supported backends.
+
+    """
+    return list(_MANUFACTURER_BACKEND_MAPPING.values())
 
 
 @dataclass_json

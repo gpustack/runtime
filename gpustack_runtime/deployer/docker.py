@@ -15,19 +15,19 @@ import docker.models.volumes
 import docker.types
 from dataclasses_json import dataclass_json
 
-from .. import envs  # noqa: TID252
+from .. import envs
 from .__types__ import (
     Container,
-    ContainerExecution,
+    ContainerCheck,
     ContainerMountModeEnum,
     ContainerProfileEnum,
-    ContainerResources,
     ContainerRestartPolicyEnum,
     Deployer,
     OperationError,
     UnsupportedError,
-    WorkloadExecResult,
+    WorkloadExecStream,
     WorkloadName,
+    WorkloadNamespace,
     WorkloadOperationToken,
     WorkloadPlan,
     WorkloadStatus,
@@ -36,30 +36,19 @@ from .__types__ import (
 )
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_RESOURCE_DEVICE_ENV_MAPPING = {
-    "nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES",
-    "amd.com/gpu": "AMD_VISIBLE_DEVICES",
-    "huawei.com/Ascend910A": "ASCEND_VISIBLE_DEVICES",
-    "huawei.com/Ascend910B": "ASCEND_VISIBLE_DEVICES",
-    "huawei.com/Ascend310P": "ASCEND_VISIBLE_DEVICES",
-    "cambricon.com/vmlu": "CAMBRICON_VISIBLE_DEVICES",
-    "hygon.com/dcunum": "HYGON_VISIBLE_DEVICES",
-    "mthreads.com/vgpu": "METHERDS_VISIBLE_DEVICES",
-    "iluvatar.ai/vgpu": "ILUVATAR_VISIBLE_DEVICES",
-    "enflame.com/vgcu": "ENFLAME_VISIBLE_DEVICES",
-    "metax-tech.com/sgpu": "METAX_VISIBLE_DEVICES",
-}
-_LABEL_WORKLOAD = "runtime.gpustack.ai/workload"
-_LABEL_COMPONENT = "runtime.gpustack.ai/component"
-_LABEL_COMPONENT_NAME = "runtime.gpustack.ai/component-name"
-_LABEL_COMPONENT_INDEX = "runtime.gpustack.ai/component-index"
-_LABEL_COMPONENT_HEAL_PREFIX = "runtime.gpustack.ai/component-heal"
+_LABEL_WORKLOAD = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/workload"
+_LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
+_LABEL_COMPONENT_NAME = f"{_LABEL_COMPONENT}-name"
+_LABEL_COMPONENT_INDEX = f"{_LABEL_COMPONENT}-index"
+_LABEL_COMPONENT_HEAL_PREFIX = f"{_LABEL_COMPONENT}-heal"
 
 
+@dataclass_json
 @dataclass
 class DockerWorkloadPlan(WorkloadPlan):
     """
@@ -70,10 +59,19 @@ class DockerWorkloadPlan(WorkloadPlan):
             Image used for the pause container.
         unhealthy_restart_image (str):
             Image used for unhealthy restart container.
-        resource_device_env_mapping (dict[str, str]):
-            Mapping from resource names to environment variable names for device allocation.
+        resource_key_runtime_env_mapping: (dict[str, str]):
+            Mapping from resource names to environment variable names for device allocation,
+            which is used to tell the Container Runtime which GPUs to mount into the container.
             For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
             which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
+            With privileged mode, the container can access all GPUs even if specified.
+        resource_key_backend_env_mapping: (dict[str, list[str]]):
+            Mapping from resource names to environment variable names for device runtime,
+            which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container.
+            For example, {"nvidia.com/gpu": ["CUDA_VISIBLE_DEVICES"]},
+            which sets the "CUDA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
+        namespace (str | None):
+            Namespace of the workload.
         name (str):
             Name of the workload,
             it should be unique in the deployer.
@@ -109,15 +107,6 @@ class DockerWorkloadPlan(WorkloadPlan):
     """
     Image used for unhealthy restart container.
     """
-    resource_device_env_mapping: dict[str, str] = field(
-        default_factory=lambda: _DEFAULT_RESOURCE_DEVICE_ENV_MAPPING,
-    )
-    """
-    Mapping from resource names to environment variable names for device allocation.
-
-    For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
-    which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
-    """
 
 
 @dataclass_json
@@ -127,49 +116,21 @@ class DockerWorkloadStatus(WorkloadStatus):
     Workload status implementation for Docker containers.
     """
 
-    _d_containers: list[docker.models.containers.Container] | None = None
+    _d_containers: list[docker.models.containers.Container] | None = field(
+        default=None,
+        repr=False,
+        metadata={
+            "dataclasses_json": {
+                "exclude": lambda _: True,
+                "encoder": lambda _: None,
+                "decoder": lambda _: [],
+            },
+        },
+    )
     """
     List of Docker containers in the workload,
     internal use only.
     """
-
-    def __init__(
-        self,
-        name: WorkloadName,
-        d_containers: list[docker.models.containers],
-        **kwargs,
-    ):
-        created_at = d_containers[0].attrs["Created"]
-        labels = {
-            k: v
-            for k, v in d_containers[0].labels.items()
-            if not k.startswith("runtime.gpustack.ai/")
-        }
-
-        super().__init__(
-            name=name,
-            created_at=created_at,
-            labels=labels,
-            **kwargs,
-        )
-
-        self._d_containers = d_containers
-
-        for c in d_containers:
-            op = WorkloadStatusOperation(
-                name=c.labels.get(_LABEL_COMPONENT_NAME, "") or c.name,
-                token=c.attrs.get("Id", "") or c.name,
-            )
-            match c.labels.get(_LABEL_COMPONENT):
-                case "init":
-                    if c.status == "running" and _has_restart_policy(c):
-                        self.executable.append(op)
-                    self.loggable.append(op)
-                case "run":
-                    self.executable.append(op)
-                    self.loggable.append(op)
-
-        self.state = self.parse_state(d_containers)
 
     @staticmethod
     def parse_state(
@@ -224,6 +185,44 @@ class DockerWorkloadStatus(WorkloadStatus):
 
         return WorkloadStatusStateEnum.RUNNING
 
+    def __init__(
+        self,
+        name: WorkloadName,
+        d_containers: list[docker.models.containers],
+        **kwargs,
+    ):
+        created_at = d_containers[0].attrs["Created"]
+        labels = {
+            k: v
+            for k, v in d_containers[0].labels.items()
+            if not k.startswith(f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/")
+        }
+
+        super().__init__(
+            name=name,
+            created_at=created_at,
+            labels=labels,
+            **kwargs,
+        )
+
+        self._d_containers = d_containers
+
+        for c in d_containers:
+            op = WorkloadStatusOperation(
+                name=c.labels.get(_LABEL_COMPONENT_NAME, "") or c.name,
+                token=c.attrs.get("Id", "") or c.name,
+            )
+            match c.labels.get(_LABEL_COMPONENT):
+                case "init":
+                    if c.status == "running" and _has_restart_policy(c):
+                        self.executable.append(op)
+                    self.loggable.append(op)
+                case "run":
+                    self.executable.append(op)
+                    self.loggable.append(op)
+
+        self.state = self.parse_state(d_containers)
+
 
 class DockerDeployer(Deployer):
     """
@@ -233,10 +232,6 @@ class DockerDeployer(Deployer):
     _client: docker.DockerClient | None = None
     """
     Client for interacting with the Docker daemon.
-    """
-    default_file_mode: int = 0o644
-    """
-    Default file mode for container files.
     """
 
     @staticmethod
@@ -250,6 +245,8 @@ class DockerDeployer(Deployer):
 
         """
         supported = False
+        if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", "docker"):
+            return supported
 
         client = DockerDeployer._get_client()
         if client:
@@ -263,6 +260,13 @@ class DockerDeployer(Deployer):
 
     @staticmethod
     def _get_client() -> docker.DockerClient | None:
+        """
+        Return a Docker client.
+
+        Returns:
+            A Docker client if available, None otherwise.
+
+        """
         client = None
 
         try:
@@ -278,6 +282,11 @@ class DockerDeployer(Deployer):
 
     @staticmethod
     def _supported(func):
+        """
+        Decorator to check if Docker is supported in the current environment.
+
+        """
+
         def wrapper(self, *args, **kwargs):
             if not self.is_supported():
                 msg = "Docker is not supported in the current environment."
@@ -286,43 +295,22 @@ class DockerDeployer(Deployer):
 
         return wrapper
 
-    def _pull_image(self, image: str) -> docker.models.images.Image:
-        try:
-            return self._client.images.get(image)
-        except docker.errors.ImageNotFound:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Pulling image {image}")
-            try:
-                return self._client.images.pull(image)
-            except docker.errors.APIError as e:
-                msg = f"Failed to pull image {image}"
-                raise OperationError(msg) from e
-        except docker.errors.APIError as e:
-            msg = f"Failed to get image {image}"
-            raise OperationError(msg) from e
+    def _create_ephemeral_files(
+        self,
+        workload: DockerWorkloadPlan,
+    ) -> dict[tuple[int, str], str]:
+        """
+        Create ephemeral files as local file for the workload.
 
-    def _create_ephemeral_volumes(self, workload: DockerWorkloadPlan) -> dict:
-        ephemeral_volume_name_mapping: dict[str, str] = {
-            m.volume: f"{workload.name}-{m.volume}"
-            for c in workload.containers
-            for m in c.mounts or []
-            if m.volume
-        }
+        Returns:
+            A mapping from (container index, configured path) to actual filename.
 
-        try:
-            for _, n in ephemeral_volume_name_mapping.values():
-                self._client.volumes.create(
-                    name=n,
-                    driver="local",
-                    labels=workload.labels,
-                )
-        except docker.errors.APIError as e:
-            msg = "Failed to create ephemeral volumes"
-            raise OperationError(msg) from e
+        Raises:
+            OperationError:
+                If the ephemeral files fail to create.
 
-        return ephemeral_volume_name_mapping
-
-    def _create_ephemeral_files(self, workload: DockerWorkloadPlan) -> dict:
+        """
+        # Map (container index, configured path) to actual filename.
         ephemeral_filename_mapping: dict[tuple[int, str], str] = {}
         ephemeral_files: list[tuple[str, str, int]] = []
         for ci, c in enumerate(workload.containers):
@@ -331,23 +319,101 @@ class DockerDeployer(Deployer):
                     fn = f"{workload.name}-{ci}-{fi}"
                     ephemeral_filename_mapping[(ci, f.path)] = fn
                     ephemeral_files.append((fn, f.content, f.mode))
+        if not ephemeral_filename_mapping:
+            return ephemeral_filename_mapping
 
+        # Create ephemeral files directory if not exists.
         try:
             for fn, fc, fm in ephemeral_files:
                 fp = envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.joinpath(fn)
                 with fp.open("w", encoding="utf-8") as f:
                     f.write(fc)
-                fp.chmod(fm if fm else self.default_file_mode)
+                fp.chmod(fm)
+                logger.debug("Created local file %s with mode %s", fp, oct(fm))
         except OSError as e:
             msg = "Failed to create ephemeral files"
             raise OperationError(msg) from e
 
         return ephemeral_filename_mapping
 
+    def _create_ephemeral_volumes(self, workload: DockerWorkloadPlan) -> dict[str, str]:
+        """
+        Create ephemeral volumes for the workload.
+
+        Returns:
+            A mapping from configured volume name to actual volume name.
+
+        Raises:
+            OperationError:
+                If the ephemeral volumes fail to create.
+
+        """
+        # Map configured volume name to actual volume name.
+        ephemeral_volume_name_mapping: dict[str, str] = {
+            m.volume: f"{workload.name}-{m.volume}"
+            for c in workload.containers
+            for m in c.mounts or []
+            if m.volume
+        }
+        if not ephemeral_volume_name_mapping:
+            return ephemeral_volume_name_mapping
+
+        # Create volumes.
+        try:
+            for n in ephemeral_volume_name_mapping.values():
+                self._client.volumes.create(
+                    name=n,
+                    driver="local",
+                    labels=workload.labels,
+                )
+                logger.debug("Created volume %s", n)
+        except docker.errors.APIError as e:
+            msg = "Failed to create ephemeral volumes"
+            raise OperationError(msg) from e
+
+        return ephemeral_volume_name_mapping
+
+    def _pull_image(self, image: str) -> docker.models.images.Image:
+        """
+        Pull image if not exists locally.
+
+        Returns:
+            The image object.
+
+        Raises:
+            OperationError:
+                If the image fails to pull.
+
+        """
+        try:
+            return self._client.images.get(image)
+        except docker.errors.ImageNotFound:
+            logger.info(f"Pulling image {image}")
+            try:
+                # TODO(thxCode): display pull progress
+                return self._client.images.pull(image)
+            except docker.errors.APIError as e:
+                msg = f"Failed to pull image {image}"
+                raise OperationError(msg) from e
+        except docker.errors.APIError as e:
+            msg = f"Failed to get image {image}"
+            raise OperationError(msg) from e
+
     def _create_pause_container(
         self,
         workload: DockerWorkloadPlan,
     ) -> docker.models.containers.Container:
+        """
+        Create the pause container for the workload.
+
+        Returns:
+            The pause container object.
+
+        Raises:
+            OperationError:
+                If the pause container fails to create.
+
+        """
         container_name = f"{workload.name}-pause"
         try:
             container = self._client.containers.get(container_name)
@@ -360,7 +426,7 @@ class DockerDeployer(Deployer):
             # TODO(thxCode): check if the container matches the spec
             return container
 
-        create_params: dict[str, Any] = {
+        create_options: dict[str, Any] = {
             "name": container_name,
             "restart_policy": {"Name": "always"},
             "network_mode": "bridge",
@@ -372,7 +438,7 @@ class DockerDeployer(Deployer):
         }
 
         if workload.host_network:
-            create_params["network_mode"] = "host"
+            create_options["network_mode"] = "host"
         else:
             port_mapping: dict[str, int] = {
                 # <internal port>/<protocol>: <external port>
@@ -382,16 +448,16 @@ class DockerDeployer(Deployer):
                 for p in c.ports or []
             }
             if port_mapping:
-                create_params["ports"] = port_mapping
+                create_options["ports"] = port_mapping
 
         if workload.host_ipc:
-            create_params["ipc_mode"] = "host"
+            create_options["ipc_mode"] = "host"
 
         try:
             d_container = self._client.containers.create(
                 image=self._pull_image(workload.pause_image),
                 detach=True,
-                **create_params,
+                **create_options,
             )
         except docker.errors.APIError as e:
             msg = f"Failed to create container {container_name}"
@@ -403,6 +469,17 @@ class DockerDeployer(Deployer):
         self,
         workload: DockerWorkloadPlan,
     ) -> docker.models.containers.Container | None:
+        """
+        Create the unhealthy restart container for the workload if needed.
+
+        Returns:
+            The unhealthy restart container object if created, None otherwise.
+
+        Raises:
+            OperationError:
+                If the unhealthy restart container fails to create.
+
+        """
         # Check if the first check of any RUN container has teardown enabled.
         enabled = any(
             c.checks[0].teardown
@@ -424,7 +501,7 @@ class DockerDeployer(Deployer):
             # TODO(thxCode): check if the container matches the spec
             return d_container
 
-        create_params: dict[str, Any] = {
+        create_options: dict[str, Any] = {
             "name": container_name,
             "restart_policy": {"Name": "always"},
             "network_mode": "none",
@@ -444,7 +521,7 @@ class DockerDeployer(Deployer):
             d_container = self._client.containers.create(
                 image=self._pull_image(workload.unhealthy_restart_image),
                 detach=True,
-                **create_params,
+                **create_options,
             )
         except docker.errors.APIError as e:
             msg = f"Failed to create container {container_name}"
@@ -453,95 +530,19 @@ class DockerDeployer(Deployer):
             return d_container
 
     @staticmethod
-    def _parameterize_container_execution(
-        workload: DockerWorkloadPlan,
-        container: Container,
-        _: int,
-        create_params: dict[str, Any],
-    ):
-        execution: ContainerExecution = container.execution or {}
-        if not execution:
-            return
-
-        if execution.working_dir:
-            create_params["working_dir"] = execution.working_dir
-        if execution.command:
-            create_params["entrypoint"] = execution.command
-        if execution.args:
-            create_params["command"] = execution.args
-        run_as_user = execution.run_as_user or workload.run_as_user
-        run_as_group = execution.run_as_group or workload.run_as_group
-        if run_as_user is not None:
-            create_params["user"] = run_as_user
-            if run_as_group is not None:
-                create_params["user"] = f"{run_as_user}:{run_as_group}"
-        if run_as_group is not None:
-            create_params["group_add"] = [run_as_group]
-            if workload.fs_group is not None:
-                create_params["group_add"] = [run_as_group, workload.fs_group]
-        elif workload.fs_group is not None:
-            create_params["group_add"] = [workload.fs_group]
-        if workload.sysctls:
-            create_params["sysctls"] = {
-                sysctl.name: sysctl.value for sysctl in workload.sysctls
-            }
-        if execution.readonly_rootfs:
-            create_params["read_only"] = True
-        if execution.privileged:
-            create_params["privileged"] = True
-        elif cap := execution.capabilities:
-            if cap.add:
-                create_params["cap_add"] = cap.add
-            elif cap.drop:
-                create_params["cap_drop"] = cap.drop
-
-    @staticmethod
-    def _parameterize_container_resources(
-        workload: DockerWorkloadPlan,
-        container: Container,
-        _: int,
-        create_params: dict[str, Any],
-    ):
-        resources: ContainerResources = container.resources or {}
-        if not resources:
-            return
-
-        for r_k, r_v in resources.items():
-            match r_k:
-                case "cpu":
-                    if isinstance(r_v, int | float):
-                        create_params["cpu_shares"] = ceil(r_v * 1024)
-                case "memory":
-                    if isinstance(r_v, int):
-                        create_params["mem_limit"] = r_v
-                        create_params["mem_reservation"] = create_params["mem_limit"]
-                        create_params["memswap_limit"] = create_params["mem_limit"]
-                    elif isinstance(r_v, str):
-                        create_params["mem_limit"] = r_v.lower().removesuffix("i")
-                        create_params["mem_reservation"] = create_params["mem_limit"]
-                        create_params["memswap_limit"] = create_params["mem_limit"]
-                case _:
-                    if (
-                        workload.resource_device_env_mapping
-                        and r_k in workload.resource_device_env_mapping
-                    ):
-                        env_name = workload.resource_device_env_mapping[r_k]
-                        if "environment" not in create_params:
-                            create_params["environment"] = {}
-                        create_params["environment"][env_name] = str(r_v)
-
-    @staticmethod
-    def _parameterize_container_files_and_mounts(
-        _: DockerWorkloadPlan,
-        container: Container,
-        container_index: int,
-        create_params: dict[str, Any],
+    def _append_container_mounts(
+        create_options: dict[str, Any],
+        c: Container,
+        ci: int,
         ephemeral_filename_mapping: dict[tuple[int, str] : str],
         ephemeral_volume_name_mapping: dict[str, str],
     ):
+        """
+        Append (bind) mounts into the create_options.
+        """
         mount_binding: list[docker.types.Mount] = []
 
-        if files := container.files:
+        if files := c.files:
             for f in files:
                 binding = docker.types.Mount(
                     type="bind",
@@ -550,26 +551,28 @@ class DockerDeployer(Deployer):
                 )
 
                 if f.content is not None:
-                    if (container_index, f.path) not in ephemeral_filename_mapping:
+                    # Ephemeral file, use from local ephemeral files directory.
+                    if (ci, f.path) not in ephemeral_filename_mapping:
                         continue
-                    fn = ephemeral_filename_mapping[(container_index, f.path)]
+                    fn = ephemeral_filename_mapping[(ci, f.path)]
                     path = str(
                         envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.joinpath(fn),
                     )
                     binding["source"] = path
+                    binding["target"] = f"/{f.path.lstrip('/')}"
                 elif f.path:
+                    # Host file, bind directly.
                     binding["source"] = f.path
+                    binding["target"] = f.path
                 else:
                     continue
-
-                binding["target"] = f"/{f.path.lstrip('/')}"
 
                 if f.mode < 0o600:
                     binding["read_only"] = True
 
                 mount_binding.append(binding)
 
-        if mounts := container.mounts:
+        if mounts := c.mounts:
             for m in mounts:
                 binding = docker.types.Mount(
                     type="volume",
@@ -578,18 +581,20 @@ class DockerDeployer(Deployer):
                 )
 
                 if m.volume:
+                    # Ephemeral volume, use the created volume.
                     binding["source"] = ephemeral_volume_name_mapping.get(
                         m.volume,
                         m.volume,
                     )
+                    binding["target"] = f"/{m.path.lstrip('/')}"
                     # TODO(thxCode): support subpath.
                 elif m.path:
+                    # Host path, bind directly.
                     binding["type"] = "bind"
                     binding["source"] = m.path
+                    binding["target"] = m.path
                 else:
                     continue
-
-                binding["target"] = f"/{m.path.lstrip('/')}"
 
                 if m.mode == ContainerMountModeEnum.ROX:
                     binding["read_only"] = True
@@ -597,7 +602,75 @@ class DockerDeployer(Deployer):
                 mount_binding.append(binding)
 
         if mount_binding:
-            create_params["mounts"] = mount_binding
+            create_options["mounts"] = mount_binding
+
+    @staticmethod
+    def _parameterize_healthcheck(
+        chk: ContainerCheck,
+    ) -> dict[str, Any]:
+        """
+        Parameterize health check for a container.
+
+        Returns:
+            A dictionary representing the health check configuration.
+
+        Raises:
+            ValueError:
+                If the health check configuration is invalid.
+
+        """
+        healthcheck: dict[str, Any] = {
+            "start_period": chk.delay * 1000000000,
+            "interval": chk.interval * 1000000000,
+            "timeout": chk.timeout * 1000000000,
+            "retries": chk.retries,
+        }
+
+        configured = False
+        for attr_k in ["execution", "tcp", "http", "https"]:
+            attr_v = getattr(chk, attr_k, None)
+            if not attr_v:
+                continue
+            configured = True
+            match attr_k:
+                case "execution":
+                    if attr_v.command:
+                        healthcheck["test"] = [
+                            "CMD",
+                            *attr_v.command,
+                        ]
+                case "tcp":
+                    host = attr_v.host or "127.0.0.1"
+                    port = attr_v.port or 80
+                    healthcheck["test"] = [
+                        "CMD",
+                        "sh",
+                        "-c",
+                        f"if [ `command -v netstat` ]; then netstat -an | grep -w {port} >/dev/null || exit 1; elif [ `command -v nc` ]; then nc -z {host}:{port} >/dev/null || exit 1; else cat /etc/services | grep -w {port}/tcp >/dev/null || exit 1; fi",
+                    ]
+                case "http" | "https":
+                    curl_options = "-fsSL -o /dev/null"
+                    wget_options = "-q -O /dev/null"
+                    if attr_k == "https":
+                        curl_options += " -k"
+                        wget_options += " --no-check-certificate"
+                    if attr_v.headers:
+                        for hk, hv in attr_v.headers.items():
+                            curl_options += f" -H '{hk}: {hv}'"
+                            wget_options += f" --header='{hk}: {hv}'"
+                    url = f"{attr_k}://{attr_v.host or '127.0.0.1'}:{attr_v.port or 80}{attr_v.path or '/'}"
+                    healthcheck["test"] = [
+                        "CMD",
+                        "sh",
+                        "-c",
+                        f"if [ `command -v curl` ]; then curl {curl_options} {url}; else wget {wget_options} {url}; fi",
+                    ]
+            break
+        if not configured:
+            msg = "Invalid health check configuration"
+            raise ValueError(msg)
+
+        return healthcheck
 
     def _create_containers(
         self,
@@ -608,6 +681,18 @@ class DockerDeployer(Deployer):
         list[docker.models.containers.Container],
         list[docker.models.containers.Container],
     ):
+        """
+        Create init and run containers for the workload.
+
+
+        Returns:
+            A tuple of two lists: (init containers, run containers).
+
+        Raises:
+            OperationError:
+                If the containers fail to create.
+
+        """
         d_init_containers: list[docker.models.containers.Container] = []
         d_run_containers: list[docker.models.containers.Container] = []
 
@@ -631,7 +716,7 @@ class DockerDeployer(Deployer):
 
             detach = c.profile == ContainerProfileEnum.RUN
 
-            create_params: dict[str, Any] = {
+            create_options: dict[str, Any] = {
                 "name": container_name,
                 "network_mode": pause_container_namespace,
                 "ipc_mode": pause_container_namespace,
@@ -644,143 +729,143 @@ class DockerDeployer(Deployer):
             }
 
             if not workload.host_network:
-                create_params["hostname"] = c.name
+                create_options["hostname"] = c.name
 
             if workload.pid_shared:
-                create_params["pid_mode"] = pause_container_namespace
+                create_options["pid_mode"] = pause_container_namespace
 
             if workload.shm_size:
-                create_params["shm_size"] = workload.shm_size
+                create_options["shm_size"] = workload.shm_size
 
-            # Parameterize restart policy
-            match c.profile:
-                case ContainerProfileEnum.INIT:
-                    if c.restart_policy:
-                        if c.restart_policy == ContainerRestartPolicyEnum.ON_FAILURE:
-                            create_params["restart_policy"] = {
-                                "Name": "on-failure",
-                            }
-                        elif c.restart_policy == ContainerRestartPolicyEnum.ALWAYS:
-                            create_params["restart_policy"] = {
-                                "Name": "always",
-                            }
-                            detach = True
-                case ContainerProfileEnum.RUN:
-                    if not c.restart_policy:
-                        create_params["restart_policy"] = {
-                            "Name": "always",
-                        }
-                    elif c.restart_policy == ContainerRestartPolicyEnum.ON_FAILURE:
-                        create_params["restart_policy"] = {
-                            "Name": "on-failure",
-                        }
+            # Parameterize restart policy.
+            match c.restart_policy:
+                case ContainerRestartPolicyEnum.ON_FAILURE:
+                    create_options["restart_policy"] = {
+                        "Name": "on-failure",
+                    }
+                case ContainerRestartPolicyEnum.ALWAYS:
+                    create_options["restart_policy"] = {
+                        "Name": "always",
+                    }
 
-            # Parameterize execution
-            self._parameterize_container_execution(
-                workload,
+            # Parameterize execution.
+            if c.execution:
+                create_options["working_dir"] = c.execution.working_dir
+                create_options["entrypoint"] = c.execution.command
+                create_options["command"] = c.execution.args
+                run_as_user = c.execution.run_as_user or workload.run_as_user
+                run_as_group = c.execution.run_as_group or workload.run_as_group
+                if run_as_user is not None:
+                    create_options["user"] = run_as_user
+                    if run_as_group is not None:
+                        create_options["user"] = f"{run_as_user}:{run_as_group}"
+                if run_as_group is not None:
+                    create_options["group_add"] = [run_as_group]
+                    if workload.fs_group is not None:
+                        create_options["group_add"] = [run_as_group, workload.fs_group]
+                elif workload.fs_group is not None:
+                    create_options["group_add"] = [workload.fs_group]
+                create_options["sysctls"] = (
+                    {sysctl.name: sysctl.value for sysctl in workload.sysctls or []}
+                    if workload.sysctls
+                    else None
+                )
+                create_options["read_only"] = c.execution.readonly_rootfs
+                create_options["privileged"] = c.execution.privileged
+                if cap := c.execution.capabilities:
+                    create_options["cap_add"] = cap.add
+                    create_options["cap_drop"] = cap.drop
+
+            # Parameterize environment variables.
+            create_options["environment"] = {e.name: e.value for e in c.envs or []}
+
+            # Parameterize resources.
+            if c.resources:
+                r_k_rem = workload.resource_key_runtime_env_mapping or {}
+                r_k_bem = workload.resource_key_backend_env_mapping or {}
+                for r_k, r_v in c.resources.items():
+                    match r_k:
+                        case "cpu":
+                            if isinstance(r_v, int | float):
+                                create_options["cpu_shares"] = ceil(r_v * 1024)
+                            elif isinstance(r_v, str) and r_v.isdigit():
+                                create_options["cpu_shares"] = ceil(float(r_v) * 1024)
+                        case "memory":
+                            if isinstance(r_v, int):
+                                create_options["mem_limit"] = r_v
+                                create_options["mem_reservation"] = r_v
+                                create_options["memswap_limit"] = r_v
+                            elif isinstance(r_v, str):
+                                v = r_v.lower().removesuffix("i")
+                                create_options["mem_limit"] = v
+                                create_options["mem_reservation"] = v
+                                create_options["memswap_limit"] = v
+                        case _:
+                            if r_k in r_k_rem:
+                                # Set env if resource key is mapped.
+                                re = r_k_rem[r_k]
+                            elif (
+                                r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY
+                            ):
+                                # Set env if auto-mapping key is matched.
+                                re = self._runtime_visible_devices_env_name
+                            else:
+                                continue
+
+                            if r_k in r_k_bem:
+                                # Set env if resource key is mapped.
+                                bes = r_k_bem[r_k]
+                            else:
+                                # Otherwise, use the default backend env names.
+                                bes = self._backend_visible_devices_env_names
+
+                            # Configure device access environment variable.
+                            if r_v == "all" and bes:
+                                # Configure privileged if requested all devices.
+                                create_options["privileged"] = True
+                                # Then, set container backend visible devices env to "0",
+                                # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
+                                # and mount corresponding libs if needed.
+                                create_options["environment"][re] = "0"
+                            else:
+                                # Set env to the allocated device IDs.
+                                create_options["environment"][re] = r_v
+
+                            # Configure runtime device access environment variables.
+                            if r_v != "all" and create_options.get("privileged", True):
+                                for be in bes:
+                                    create_options["environment"][be] = r_v
+
+            # Parameterize mounts.
+            self._append_container_mounts(
+                create_options,
                 c,
                 ci,
-                create_params,
-            )
-
-            # Parameterize environment variables
-            if c.envs:
-                create_params["environment"] = {}
-                for e in c.envs:
-                    if e.name.endswith("_VISIBLE_DEVICES"):
-                        if e.value in ["none", "void"]:
-                            create_params.pop("runtime", None)
-                        else:
-                            create_params["runtime"] = e.name.removesuffix(
-                                "_VISIBLE_DEVICES",
-                            ).lower()
-                    create_params["environment"][e.name] = e.value
-
-            # Parameterize resources
-            self._parameterize_container_resources(
-                workload,
-                c,
-                ci,
-                create_params,
-            )
-
-            # Parameterize files and mounts
-            self._parameterize_container_files_and_mounts(
-                workload,
-                c,
-                ci,
-                create_params,
                 ephemeral_filename_mapping,
                 ephemeral_volume_name_mapping,
             )
 
-            # Parameterize health check from the first check.
+            # Parameterize health checks.
+            # Since Docker only support one complete check,
+            # we always pick the first check as target.
             if c.profile == ContainerProfileEnum.RUN and c.checks:
-                # If the first check has teardown enabled, enable auto-heal for the container.
+                # If the first check is teardown-enabled,
+                # enable auto-heal for the container.
                 if c.checks[0].teardown:
-                    create_params["labels"][
+                    create_options["labels"][
                         f"{_LABEL_COMPONENT_HEAL_PREFIX}-{workload.name}"
                     ] = "true"
 
-                healthcheck: dict[str, Any] = {}
-                for attr_k in ["interval", "timeout", "retries", "delay"]:
-                    attr_v = getattr(c.checks[0], attr_k, None)
-                    if not attr_v:
-                        continue
-                    healthcheck[attr_k if attr_k != "delay" else "start_period"] = (
-                        attr_v
-                    )
-                for attr_k in ["execution", "tcp", "http", "https"]:
-                    attr_v = getattr(c.checks[0], attr_k, None)
-                    if not attr_v:
-                        continue
-                    match attr_k:
-                        case "execution":
-                            if attr_v.command:
-                                healthcheck["test"] = [
-                                    "CMD",
-                                    *attr_v.command,
-                                ]
-                        case "tcp":
-                            port = attr_v.port or 80
-                            healthcheck["test"] = [
-                                "CMD",
-                                "sh",
-                                "-c",
-                                (
-                                    f"if [ `command -v netstat` ]; then netstat -an | grep -w {port} >/dev/null || exit 1; "
-                                    f"else if [ `command -v nc` ]; then nc -z localhost:{port} >/dev/null || exit 1 ; "
-                                    f"else cat /etc/services | grep -w {port}/tcp >/dev/null || exit 1 ; "
-                                    f"fi",
-                                ),
-                            ]
-                        case "http" | "https":
-                            curl_options = "-fsSL -o /dev/null"
-                            wget_options = "-q -O /dev/null"
-                            if attr_k == "https":
-                                curl_options += " -k"
-                                wget_options += " --no-check-certificate"
-                            if attr_v.headers:
-                                for hk, hv in attr_v.headers.items():
-                                    curl_options += f" -H '{hk}: {hv}'"
-                                    wget_options += f" --header='{hk}: {hv}'"
-                            url = f"{attr_k}://localhost:{attr_v.port or 80}{attr_v.path or '/'}"
-                            healthcheck["test"] = [
-                                "CMD",
-                                "sh",
-                                "-c",
-                                (
-                                    f"if [ `command -v curl` ]; then curl {curl_options} {url}; "
-                                    f"else wget {wget_options} {url}; "
-                                    f"fi"
-                                ),
-                            ]
+                create_options["healthcheck"] = self._parameterize_healthcheck(
+                    c.checks[0],
+                )
 
+            # Create the container.
             try:
                 d_container = self._client.containers.create(
                     image=self._pull_image(c.image),
                     detach=detach,
-                    **create_params,
+                    **create_options,
                 )
             except docker.errors.APIError as e:
                 msg = f"Failed to create container {container_name}"
@@ -798,6 +883,18 @@ class DockerDeployer(Deployer):
         container: docker.models.containers.Container
         | list[docker.models.containers.Container],
     ):
+        """
+        Start or restart the container(s) based on their current status.
+
+        Args:
+            container:
+                A Docker container or a list of Docker containers to start or restart.
+
+        Raises:
+            docker.errors.APIError:
+                If the container fails to start or restart.
+
+        """
         if isinstance(container, list):
             for c in container:
                 DockerDeployer._start_containers(c)
@@ -826,6 +923,7 @@ class DockerDeployer(Deployer):
                 )
 
     def __init__(self):
+        super().__init__()
         self._client = self._get_client()
 
     @_supported
@@ -838,6 +936,10 @@ class DockerDeployer(Deployer):
                 The workload to deploy.
 
         Raises:
+            TypeError:
+                If the Docker workload type is invalid.
+            ValueError:
+                If the Docker workload fails to validate.
             UnsupportedError:
                 If Docker is not supported in the current environment.
             OperationError:
@@ -846,20 +948,14 @@ class DockerDeployer(Deployer):
         """
         if not isinstance(workload, DockerWorkloadPlan | WorkloadPlan):
             msg = f"Invalid workload type: {type(workload)}"
-            raise OperationError(msg)
+            raise TypeError(msg)
         if isinstance(workload, WorkloadPlan):
             workload = DockerWorkloadPlan(**workload.__dict__)
 
-        # Validate workload.
-        if not workload.containers:
-            msg = "Workload must have at least one container"
-            raise OperationError(msg)
-        if not any(c.profile == ContainerProfileEnum.RUN for c in workload.containers):
-            msg = "Workload must have at least one RUN container"
-            raise OperationError(msg)
-
-        # Default workload.
-        workload.labels = {**(workload.labels or {}), _LABEL_WORKLOAD: workload.name}
+        workload.validate_and_default()
+        workload.labels[_LABEL_WORKLOAD] = workload.name
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Creating workload:\n%s", workload.to_json(indent=2))
 
         # Create ephemeral file if needed,
         # (container index, configured path): <actual filename>
@@ -894,17 +990,23 @@ class DockerDeployer(Deployer):
             if unhealthy_restart_container:
                 self._start_containers(unhealthy_restart_container)
         except docker.errors.APIError as e:
-            msg = "Failed to apply workload"
+            msg = f"Failed to create workload {workload.name}"
             raise OperationError(msg) from e
 
     @_supported
-    def get(self, name: WorkloadName) -> WorkloadStatus | None:
+    def get(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,  # noqa: ARG002
+    ) -> WorkloadStatus | None:
         """
         Get the status of a Docker workload.
 
         Args:
             name:
                 The name of the workload.
+            namespace:
+                The namespace of the workload.
 
         Returns:
             The status if found, None otherwise.
@@ -943,13 +1045,19 @@ class DockerDeployer(Deployer):
         )
 
     @_supported
-    def delete(self, name: WorkloadName) -> WorkloadStatus | None:
+    def delete(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+    ) -> WorkloadStatus | None:
         """
         Delete a Docker workload.
 
         Args:
             name:
                 The name of the workload.
+            namespace:
+                The namespace of the workload.
 
         Return:
             The status if found, None otherwise.
@@ -962,7 +1070,7 @@ class DockerDeployer(Deployer):
 
         """
         # Check if the workload exists.
-        workload = self.get(name)
+        workload = self.get(name=name, namespace=namespace)
         if not workload:
             return None
 
@@ -1012,11 +1120,17 @@ class DockerDeployer(Deployer):
         return workload
 
     @_supported
-    def list(self, labels: dict[str, str] | None = None) -> list[WorkloadStatus]:
+    def list(
+        self,
+        namespace: WorkloadNamespace | None = None,  # noqa: ARG002
+        labels: dict[str, str] | None = None,
+    ) -> list[WorkloadStatus]:
         """
         List all Docker workloads.
 
         Args:
+            namespace:
+                The namespace of the workloads.
             labels:
                 Labels to filter workloads.
 
@@ -1058,7 +1172,7 @@ class DockerDeployer(Deployer):
             msg = "Failed to list workloads' containers"
             raise OperationError(msg) from e
 
-        # Group containers by workload name.
+        # Group containers by workload name,
         # <workload name>: [docker.models.containers.Container, ...]
         workload_mapping: dict[str, list[docker.models.containers.Container]] = {}
         for c in d_containers:
@@ -1081,18 +1195,21 @@ class DockerDeployer(Deployer):
     def logs(
         self,
         name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
         token: WorkloadOperationToken | None = None,
         timestamps: bool = False,
         tail: int | None = None,
         since: int | None = None,
         follow: bool = False,
-    ) -> Generator[bytes, None, None] | bytes:
+    ) -> Generator[bytes | str, None, None] | bytes | str:
         """
         Get logs of a Docker workload or a specific container.
 
         Args:
             name:
                 The name of the workload.
+            namespace:
+                The namespace of the workload.
             token:
                 The operation token representing a specific container ID.
                 If None, fetch logs from the main RUN container of the workload.
@@ -1106,7 +1223,7 @@ class DockerDeployer(Deployer):
                 Whether to stream the logs in real-time.
 
         Returns:
-            The logs as a byte string or a generator yielding byte strings if follow is True.
+            The logs as a byte string, a string or a generator yielding byte strings or strings if follow is True.
 
         Raises:
             UnsupportedError:
@@ -1115,7 +1232,7 @@ class DockerDeployer(Deployer):
                 If the Docker workload fails to fetch logs.
 
         """
-        workload = self.get(name)
+        workload = self.get(name=name, namespace=namespace)
         if not workload:
             msg = f"Workload {name} not found"
             raise OperationError(msg)
@@ -1131,21 +1248,21 @@ class DockerDeployer(Deployer):
         )
         if not container:
             msg = f"Loggable container of workload {name} not found"
+            if token:
+                msg += f" with token {token}"
             raise OperationError(msg)
 
-        kwargs = {
+        logs_options = {
             "timestamps": timestamps,
+            "tail": tail,
+            "since": since,
             "follow": follow,
         }
-        if tail is not None:
-            kwargs["tail"] = tail
-        if since is not None:
-            kwargs["since"] = since
 
         try:
             output = container.logs(
                 stream=follow,
-                **kwargs,
+                **logs_options,
             )
         except docker.errors.APIError as e:
             msg = f"Failed to fetch logs for container {container.name} of workload {name}"
@@ -1157,17 +1274,20 @@ class DockerDeployer(Deployer):
     def exec(
         self,
         name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
         token: WorkloadOperationToken | None = None,
         detach: bool = True,
         command: list[str] | None = None,
         args: list[str] | None = None,
-    ) -> WorkloadExecResult:
+    ) -> WorkloadExecStream | bytes | str:
         """
         Execute a command in a Docker workload or a specific container.
 
         Args:
             name:
                 The name of the workload.
+            namespace:
+                The namespace of the workload.
             token:
                 The operation token representing a specific container ID.
                 If None, execute in the main RUN container of the workload.
@@ -1179,7 +1299,8 @@ class DockerDeployer(Deployer):
                 Additional arguments for the command.
 
         Returns:
-            A WorkloadExecResult containing the exit code and output.
+            If detach is False, return a WorkloadExecStream.
+            otherwise, return the output of the command as a byte string or string.
 
         Raises:
             UnsupportedError:
@@ -1188,7 +1309,7 @@ class DockerDeployer(Deployer):
                 If the Docker workload fails to execute the command.
 
         """
-        workload = self.get(name)
+        workload = self.get(name=name, namespace=namespace)
         if not workload:
             msg = f"Workload {name} not found"
             raise OperationError(msg)
@@ -1204,28 +1325,32 @@ class DockerDeployer(Deployer):
         )
         if not container:
             msg = f"Executable container of workload {name} not found"
+            if token:
+                msg += f" with token {token}"
             raise OperationError(msg)
 
-        attach = not detach
-        if not command:
-            attach = True
-            command = ["/bin/sh"]
+        attach = not detach or not command
+        exec_options = {
+            "stdout": True,
+            "stderr": True,
+            "stdin": attach,
+            "socket": attach,
+            "tty": attach,
+            "cmd": [*command, *(args or [])] if command else ["/bin/sh"],
+        }
 
         try:
             result = container.exec_run(
-                socket=attach,
-                stdin=attach,
-                tty=attach,
-                cmd=[*command, *(args or [])],
+                detach=False,
+                **exec_options,
             )
         except docker.errors.APIError as e:
             msg = f"Failed to exec command in container {container.name} of workload {name}"
             raise OperationError(msg) from e
         else:
-            return WorkloadExecResult(
-                exit_code=result.exit_code,
-                output=result.output,
-            )
+            if not attach:
+                return result.output
+            return DockerWorkloadExecStream(result.output)
 
 
 def _has_restart_policy(
@@ -1234,3 +1359,41 @@ def _has_restart_policy(
     return (
         container.attrs["HostConfig"].get("RestartPolicy", {}).get("Name", "no") != "no"
     )
+
+
+class DockerWorkloadExecStream(WorkloadExecStream):
+    """
+    A WorkloadExecStream implementation for Docker exec socket streams.
+    """
+
+    _sock: socket.SocketIO | None = None
+
+    def __init__(self, sock: socket.SocketIO):
+        super().__init__()
+        self._sock = sock
+
+    @property
+    def closed(self) -> bool:
+        return not (self._sock and not self._sock.closed)
+
+    def fileno(self) -> int:
+        if self.closed:
+            return -1
+        return self._sock.fileno()
+
+    def read(self, size=-1) -> bytes | str | None:
+        if self.closed:
+            return None
+        return self._sock.read(size)
+
+    def write(self, data: bytes | str) -> int:
+        if self.closed:
+            return 0
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        return self._sock.write(data)
+
+    def close(self):
+        if self.closed:
+            return
+        self._sock.close()

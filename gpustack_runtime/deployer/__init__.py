@@ -22,7 +22,8 @@ from .__types__ import (
     ContainerSecurity,
     OperationError,
     UnsupportedError,
-    WorkloadExecResult,
+    WorkloadExecStream,
+    WorkloadNamespace,
     WorkloadOperationToken,
     WorkloadPlan,
     WorkloadSecurity,
@@ -30,7 +31,16 @@ from .__types__ import (
     WorkloadStatus,
     WorkloadStatusStateEnum,
 )
-from .docker import DockerDeployer, DockerWorkloadPlan, DockerWorkloadStatus
+from .docker import (
+    DockerDeployer,
+    DockerWorkloadPlan,
+    DockerWorkloadStatus,
+)
+from .kuberentes import (
+    KubernetesDeployer,
+    KubernetesWorkloadPlan,
+    KubernetesWorkloadStatus,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -39,6 +49,7 @@ if TYPE_CHECKING:
 
 deployers: list[Deployer] = [
     DockerDeployer(),
+    KubernetesDeployer(),
 ]
 
 
@@ -51,6 +62,10 @@ def create_workload(workload: WorkloadPlan):
             The workload to deploy.
 
     Raises:
+        TypeError:
+            If the workload type is invalid.
+        ValueError:
+            If the workload fails to validate.
         UnsupportedError:
             If no deployer supports the given workload.
         OperationError:
@@ -61,20 +76,25 @@ def create_workload(workload: WorkloadPlan):
         if not dep.is_supported():
             continue
 
-        dep.create(workload)
+        dep.create(workload=workload)
         return
 
     msg = "No deployer supports"
     raise UnsupportedError(msg)
 
 
-def get_workload(name: WorkloadName) -> WorkloadStatus | None:
+def get_workload(
+    name: WorkloadName,
+    namespace: WorkloadNamespace | None = None,
+) -> WorkloadStatus | None:
     """
     Get the status of a workload.
 
     Args:
         name:
             The name of the workload.
+        namespace:
+            The namespace of the workload.
 
     Returns:
         The status of the workload, or None if not found.
@@ -90,19 +110,24 @@ def get_workload(name: WorkloadName) -> WorkloadStatus | None:
         if not dep.is_supported():
             continue
 
-        return dep.get(name)
+        return dep.get(name=name, namespace=namespace)
 
     msg = "No deployer supports"
     raise UnsupportedError(msg)
 
 
-def delete_workload(name: WorkloadName) -> WorkloadStatus | None:
+def delete_workload(
+    name: WorkloadName,
+    namespace: WorkloadNamespace | None = None,
+) -> WorkloadStatus | None:
     """
     Delete the given workload.
 
     Args:
         name:
             The name of the workload to delete.
+        namespace:
+            The namespace of the workload.
 
     Return:
         The status if found, None otherwise.
@@ -118,17 +143,22 @@ def delete_workload(name: WorkloadName) -> WorkloadStatus | None:
         if not dep.is_supported():
             continue
 
-        return dep.delete(name)
+        return dep.delete(name=name, namespace=namespace)
 
     msg = "No deployer supports"
     raise UnsupportedError(msg)
 
 
-def list_workloads(labels: dict[str, str] | None = None) -> list[WorkloadStatus]:
+def list_workloads(
+    namespace: WorkloadNamespace | None = None,
+    labels: dict[str, str] | None = None,
+) -> list[WorkloadStatus]:
     """
     List all workloads.
 
     Args:
+        namespace:
+            The namespace to filter workloads.
         labels:
             Labels to filter workloads.
 
@@ -146,7 +176,7 @@ def list_workloads(labels: dict[str, str] | None = None) -> list[WorkloadStatus]
         if not dep.is_supported():
             continue
 
-        return dep.list(labels)
+        return dep.list(namespace=namespace, labels=labels)
 
     msg = "No deployer supports"
     raise UnsupportedError(msg)
@@ -154,18 +184,21 @@ def list_workloads(labels: dict[str, str] | None = None) -> list[WorkloadStatus]
 
 def logs_workload(
     name: WorkloadName,
+    namespace: WorkloadNamespace | None = None,
     token: WorkloadOperationToken | None = None,
     timestamps: bool = False,
     tail: int | None = None,
     since: int | None = None,
     follow: bool = False,
-) -> Generator[bytes, None, None] | bytes:
+) -> Generator[bytes | str, None, None] | bytes | str:
     """
     Get the logs of a workload.
 
     Args:
         name:
             The name of the workload to get logs.
+        namespace:
+            The namespace of the workload.
         token:
             The token for operation.
         timestamps:
@@ -178,7 +211,7 @@ def logs_workload(
             Whether to follow the logs.
 
     Returns:
-        The logs as a byte string or a generator yielding byte strings if follow is True.
+        The logs as a byte string, a string or a generator yielding byte strings or strings if follow is True.
 
     Raises:
         UnsupportedError:
@@ -191,7 +224,15 @@ def logs_workload(
         if not dep.is_supported():
             continue
 
-        return dep.logs(name, token, timestamps, tail, since, follow)
+        return dep.logs(
+            name=name,
+            namespace=namespace,
+            token=token,
+            timestamps=timestamps,
+            tail=tail,
+            since=since,
+            follow=follow,
+        )
 
     msg = "No deployer supports"
     raise UnsupportedError(msg)
@@ -199,17 +240,20 @@ def logs_workload(
 
 def exec_workload(
     name: WorkloadName,
+    namespace: WorkloadNamespace | None = None,
     token: WorkloadOperationToken | None = None,
     detach: bool = True,
     command: list[str] | None = None,
     args: list[str] | None = None,
-) -> WorkloadExecResult:
+) -> WorkloadExecStream | bytes | str:
     """
     Execute a command in a running workload.
 
     Args:
         name:
             The name of the workload to execute the command in.
+        namespace:
+            The namespace of the workload.
         token:
             The token for operation.
         detach:
@@ -220,8 +264,8 @@ def exec_workload(
             The arguments to pass to the command.
 
     Returns:
-        If detach is False, return a socket object in the output of WorkloadExecResult.
-            otherwise, return the exit code and output of the command in WorkloadExecResult.
+        If detach is False, return a WorkloadExecStream.
+        otherwise, return the output of the command as a byte string or string.
 
     Raises:
         UnsupportedError:
@@ -234,7 +278,14 @@ def exec_workload(
         if not dep.is_supported():
             continue
 
-        return dep.exec(name, token, detach, command, args)
+        return dep.exec(
+            name=name,
+            namespace=namespace,
+            token=token,
+            detach=detach,
+            command=command,
+            args=args,
+        )
 
     msg = "No deployer supports"
     raise UnsupportedError(msg)
@@ -260,9 +311,11 @@ __all__ = [
     "ContainerSecurity",
     "DockerWorkloadPlan",
     "DockerWorkloadStatus",
+    "KubernetesWorkloadPlan",
+    "KubernetesWorkloadStatus",
     "OperationError",
     "UnsupportedError",
-    "WorkloadExecResult",
+    "WorkloadExecStream",
     "WorkloadOperationToken",
     "WorkloadPlan",
     "WorkloadPlan",

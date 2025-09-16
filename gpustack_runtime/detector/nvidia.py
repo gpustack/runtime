@@ -7,8 +7,7 @@ from math import ceil
 
 import pynvml
 
-from gpustack_runtime import envs
-
+from .. import envs
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 
 logger = logging.getLogger(__name__)
@@ -32,16 +31,19 @@ class NVIDIADetector(Detector):
             True if supported, False otherwise.
 
         """
+        supported = False
+        if envs.GPUSTACK_RUNTIME_DETECT.lower() not in ("auto", "nvidia"):
+            return supported
+
         try:
             pynvml.nvmlInit()
             pynvml.nvmlShutdown()
+            supported = True
         except pynvml.NVMLError:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Failed to initialize NVML")
-        else:
-            return True
 
-        return False
+        return supported
 
     def detect(self) -> Devices | None:
         """

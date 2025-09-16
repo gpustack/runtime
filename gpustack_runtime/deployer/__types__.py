@@ -1,14 +1,47 @@
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 
 from dataclasses_json import dataclass_json
 
+from .. import envs
+from ..detector import detect_backend
+
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+_RE_RFC1123_DNS_SUBDOMAIN_NAME = re.compile(
+    r"(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*",
+)
+"""
+Regex for RFC 1123 DNS subdomain names, which must:
+    - contain no more than 253 characters
+    - contain only lowercase alphanumeric characters, '-' or '.'
+    - start with an alphanumeric character
+    - end with an alphanumeric character
+"""
+
+_RE_RFC1123_DNS_LABEL_NAME = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
+"""
+Regex for RFC 1123 DNS label names, which must:
+    - contain no more than 63 characters
+    - contain only lowercase alphanumeric characters or '-'
+    - start with an alphanumeric character
+    - end with an alphanumeric character
+"""
+
+_RE_RFC1035_DNS_LABEL_NAME = re.compile(r"(?![0-9-])[a-zA-Z0-9_.-]{1,63}(?<![.-])")
+"""
+Regex for RFC 1035 DNS label names, which must:
+    - contain no more than 63 characters
+    - contain only lowercase alphanumeric characters or '-'
+    - start with an alphabetic character
+    - end with an alphanumeric character
+"""
 
 
 class UnsupportedError(Exception):
@@ -99,6 +132,17 @@ class ContainerExecution(ContainerSecurity):
             Command to run in the container.
         args (list[str] | None):
             Arguments to pass to the command.
+        run_as_user (int | None):
+            User ID to run the container as.
+        run_as_group (int | None):
+            Group ID to run the container as.
+        readonly_rootfs (bool):
+            Whether the root filesystem is read-only.
+        privileged (bool):
+            Privileged mode for the container.
+        capabilities (ContainerCapabilities | None):
+            Capabilities for the container.
+
 
     """
 
@@ -116,6 +160,7 @@ class ContainerExecution(ContainerSecurity):
     """
 
 
+@dataclass_json
 @dataclass
 class ContainerResources(dict[str, float | int | str]):
     """
@@ -129,34 +174,34 @@ class ContainerResources(dict[str, float | int | str]):
 
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     @property
     def cpu(self) -> float | None:
         return self.get("cpu", None)
 
     @cpu.setter
-    def cpu(self, value: float):
+    def cpu(self, value: float | None):
         self["cpu"] = value
 
     @cpu.deleter
     def cpu(self):
         if "cpu" in self:
-            del self["cpu"]
+            self.pop("cpu")
 
     @property
     def memory(self) -> str | int | float | None:
         return self.get("memory", None)
 
     @memory.setter
-    def memory(self, value: str | float):
+    def memory(self, value: str | float | None):
         self["memory"] = value
 
     @memory.deleter
     def memory(self):
         if "memory" in self:
-            del self["memory"]
+            self.pop("memory")
 
 
 @dataclass
@@ -313,6 +358,9 @@ class ContainerPort:
     External port of the container.
     """
     protocol: ContainerPortProtocolEnum = ContainerPortProtocolEnum.TCP
+    """
+    Protocol of the port.
+    """
 
 
 @dataclass
@@ -340,12 +388,18 @@ class ContainerCheckTCP:
     Attributes:
         port (int):
             Port to check.
+        host (str | None):
+            Host to check, defaults to the container loopback address.
 
     """
 
     port: int
     """
     Port to check.
+    """
+    host: str | None = None
+    """
+    Host to check, defaults to the container loopback address.
     """
 
 
@@ -357,6 +411,8 @@ class ContainerCheckHTTP:
     Attributes:
         port (int):
             Port to check.
+        host (str | None):
+            Host to check, defaults to the container loopback address.
         headers (dict[str, str] | None):
             Headers to include in the request.
         path (str | None):
@@ -367,6 +423,10 @@ class ContainerCheckHTTP:
     port: int
     """
     Port to check.
+    """
+    host: str | None = None
+    """
+    Host to check, defaults to the container loopback address.
     """
     headers: dict[str, str] | None = None
     """
@@ -385,11 +445,11 @@ class ContainerCheck:
 
     Attributes:
         delay (int | None):
-            Delay before starting the check.
+            Delay (in seconds) before starting the check.
         interval (int | None):
-            Interval between checks.
+            Interval (in seconds) between checks.
         timeout (int | None):
-            Timeout for each check.
+            Timeout (in seconds) for each check.
         retries (int | None):
             Number of retries before considering the container unhealthy.
         teardown (bool):
@@ -536,7 +596,10 @@ class Container:
     """
     Environment variables of the container.
     """
-    resources: ContainerResources | None = None
+    resources: ContainerResources | None = field(
+        default=None,
+        metadata={"dataclasses_json": {"encoder": lambda v: dict(v) if v else None}},
+    )
     """
     Resources specification of the container.
     """
@@ -616,18 +679,36 @@ class WorkloadSecurity:
     """
 
 
+WorkloadNamespace = str
+"""
+Namespace for a workload.
+"""
+
+
 WorkloadName = str
 """
 Name for a workload.
 """
 
 
+@dataclass_json
 @dataclass
 class WorkloadPlan(WorkloadSecurity):
     """
     Base plan class for all workloads.
 
     Attributes:
+        resource_key_runtime_env_mapping: (dict[str, str]):
+            Mapping from resource names to environment variable names for device allocation,
+            which is used to tell the Container Runtime which GPUs to mount into the container.
+            For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
+            which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
+            With privileged mode, the container can access all GPUs even if specified.
+        resource_key_backend_env_mapping: (dict[str, list[str]]):
+            Mapping from resource names to environment variable names for device runtime,
+            which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container.
+            For example, {"nvidia.com/gpu": ["CUDA_VISIBLE_DEVICES"]},
+            which sets the "CUDA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
         name (WorkloadName):
             Name for the workload, it should be unique in the deployer.
         labels (dict[str, str] | None):
@@ -654,6 +735,29 @@ class WorkloadPlan(WorkloadSecurity):
 
     """
 
+    resource_key_runtime_env_mapping: dict[str, str] = field(
+        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_MAP_RUNTIME_VISIBLE_DEVICES,
+    )
+    """
+    Mapping from resource names to environment variable names for device allocation,
+    which is used to tell the Container Runtime which GPUs to mount into the container.
+    For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
+    which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
+    With privileged mode, the container can access all GPUs even if specified.
+    """
+    resource_key_backend_env_mapping: dict[str, list[str]] = field(
+        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_MAP_BACKEND_VISIBLE_DEVICES,
+    )
+    """
+    Mapping from resource names to environment variable names for device runtime,
+    which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container.
+    For example, {"nvidia.com/gpu": ["CUDA_VISIBLE_DEVICES"]},
+    which sets the "CUDA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
+    """
+    namespace: WorkloadNamespace | None = None
+    """
+    Namespace for the workload.
+    """
     name: WorkloadName = "default"
     """
     Name for the workload,
@@ -667,7 +771,7 @@ class WorkloadPlan(WorkloadSecurity):
     """
     Indicates if the containers of the workload use the host network.
     """
-    host_ipc: bool = False
+    host_ipc: bool | None = None
     """
     Indicates if the containers of the workload use the host IPC.
     """
@@ -684,6 +788,56 @@ class WorkloadPlan(WorkloadSecurity):
     Containers in the workload.
     It must contain at least one "RUN" profile container.
     """
+
+    def validate_and_default(self):
+        """
+        Validate the workload plan and set defaults.
+
+        Raises:
+            ValueError:
+                If the workload plan is invalid.
+
+        """
+        # Validate
+        if not _RE_RFC1123_DNS_LABEL_NAME.match(self.name):
+            msg = (
+                f'Workload name "{self.name}" is invalid, '
+                "it must match RFC 1123 DNS label format"
+            )
+            raise ValueError(msg)
+        for ln in self.labels or {}:
+            for p in ln.split("/"):
+                if not _RE_RFC1123_DNS_SUBDOMAIN_NAME.match(p):
+                    msg = (
+                        f'Workload label name "{ln}" is invalid, '
+                        "it must match RFC 1123 DNS subdomain format"
+                    )
+                    raise ValueError(msg)
+        names = [c.name for c in self.containers or []]
+        if len(names) != len(set(names)):
+            msg = "Container names must be unique in a workload."
+            raise ValueError(msg)
+        for n in names:
+            if not _RE_RFC1035_DNS_LABEL_NAME.match(n):
+                msg = (
+                    f'Container name "{n}" is invalid, '
+                    "it must match RFC 1035 DNS label format"
+                )
+                raise ValueError(msg)
+        if not any(
+            c.profile == ContainerProfileEnum.RUN for c in self.containers or []
+        ):
+            msg = 'Workload must contain at least one "RUN" profile container.'
+            raise ValueError(msg)
+
+        # Default
+        self.labels = self.labels or {}
+        for c in self.containers:
+            if c.profile == ContainerProfileEnum.INIT:
+                if not c.restart_policy:
+                    c.restart_policy = ContainerRestartPolicyEnum.NEVER
+            elif not c.restart_policy:
+                c.restart_policy = ContainerRestartPolicyEnum.ALWAYS
 
 
 class WorkloadStatusStateEnum(str, Enum):
@@ -738,6 +892,7 @@ Token for a workload operation.
 """
 
 
+@dataclass_json
 @dataclass
 class WorkloadStatusOperation:
     """
@@ -803,20 +958,70 @@ class WorkloadStatus:
     """
 
 
-class WorkloadExecResult(NamedTuple):
+class WorkloadExecStream(ABC):
     """
-    Result of an exec command.
-
+    Base class for exec stream.
     """
 
-    exit_code: int | None
-    output: str | bytes | object | None
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+    @abstractmethod
+    def fileno(self) -> int:
+        raise NotImplementedError
+
+    @abstractmethod
+    def read(self, size: int = -1) -> bytes | str | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def write(self, data: bytes | str) -> int:
+        raise NotImplementedError
+
+    @abstractmethod
+    def close(self):
+        raise NotImplementedError
 
 
 class Deployer(ABC):
     """
     Base class for all deployers.
     """
+
+    _runtime_visible_devices_env_name: str | None = None
+    """
+    Recorded backend visible devices env name,
+    such as "NVIDIA_VISIBLE_DEVICES", "AMD_VISIBLE_DEVICES", etc.
+    If failed to detect backend, it will be "UNKNOWN_VISIBLE_DEVICES".
+    """
+    _backend_visible_devices_env_names: list[str] | None = None
+    """
+    Recorded runtime visible devices env name list,
+    such as ["CUDA_VISIBLE_DEVICES"], ["ROCR_VISIBLE_DEVICES"], etc.
+    If failed to detect backend, it will be ["UNKNOWN_VISIBLE_DEVICES"].
+    """
+
+    def __init__(self):
+        self._runtime_visible_devices_env_name = (
+            "UNKNOWN_RUNTIME_BACKEND_VISIBLE_DEVICES"
+        )
+        self._backend_visible_devices_env_names = []
+
+        if backend := detect_backend():
+            rk = envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
+            re = envs.GPUSTACK_RUNTIME_DEPLOY_MAP_RUNTIME_VISIBLE_DEVICES.get(rk)
+            be = envs.GPUSTACK_RUNTIME_DEPLOY_MAP_BACKEND_VISIBLE_DEVICES.get(rk)
+            if re:
+                self._runtime_visible_devices_env_name = re
+            if be:
+                self._backend_visible_devices_env_names = be
 
     @staticmethod
     @abstractmethod
@@ -840,6 +1045,10 @@ class Deployer(ABC):
                 The workload to deploy.
 
         Raises:
+            TypeError:
+                If the workload type is invalid.
+            ValueError:
+                If the workload fails to validate.
             UnsupportedError:
                 If the deployer is not supported in the current environment.
             OperationError:
@@ -849,13 +1058,19 @@ class Deployer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get(self, name: WorkloadName) -> WorkloadStatus | None:
+    def get(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+    ) -> WorkloadStatus | None:
         """
         Get the status of a workload.
 
         Args:
             name:
                 The name of the workload.
+            namespace:
+                The namespace of the workload.
 
         Returns:
             The status if found, None otherwise.
@@ -870,13 +1085,19 @@ class Deployer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def delete(self, name: WorkloadName) -> WorkloadStatus | None:
+    def delete(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+    ) -> WorkloadStatus | None:
         """
         Delete a workload.
 
         Args:
             name:
                 The name of the workload.
+            namespace:
+                The namespace of the workload.
 
         Return:
             The status if found, None otherwise.
@@ -891,11 +1112,17 @@ class Deployer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def list(self, labels: dict[str, str] | None = None) -> list[WorkloadStatus]:
+    def list(
+        self,
+        namespace: WorkloadNamespace | None = None,
+        labels: dict[str, str] | None = None,
+    ) -> list[WorkloadStatus]:
         """
         List all workloads.
 
         Args:
+            namespace:
+                The namespace of the workloads.
             labels:
                 Labels to filter the workloads.
 
@@ -915,18 +1142,21 @@ class Deployer(ABC):
     def logs(
         self,
         name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
         token: WorkloadOperationToken | None = None,
         timestamps: bool = False,
         tail: int | None = None,
         since: int | None = None,
         follow: bool = False,
-    ) -> Generator[bytes, None, None] | bytes:
+    ) -> Generator[bytes | str, None, None] | bytes | str:
         """
         Get the logs of a workload.
 
         Args:
             name:
-                The name of the workload.
+                The name of the workload to get logs.
+            namespace:
+                The namespace of the workload.
             token:
                 The operation token of the workload.
                 If not specified, get logs from the first executable container.
@@ -955,17 +1185,20 @@ class Deployer(ABC):
     def exec(
         self,
         name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
         token: WorkloadOperationToken | None = None,
         detach: bool = True,
         command: list[str] | None = None,
         args: list[str] | None = None,
-    ) -> WorkloadExecResult:
+    ) -> WorkloadExecStream | bytes | str:
         """
         Execute a command in a workload.
 
         Args:
             name:
-                The name of the workload.
+                The name of the workload to execute the command in.
+            namespace:
+                The namespace of the workload.
             token:
                 The operation token of the workload.
                 If not specified, execute in the first executable container.
@@ -978,8 +1211,8 @@ class Deployer(ABC):
                 The arguments to pass to the command.
 
         Returns:
-            If detach is False, return a socket object in the output of WorkloadExecResult.
-            otherwise, return the exit code and output of the command in WorkloadExecResult.
+            If detach is False, return a WorkloadExecStream.
+            otherwise, return the output of the command as a byte string or string.
 
         Raises:
             UnsupportedError:

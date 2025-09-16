@@ -5,7 +5,7 @@ import os
 import time
 from typing import TYPE_CHECKING
 
-from ..detector import Devices, detect_devices  # noqa: TID252
+from ..detector import Devices, detect_devices
 from .__types__ import SubCommand
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ class DetectDevicesSubCommand(SubCommand):
 
 
 def format_devices_json(devs: Devices) -> str:
-    return json.dumps([dev.__dict__ for dev in devs], indent=2)
+    return json.dumps([dev.to_dict() for dev in devs], indent=2)
 
 
 def format_devices_table(devs: Devices) -> str:

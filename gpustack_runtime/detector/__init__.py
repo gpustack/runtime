@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from .__types__ import Detector, Device, Devices, ManufacturerEnum
+from .__types__ import (
+    Detector,
+    Device,
+    Devices,
+    ManufacturerEnum,
+    backend_to_manufacturer,
+    manufacturer_to_backend,
+    supported_backends,
+    supported_manufacturers,
+)
 from .nvidia import NVIDIADetector
 
 detectors: list[Detector] = [
@@ -73,6 +82,10 @@ __all__ = [
     "Device",
     "Devices",
     "ManufacturerEnum",
+    "backend_to_manufacturer",
     "detect_backend",
     "detect_devices",
+    "manufacturer_to_backend",
+    "supported_backends",
+    "supported_manufacturers",
 ]

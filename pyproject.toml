@@ -18,7 +18,7 @@ classifiers = [
 dependencies = [
     "docker",
     "kubernetes",
-    "gpustack-runner>=0.1.4",
+    "gpustack-runner>=0.1.5",
     "nvidia-ml-py>=13.580.65",
 ]
 dynamic = ["version"]
