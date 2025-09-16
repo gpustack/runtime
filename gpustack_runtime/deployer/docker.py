@@ -80,7 +80,11 @@ class DockerWorkloadPlan(WorkloadPlan):
         labels (dict[str, str] | None):
             Labels to attach to the workload.
         host_network (bool):
-            Whether to use the host network for the workload.
+            Indicates if the containers of the workload use the host network.
+        host_ipc (bool):
+            Indicates if the containers of the workload use the host IPC.
+        pid_shared (bool):
+            Indicates if the containers of the workload share the PID namespace.
         shm_size (int | str | None):
             Configure shared memory size for the workload.
         run_as_user (int | None):

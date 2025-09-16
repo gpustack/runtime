@@ -633,8 +633,11 @@ class WorkloadPlan(WorkloadSecurity):
         labels (dict[str, str] | None):
             Labels for the workload.
         host_network (bool):
-            Indicates if the workload uses the host network.
-
+            Indicates if the containers of the workload use the host network.
+        host_ipc (bool):
+            Indicates if the containers of the workload use the host IPC.
+        pid_shared (bool):
+            Indicates if the containers of the workload share the PID namespace.
         shm_size (int | str | None):
             Configure shared memory size for the workload.
         run_as_user (int | None):
