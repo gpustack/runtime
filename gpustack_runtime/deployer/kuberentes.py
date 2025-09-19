@@ -1566,7 +1566,7 @@ class KubernetesWorkloadExecStream(WorkloadExecStream):
         super().__init__()
         self._ws = ws
         self._ws.run_forever(timeout=1)
-        # self._ws.write_stdin(self._ws.newline)
+        self._ws.write_stdin(b" \b")
 
     @property
     def closed(self) -> bool:
