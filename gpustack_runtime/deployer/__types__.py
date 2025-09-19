@@ -736,7 +736,7 @@ class WorkloadPlan(WorkloadSecurity):
     """
 
     resource_key_runtime_env_mapping: dict[str, str] = field(
-        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_MAP_RUNTIME_VISIBLE_DEVICES,
+        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES,
     )
     """
     Mapping from resource names to environment variable names for device allocation,
@@ -746,7 +746,7 @@ class WorkloadPlan(WorkloadSecurity):
     With privileged mode, the container can access all GPUs even if specified.
     """
     resource_key_backend_env_mapping: dict[str, list[str]] = field(
-        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_MAP_BACKEND_VISIBLE_DEVICES,
+        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES,
     )
     """
     Mapping from resource names to environment variable names for device runtime,
@@ -918,8 +918,10 @@ class WorkloadStatus:
     Attributes:
         name (WorkloadName):
             Name for the workload, it should be unique in the deployer.
-        created_at (str | None):
+        created_at str:
             Creation time of the workload.
+        namespace (WorkloadNamespace | None):
+            Namespace for the workload.
         labels (dict[str, str] | None):
             Labels for the workload.
         executable (list[WorkloadStatusOperation]):
@@ -939,6 +941,10 @@ class WorkloadStatus:
     created_at: str
     """
     Creation time of the workload.
+    """
+    namespace: WorkloadNamespace | None = None
+    """
+    Namespace for the workload.
     """
     labels: dict[str, str] | None = field(default_factory=dict)
     """
@@ -978,11 +984,11 @@ class WorkloadExecStream(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def read(self, size: int = -1) -> bytes | str | None:
+    def read(self, size: int = -1) -> bytes | None:
         raise NotImplementedError
 
     @abstractmethod
-    def write(self, data: bytes | str) -> int:
+    def write(self, data: bytes) -> int:
         raise NotImplementedError
 
     @abstractmethod
@@ -1016,12 +1022,16 @@ class Deployer(ABC):
 
         if backend := detect_backend():
             rk = envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
-            re = envs.GPUSTACK_RUNTIME_DEPLOY_MAP_RUNTIME_VISIBLE_DEVICES.get(rk)
-            be = envs.GPUSTACK_RUNTIME_DEPLOY_MAP_BACKEND_VISIBLE_DEVICES.get(rk)
-            if re:
-                self._runtime_visible_devices_env_name = re
-            if be:
-                self._backend_visible_devices_env_names = be
+            ren = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.get(
+                rk,
+            )
+            ben = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES.get(
+                rk,
+            )
+            if ren:
+                self._runtime_visible_devices_env_name = ren
+            if ben:
+                self._backend_visible_devices_env_names = ben
 
     @staticmethod
     @abstractmethod

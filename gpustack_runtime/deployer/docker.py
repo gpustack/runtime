@@ -1377,20 +1377,16 @@ class DockerWorkloadExecStream(WorkloadExecStream):
         return not (self._sock and not self._sock.closed)
 
     def fileno(self) -> int:
-        if self.closed:
-            return -1
         return self._sock.fileno()
 
-    def read(self, size=-1) -> bytes | str | None:
+    def read(self, size=-1) -> bytes | None:
         if self.closed:
             return None
         return self._sock.read(size)
 
-    def write(self, data: bytes | str) -> int:
+    def write(self, data: bytes) -> int:
         if self.closed:
             return 0
-        if isinstance(data, str):
-            data = data.encode("utf-8")
         return self._sock.write(data)
 
     def close(self):

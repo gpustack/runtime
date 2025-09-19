@@ -37,6 +37,39 @@ from .__types__ import SubCommand
 if TYPE_CHECKING:
     from argparse import Namespace, _SubParsersAction
 
+_IGNORE_ENVS = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "PWD",
+    "SHELL",
+    "LOG",
+    "XDG",
+    "XPC",
+    "SSH",
+    "LC",
+    "LS",
+    "_",
+    "USER",
+    "TERM",
+    "LESS",
+    "SHLVL",
+    "DBUS",
+    "OLDPWD",
+    "MOTD",
+    "LD",
+    "LIB",
+    "PS1",
+    "PY",
+    "VIRTUAL_ENV",
+    "CONDA",
+    "PAGE",
+    "ZSH",
+    "COMMAND_MODE",
+    "TMPDIR",
+    "GPUSTACK_",
+)
+
 
 class CreateRunnerWorkloadSubCommand(SubCommand):
     """
@@ -175,32 +208,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
                 value=value,
             )
             for name, value in os.environ.items()
-            if not name.startswith(
-                (
-                    "PATH",
-                    "HOME",
-                    "LANG",
-                    "PWD",
-                    "SHELL",
-                    "LOG",
-                    "XDG",
-                    "XPC",
-                    "SSH",
-                    "LC",
-                    "LS",
-                    "_",
-                    "USER",
-                    "TERM",
-                    "LESS",
-                    "SHLVL",
-                    "DBUS",
-                    "OLDPWD",
-                    "MOTD",
-                    "LD",
-                    "LIB",
-                    "GPUSTACK_",
-                ),
-            )
+            if not name.startswith(_IGNORE_ENVS)
         ]
         if self.backend:
             resources = ContainerResources(
@@ -377,32 +385,7 @@ class CreateWorkloadSubCommand(SubCommand):
                 value=value,
             )
             for name, value in os.environ.items()
-            if not name.startswith(
-                (
-                    "PATH",
-                    "HOME",
-                    "LANG",
-                    "PWD",
-                    "SHELL",
-                    "LOG",
-                    "XDG",
-                    "XPC",
-                    "SSH",
-                    "LC",
-                    "LS",
-                    "_",
-                    "USER",
-                    "TERM",
-                    "LESS",
-                    "SHLVL",
-                    "DBUS",
-                    "OLDPWD",
-                    "MOTD",
-                    "LD",
-                    "LIB",
-                    "GPUSTACK_",
-                ),
-            )
+            if not name.startswith(_IGNORE_ENVS)
         ]
         if self.backend:
             resources = ContainerResources(

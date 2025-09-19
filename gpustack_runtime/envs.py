@@ -40,16 +40,18 @@ if TYPE_CHECKING:
     which is used to tell deployer do a device detection and get the corresponding resource key before mapping.
     e.g., "gpustack.ai/devices".
     """
-    GPUSTACK_RUNTIME_DEPLOY_MAP_RUNTIME_VISIBLE_DEVICES: dict[str, str] | None = None
+    GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES: (
+        dict[str, str] | None
+    ) = None
     """
-    Manual mapping of container backend visible devices environment variables,
+    Manual mapping of runtime visible devices environment variables,
     which is used to tell the Container Runtime which GPUs to mount into the container,
     e.g., `{"nvidia.com/devices": "NVIDIA_VISIBLE_DEVICES", "amd.com/devices": "AMD_VISIBLE_DEVICES"}`.
     The key is the resource key, and the value is the environment variable name.
     """
-    GPUSTACK_RUNTIME_DEPLOY_MAP_BACKEND_VISIBLE_DEVICES: dict[str, list[str]] | None = (
-        None
-    )
+    GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES: (
+        dict[str, list[str]] | None
+    ) = None
     """
     Manual mapping of backend visible devices environment variables,
     which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container,
@@ -137,9 +139,9 @@ variables: dict[str, Callable[[], Any]] = {
         "GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY",
         "gpustack.ai/devices",
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_MAP_RUNTIME_VISIBLE_DEVICES": lambda: to_dict(
+    "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES": lambda: to_dict(
         getenv(
-            "GPUSTACK_RUNTIME_DEPLOY_MAP_RUNTIME_VISIBLE_DEVICES",
+            "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES",
             "nvidia.com/devices=NVIDIA_VISIBLE_DEVICES;"
             "amd.com/devices=AMD_VISIBLE_DEVICES;"
             "huawei.com/devices=ASCEND_VISIBLE_DEVICES;"
@@ -149,9 +151,9 @@ variables: dict[str, Callable[[], Any]] = {
             "cambricon.com/devices=CAMBRICON_VISIBLE_DEVICES;",
         ),
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_MAP_BACKEND_VISIBLE_DEVICES": lambda: to_dict(
+    "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES": lambda: to_dict(
         getenv(
-            "GPUSTACK_RUNTIME_DEPLOY_MAP_BACKEND_VISIBLE_DEVICES",
+            "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES",
             "nvidia.com/devices=CUDA_VISIBLE_DEVICES;"
             "amd.com/devices=ROCR_VISIBLE_DEVICES;"
             "huawei.com/devices=ASCEND_RT_VISIBLE_DEVICES,NPU_VISIBLE_DEVICES;"

@@ -188,6 +188,11 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         **kwargs,
     ):
         created_at = k_pod.metadata.creation_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        namespace = (
+            k_pod.metadata.namespace
+            if k_pod.metadata.namespace != envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
+            else None
+        )
         labels = {
             k: v
             for k, v in (k_pod.metadata.labels or {}).items()
@@ -197,6 +202,7 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         super().__init__(
             name=name,
             created_at=created_at,
+            namespace=namespace,
             labels=labels,
             **kwargs,
         )
@@ -1559,25 +1565,34 @@ class KubernetesWorkloadExecStream(WorkloadExecStream):
     def __init__(self, ws: kubernetes.stream.ws_client.WSClient):
         super().__init__()
         self._ws = ws
+        self._ws.run_forever(timeout=1)
+        # self._ws.write_stdin(self._ws.newline)
 
     @property
     def closed(self) -> bool:
         return not (self._ws and self._ws.is_open())
 
     def fileno(self) -> int:
-        if self.closed:
-            return -1
         return self._ws.sock.fileno()
 
-    def read(self, *_) -> bytes | str | None:
+    def recv(self, size=-1) -> bytes | None:
+        return self.read(size)
+
+    def send(self, data: bytes) -> int:
+        return self.write(data)
+
+    def read(self, *_) -> bytes | None:
         if self.closed:
             return None
-        raise NotImplementedError
+        self._ws.update(timeout=1)
+        return self._ws.read_all().encode("utf-8", errors="replace")
 
-    def write(self, *_) -> int:
+    def write(self, data: bytes) -> int:
         if self.closed:
             return 0
-        raise NotImplementedError
+        data_len = len(data)
+        self._ws.write_stdin(data.decode("utf-8", errors="replace"))
+        return data_len
 
     def close(self):
         if not self.closed:
