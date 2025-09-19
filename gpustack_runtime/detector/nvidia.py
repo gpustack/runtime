@@ -9,6 +9,7 @@ import pynvml
 
 from .. import envs
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
+from .__utils__ import get_pci_devices
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ class NVIDIADetector(Detector):
         ret: Devices = []
 
         try:
+            pci_devs = get_pci_devices(vendor="0x10de")
+            if not pci_devs:
+                return ret
+            pci_devs = {dev.address: dev for dev in pci_devs}
+
             pynvml.nvmlInit()
 
             sys_driver_ver = pynvml.nvmlSystemGetDriverVersion()
@@ -77,15 +83,20 @@ class NVIDIADetector(Detector):
             for dev_idx in range(dev_count):
                 dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
 
+                dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
+                dev_is_vgpu = False
+                for addr in [dev_pci_info.busIdLegacy, dev_pci_info.busId]:
+                    if addr in pci_devs:
+                        dev_is_vgpu = _is_vgpu(pci_devs[addr].config)
+                        break
+
                 dev_index = dev_idx
                 if envs.GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX:
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
-                        dev_index = (
-                            dev_pci_info.bus - 1
-                            if dev_pci_info.bus > 0
-                            else dev_pci_info.bus
-                        )
+                    dev_index = (
+                        dev_pci_info.bus - 1
+                        if dev_pci_info.bus > 0
+                        else dev_pci_info.bus
+                    )
                 dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
                 dev_mem = pynvml.nvmlDeviceGetMemoryInfo(dev)
                 dev_util = pynvml.nvmlDeviceGetUtilizationRates(dev)
@@ -97,6 +108,7 @@ class NVIDIADetector(Detector):
                 dev_cc = f"{dev_cc_t[0]}.{dev_cc_t[1]}"
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_cc_t),
+                    "vgpu": dev_is_vgpu,
                 }
 
                 dev_fabric = pynvml.c_nvmlGpuFabricInfo_v2_t()
@@ -465,3 +477,38 @@ def _get_compute_instance_memory_in_gib(dev_mem, mdev_attrs) -> int:
         * ((dev_mem.total + (1 << 30) - 1) / (1 << 30)),
     )
     return gib
+
+
+def _is_vgpu(dev_config: bytes) -> bool:
+    """
+    Determine if the device is a vGPU based on its PCI configuration space.
+
+    """
+    status = 0x06
+    cap_supported = 0x10
+    cap_start = 0x34
+    cap_vendor_specific_id = 0x09
+
+    if dev_config[status] & cap_supported == 0:
+        return False
+
+    # Find the capability list
+    dev_cap: bytes | None = None
+    visited = set()
+    pos = dev_config[cap_start]
+    while pos != 0 and pos not in visited and pos < len(dev_config) - 2:
+        visited.add(pos)
+        ptr = dev_config[pos : pos + 2]  # id, next, length
+        if ptr[0] == 0xFF:
+            break
+        if ptr[0] == cap_vendor_specific_id:
+            dev_cap = dev_config[pos : pos + ptr[2]]
+            break
+        pos = ptr[1]
+
+    if not dev_cap or len(dev_cap) < 5:
+        return False
+
+    # Check for vGPU signature,
+    # which is either 0x56 (NVIDIA vGPU) or 0x46 (NVIDIA GRID).
+    return dev_cap[3] == 0x56 or dev_cap[4] == 0x46
