@@ -199,6 +199,14 @@ class Device:
     """
     Temperature of the device in Celsius.
     """
+    power: int = 0
+    """
+    Power consumption of the device in Watts.
+    """
+    power_used: int = 0
+    """
+    Used power of the device in Watts.
+    """
     appendix: dict[str, Any] = None
     """
     Appendix information of the device.
@@ -218,16 +226,6 @@ class Detector(ABC):
 
     manufacturer: ManufacturerEnum = ManufacturerEnum.UNKNOWN
 
-    def __init__(self, manufacturer: ManufacturerEnum):
-        self.manufacturer = manufacturer
-
-    @property
-    def backend(self) -> str | None:
-        """
-        The backend name of the detector, e.g., 'cuda', 'rocm'.
-        """
-        return manufacturer_to_backend(self.manufacturer)
-
     @staticmethod
     @abstractmethod
     def is_supported() -> bool:
@@ -239,6 +237,16 @@ class Detector(ABC):
 
         """
         raise NotImplementedError
+
+    def __init__(self, manufacturer: ManufacturerEnum):
+        self.manufacturer = manufacturer
+
+    @property
+    def backend(self) -> str | None:
+        """
+        The backend name of the detector, e.g., 'cuda', 'rocm'.
+        """
+        return manufacturer_to_backend(self.manufacturer)
 
     @abstractmethod
     def detect(self) -> Devices | None:

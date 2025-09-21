@@ -19,9 +19,6 @@ class NVIDIADetector(Detector):
     Detect NVIDIA GPUs.
     """
 
-    def __init__(self):
-        super().__init__(ManufacturerEnum.NVIDIA)
-
     @staticmethod
     @lru_cache
     def is_supported() -> bool:
@@ -34,6 +31,7 @@ class NVIDIADetector(Detector):
         """
         supported = False
         if envs.GPUSTACK_RUNTIME_DETECT.lower() not in ("auto", "nvidia"):
+            logger.debug("NVIDIA detection is disabled by environment variable")
             return supported
 
         try:
@@ -46,12 +44,16 @@ class NVIDIADetector(Detector):
 
         return supported
 
+    def __init__(self):
+        super().__init__(ManufacturerEnum.NVIDIA)
+
     def detect(self) -> Devices | None:
         """
         Detect NVIDIA GPUs using pynvml.
 
         Returns:
-            A list of detected NVIDIA GPU devices.
+            A list of detected NVIDIA GPU devices,
+            or None if detection is not supported.
 
         """
         if not self.is_supported():
@@ -104,6 +106,8 @@ class NVIDIADetector(Detector):
                     dev,
                     pynvml.NVML_TEMPERATURE_GPU,
                 )
+                dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
+                dev_power_used = pynvml.nvmlDeviceGetPowerUsage(dev)
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = f"{dev_cc_t[0]}.{dev_cc_t[1]}"
                 dev_appendix = {
@@ -150,6 +154,8 @@ class NVIDIADetector(Detector):
                             memory_used=dev_mem.used >> 20,
                             memory_utilization=(dev_mem.used * 100 // dev_mem.total),
                             temperature=dev_temp,
+                            power=dev_power // 1000,
+                            power_used=dev_power_used // 1000,
                             appendix=dev_appendix,
                         ),
                     )
@@ -172,6 +178,8 @@ class NVIDIADetector(Detector):
                         mdev,
                         pynvml.NVML_TEMPERATURE_GPU,
                     )
+                    mdev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(mdev)
+                    mdev_power_used = pynvml.nvmlDeviceGetPowerUsage(mdev)
                     mdev_appendix = dev_appendix.copy()
 
                     mdev_gi_id = pynvml.nvmlDeviceGetGpuInstanceId(mdev)
@@ -267,6 +275,8 @@ class NVIDIADetector(Detector):
                                 (mdev_mem.used >> 20) * 100 // (mdev_mem.total >> 20)
                             ),
                             temperature=mdev_temp,
+                            power=mdev_power // 1000,
+                            power_used=mdev_power_used // 1000,
                             appendix=mdev_appendix,
                         ),
                     )
