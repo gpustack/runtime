@@ -90,7 +90,6 @@ class AscendDetector(Detector):
                         dev_device_id,
                         pydcmi.DCMI_DIE_TYPE_VDIE,
                     )
-
                     dev_virt_info = _get_device_virtual_info(
                         dev_card_id,
                         dev_device_id,
