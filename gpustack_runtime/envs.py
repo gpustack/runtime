@@ -14,6 +14,10 @@ if TYPE_CHECKING:
     """
     Log level for the gpustack-runtime.
     """
+    GPUSTACK_RUNTIME_LOG_TO_FILE: Path | None = None
+    """
+    Log to file instead of stdout.
+    """
 
     ## Detector
     GPUSTACK_RUNTIME_DETECT: str | None = None
@@ -61,9 +65,9 @@ if TYPE_CHECKING:
 
     # Detector
 
-    GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX: bool = True
+    GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY: bool = True
     """
-    Whether to detect GPU index in bus index.
+    Use physical index priority at detecting devices.
     """
 
     # Deployer
@@ -110,6 +114,9 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_LOG_LEVEL": lambda: getenv(
         "GPUSTACK_RUNTIME_LOG_LEVEL",
         "",
+    ),
+    "GPUSTACK_RUNTIME_LOG_TO_FILE": lambda: mkdir_path(
+        getenv("GPUSTACK_RUNTIME_LOG_TO_FILE", None),
     ),
     "GPUSTACK_RUNTIME_DETECT": lambda: getenv(
         "GPUSTACK_RUNTIME_DETECT",
@@ -165,8 +172,8 @@ variables: dict[str, Callable[[], Any]] = {
         list_sep=",",
     ),
     # Detector
-    "GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX", "1"),
+    "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", "1"),
     ),
     # Deployer
     "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE": lambda: getenv(
@@ -241,7 +248,7 @@ def expand_path(path: Path | str) -> Path | str:
     return path.expanduser().resolve()
 
 
-def mkdir_path(path: Path | str) -> Path:
+def mkdir_path(path: Path | str | None) -> Path | None:
     """
     Create a directory if it does not exist.
 
@@ -249,9 +256,11 @@ def mkdir_path(path: Path | str) -> Path:
         path (str | Path): The path to the directory.
 
     """
+    if not path:
+        return None
     if isinstance(path, str):
         path = Path(path)
-    path.mkdir(exist_ok=True)
+    path.mkdir(parents=True, exist_ok=True)
     return path
 
 

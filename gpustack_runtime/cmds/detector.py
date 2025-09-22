@@ -120,11 +120,13 @@ def format_devices_table(devs: Devices) -> str:
                 if dev.indexes and len(dev.indexes) == 1
                 else ", ".join(str(i) for i in dev.indexes),
             ),
-            dev.name,
-            f"{dev.memory_used}MiB / {dev.memory}MiB",
-            f"{dev.cores_utilization}%",
-            f"{dev.temperature}C",
-            dev.compute_capability,
+            dev.name if dev.name else "N/A",
+            f"{dev.memory_used}MiB / {dev.memory}MiB"
+            if dev.memory and dev.memory_used
+            else "N/A",
+            f"{dev.cores_utilization}%" if dev.cores_utilization else "N/A",
+            f"{dev.temperature}C" if dev.temperature else "N/A",
+            dev.compute_capability if dev.compute_capability else "N/A",
         ]
 
         row_line = "|"

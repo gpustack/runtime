@@ -93,13 +93,14 @@ class NVIDIADetector(Detector):
                         break
 
                 dev_index = dev_idx
-                if envs.GPUSTACK_RUNTIME_DETECT_INDEX_IN_BUS_INDEX:
+                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
                     dev_index = (
                         dev_pci_info.bus - 1
                         if dev_pci_info.bus > 0
                         else dev_pci_info.bus
                     )
                 dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+                dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
                 dev_mem = pynvml.nvmlDeviceGetMemoryInfo(dev)
                 dev_util = pynvml.nvmlDeviceGetUtilizationRates(dev)
                 dev_temp = pynvml.nvmlDeviceGetTemperature(
@@ -139,16 +140,20 @@ class NVIDIADetector(Detector):
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
-                            indexes=[dev_index],
+                            indexes=(
+                                dev_index
+                                if isinstance(dev_index, list)
+                                else [dev_index]
+                            ),
                             name=dev_name,
-                            uuid=dev_uuid,
+                            uuid=dev_uuid.upper(),
                             driver_version=sys_driver_ver,
                             driver_version_tuple=sys_driver_ver_t,
                             runtime_version=dev_runtime_ver,
                             runtime_version_tuple=dev_runtime_ver_t,
                             compute_capability=dev_cc,
                             compute_capability_tuple=dev_cc_t,
-                            cores=1,
+                            cores=dev_cores,
                             cores_utilization=dev_util.gpu,
                             memory=dev_mem.total >> 20,
                             memory_used=dev_mem.used >> 20,
@@ -166,12 +171,11 @@ class NVIDIADetector(Detector):
                 # inspired by https://github.com/NVIDIA/go-nvlib/blob/fdfe25d0ffc9d7a8c166f4639ef236da81116262/pkg/nvlib/device/mig_device.go#L61-L154.
 
                 mdev_name = ""
-                mdev_cores = 0
+                mdev_cores = 1
                 mdev_count = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
                 for mdev_idx in range(mdev_count):
                     mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
 
-                    mdev_index = mdev_idx
                     mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
                     mdev_mem = pynvml.nvmlDeviceGetMemoryInfo(mdev)
                     mdev_temp = pynvml.nvmlDeviceGetTemperature(
@@ -187,6 +191,10 @@ class NVIDIADetector(Detector):
 
                     mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
                     mdev_appendix["compute_instance_id"] = mdev_ci_id
+
+                    mdev_index = mdev_idx
+                    if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                        mdev_index = [mdev_gi_id, mdev_ci_id]
 
                     if not mdev_name:
                         mdev_attrs = pynvml.nvmlDeviceGetAttributes(mdev)
@@ -208,6 +216,11 @@ class NVIDIADetector(Detector):
                                 )
                                 if dev_gi_prf.id != mdev_gi_info.profileId:
                                     continue
+                                mdev_cores = getattr(
+                                    dev_gi_prf,
+                                    "multiprocessorCount",
+                                    1,
+                                )
                             except pynvml.NVMLError:
                                 continue
 
@@ -259,9 +272,13 @@ class NVIDIADetector(Detector):
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
-                            indexes=[mdev_index],
+                            indexes=(
+                                mdev_index
+                                if isinstance(mdev_index, list)
+                                else [mdev_index]
+                            ),
                             name=mdev_name,
-                            uuid=mdev_uuid,
+                            uuid=mdev_uuid.upper(),
                             driver_version=sys_driver_ver,
                             driver_version_tuple=sys_driver_ver_t,
                             runtime_version=dev_runtime_ver,

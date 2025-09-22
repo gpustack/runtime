@@ -18,6 +18,8 @@ from .logging import setup_logging
 
 
 def main():
+    setup_logging()
+
     parser = ArgumentParser(
         "gpustack-runtime",
         description="GPUStack Runtime CLI",
@@ -54,5 +56,4 @@ def main():
 
 
 if __name__ == "__main__":
-    setup_logging()
     main()

@@ -119,6 +119,7 @@ parametrize-names-type = "csv"
 
 [lint.per-file-ignores]
 "tests/*.py" = ["D", "S101"]
+"gpustack_runtime/detector/pydcmi/*.py" = ["ALL"]
 
 [lint.mccabe]
 max-complexity = 50

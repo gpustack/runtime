@@ -4,11 +4,9 @@ from __future__ import annotations
 import atexit
 import logging
 import logging.handlers
-import os
 import queue
 import sys
 import threading
-from pathlib import Path
 from typing import Any
 
 from . import envs
@@ -29,11 +27,11 @@ def _parse_module_levels(level_str: str) -> dict[str, int]:
     Parse the GPUSTACK_RUNTIME_LOG_LEVEL environment variable to determine module-specific log levels.
 
     Examples:
-        - "DEBUG"                                       # All modules at DEBUG
-        - "runtime.module_a:DEBUG"                       # Only module_a module at DEBUG, other modules at INFO
-        - "module_a:DEBUG"                              # Same as above
+        - "DEBUG"                                         # All modules at DEBUG
+        - "runtime.module_a:DEBUG"                        # Only module_a module at DEBUG, other modules at INFO
+        - "module_a:DEBUG"                                # Same as above
         - "runtime.module_a:DEBUG;runtime.module_b:INFO"  # Multiple modules
-        - "ERROR;runtime.module_a:DEBUG"                 # All modules at ERROR, only module_a module at DEBUG
+        - "ERROR;runtime.module_a:DEBUG"                  # All modules at ERROR, only module_a module at DEBUG
 
     """
     module_levels: dict[str, int] = {}  # {"module_name": log_level}
@@ -72,11 +70,11 @@ def setup_logging():
     Environment Variables:
         GPUSTACK_RUNTIME_LOG_LEVEL
             Controls logging levels. Examples:
-            - "DEBUG"                                       # All modules at DEBUG
-            - "runtime.module_a:DEBUG"                       # Only module_a module at DEBUG, other modules at INFO
-            - "module_a:DEBUG"                              # Same as above
+            - "DEBUG"                                         # All modules at DEBUG
+            - "runtime.module_a:DEBUG"                        # Only module_a module at DEBUG, other modules at INFO
+            - "module_a:DEBUG"                                # Same as above
             - "runtime.module_a:DEBUG;runtime.module_b:INFO"  # Multiple modules
-            - "ERROR;runtime.module_a:DEBUG"                 # All modules at ERROR, only module_a module at DEBUG
+            - "ERROR;runtime.module_a:DEBUG"                  # All modules at ERROR, only module_a module at DEBUG
 
         GPUSTACK_RUNTIME_LOG_TO_FILE
             If set, specifies the file path for log output. When this variable is set,
@@ -109,11 +107,7 @@ def setup_logging():
     handlers.append(console_handler)
 
     # File handler (if configured)
-    if log_file := os.environ.get("GPUSTACK_RUNTIME_LOG_TO_FILE"):
-        # Ensure the directory exists
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
+    if log_file := envs.GPUSTACK_RUNTIME_LOG_TO_FILE:
         file_handler = logging.FileHandler(log_file, mode="a")
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
