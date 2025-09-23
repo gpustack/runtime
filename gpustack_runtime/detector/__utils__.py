@@ -11,7 +11,7 @@ class PCIDevice:
     """
     Vendor ID of the PCI device.
     """
-    path: Path
+    path: str
     """
     Path to the PCI device in sysfs.
     """
@@ -80,7 +80,7 @@ def get_pci_devices(
         pci_devices.append(
             PCIDevice(
                 vendor=dev_vendor,
-                path=dev_path,
+                path=str(dev_path),
                 address=dev_address,
                 class_=dev_class,
                 config=dev_config,
@@ -92,7 +92,7 @@ def get_pci_devices(
 
 @dataclass
 class DeviceFile:
-    path: Path
+    path: str
     """
     Path to the device file.
     """
@@ -102,7 +102,7 @@ class DeviceFile:
     """
 
 
-def get_device_files(pattern: str, directory: Path = Path("/dev")) -> list[DeviceFile]:
+def get_device_files(pattern: str, directory: Path | str = "/dev") -> list[DeviceFile]:
     r"""
     Get device files with the given pattern.
 
@@ -123,24 +123,27 @@ def get_device_files(pattern: str, directory: Path = Path("/dev")) -> list[Devic
         msg = "Pattern must include a regex group for the number, e.g nvidia(?P<number>\\d+)."
         raise ValueError(msg)
 
+    if isinstance(directory, str):
+        directory = Path(directory)
+
     device_files = []
     if not directory.exists():
         return device_files
 
     regex = re.compile(f"^{directory!s}/{pattern}$")
-    for path in directory.iterdir():
-        matched = regex.match(str(path))
+    for file_path in directory.iterdir():
+        matched = regex.match(str(file_path))
         if not matched:
             continue
-        number = matched.group("number")
+        file_number = matched.group("number")
         try:
-            number = int(number)
+            file_number = int(file_number)
         except ValueError:
-            number = None
+            file_number = None
         device_files.append(
             DeviceFile(
-                path=path,
-                number=number,
+                path=str(file_path),
+                number=file_number,
             ),
         )
 

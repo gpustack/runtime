@@ -114,14 +114,12 @@ def format_devices_table(devs: Devices) -> str:
     # Device rows
     device_lines = []
     for dev in devs:
-        row_data = [
-            dev.index,
+        row_data: list[str] = [
+            str(dev.index),
             dev.name if dev.name else "N/A",
-            f"{dev.memory_used}MiB / {dev.memory}MiB"
-            if dev.memory and dev.memory_used
-            else "N/A",
-            f"{dev.cores_utilization}%" if dev.cores_utilization else "N/A",
-            f"{dev.temperature}C" if dev.temperature else "N/A",
+            f"{dev.memory_used}MiB / {dev.memory}MiB",
+            f"{dev.cores_utilization}%",
+            f"{dev.temperature}C" if dev.temperature is not None else "N/A",
             dev.compute_capability if dev.compute_capability else "N/A",
         ]
 

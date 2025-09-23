@@ -3,6 +3,19 @@ revision = 2
 requires-python = ">=3.10"
 
 [[package]]
+name = "amdsmi"
+version = "6.2.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "clang" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6a/60/d6939d540b88583027bd821374d8372549ae9aa34691346257a687437d7e/amdsmi-6.2.4.tar.gz", hash = "sha256:5c1b34138038686c1e1b1c6b90708b858f8dc5d2d6af009fa5bd35fa3aa3bdfb", size = 99993, upload-time = "2024-11-09T05:12:52.781Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/30/22d7f743ed3d28ca33a5466f18013203a121ad2f0e22f1902d4509f7ff37/amdsmi-6.2.4-py3-none-any.whl", hash = "sha256:02429befc9f138c3a6bfd0359b44d5f31976804f9818c560f480dab05ac7937a", size = 70440, upload-time = "2024-11-09T05:12:50.867Z" },
+]
+
+[[package]]
 name = "babel"
 version = "2.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -114,6 +127,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/8c/9839225320046ed279c6e839d51f028342eb77c91c89b8ef2549f951f3ec/charset_normalizer-3.4.3-cp314-cp314-win32.whl", hash = "sha256:c6dbd0ccdda3a2ba7c2ecd9d77b37f3b5831687d8dc1b6ca5f56a4880cc7b7ce", size = 100086, upload-time = "2025-08-09T07:56:52.722Z" },
     { url = "https://files.pythonhosted.org/packages/ee/7a/36fbcf646e41f710ce0a563c1c9a343c6edf9be80786edeb15b6f62e17db/charset_normalizer-3.4.3-cp314-cp314-win_amd64.whl", hash = "sha256:73dc19b562516fc9bcf6e5d6e596df0b4eb98d87e4f79f3ae71840e6ed21361c", size = 107400, upload-time = "2025-08-09T07:56:55.172Z" },
     { url = "https://files.pythonhosted.org/packages/8a/1f/f041989e93b001bc4e44bb1669ccdcf54d3f00e628229a85b08d330615c5/charset_normalizer-3.4.3-py3-none-any.whl", hash = "sha256:ce571ab16d890d23b5c278547ba694193a45011ff86a9162a71307ed9f86759a", size = 53175, upload-time = "2025-08-09T07:57:26.864Z" },
+]
+
+[[package]]
+name = "clang"
+version = "20.1.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/55/39db28e9b95c6ed49b5fce40878e034961d05dcda7d26347392af6755d28/clang-20.1.5.tar.gz", hash = "sha256:1395dc8f51a4542644356cacae482d797b2e1b3f72ab7674af42de593a3dff7f", size = 8605, upload-time = "2025-05-19T13:06:46.348Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/bd/8410abff6b094f42e702745c90bb869cd78b66212aad1d5ccf4ebdfc4ad9/clang-20.1.5-py3-none-any.whl", hash = "sha256:b816c582ee8d230a7591386569cfb9311bf67339136aed7fd48264009da9c0b3", size = 38983, upload-time = "2025-05-19T13:06:44.364Z" },
 ]
 
 [[package]]
@@ -262,6 +284,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "amdsmi" },
     { name = "dockerpty" },
     { name = "hatch-vcs" },
     { name = "hatchling" },
@@ -284,6 +307,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "amdsmi", specifier = "==6.2.4" },
     { name = "dockerpty", specifier = ">=0.4.1" },
     { name = "hatch-vcs" },
     { name = "hatchling" },

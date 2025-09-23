@@ -1094,6 +1094,15 @@ def dcmi_get_pcie_link_bandwidth_info(card_id, device_id):
 
 
 @convertStrBytes
+def dcmi_get_driver_version():
+    c_driver_ver = create_string_buffer(64)
+    fn = _dcmiGetFunctionPointer("dcmi_get_driver_version")
+    ret = fn(c_driver_ver, c_uint(64))
+    _dcmiCheckReturn(ret)
+    return c_driver_ver.value
+
+
+@convertStrBytes
 def dcmi_get_dcmi_version():
     c_dcmi_ver = create_string_buffer(32)
     fn = _dcmiGetFunctionPointer("dcmi_get_dcmi_version")

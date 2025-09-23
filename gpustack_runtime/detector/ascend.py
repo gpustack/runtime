@@ -6,7 +6,7 @@ from functools import lru_cache
 from .. import envs
 from . import pydcmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import get_pci_devices
+from .__utils__ import PCIDevice, get_pci_devices
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,11 @@ class AscendDetector(Detector):
             logger.debug("Ascend detection is disabled by environment variable")
             return supported
 
+        pci_devs = AscendDetector.detect_pci_devices()
+        if not pci_devs:
+            logger.debug("No Ascend PCI devices found")
+            return supported
+
         try:
             pydcmi.dcmi_init()
             pydcmi.dcmi_shutdown()
@@ -40,6 +45,14 @@ class AscendDetector(Detector):
                 logger.exception("Failed to initialize DCMI")
 
         return supported
+
+    @staticmethod
+    @lru_cache
+    def detect_pci_devices() -> dict[str, PCIDevice] | None:
+        pci_devs = get_pci_devices(vendor="0x19e5")
+        if not pci_devs:
+            return None
+        return {dev.address: dev for dev in pci_devs}
 
     def __init__(self):
         super().__init__(ManufacturerEnum.ASCEND)
@@ -59,23 +72,21 @@ class AscendDetector(Detector):
         ret: Devices = []
 
         try:
-            pci_devs = get_pci_devices(vendor="0x19e5")
-            if not pci_devs:
-                return ret
-
             pydcmi.dcmi_init()
 
-            sys_driver_ver = pydcmi.dcmi_get_dcmi_version()
+            sys_driver_ver = pydcmi.dcmi_get_driver_version()
             sys_driver_ver_t = [
                 int(v) if v.isdigit() else v for v in sys_driver_ver.split(".")
             ]
 
-            dev_runner_ver = pydcmi.dcmi_get_cann_version()
-            dev_runner_ver_t = None
-            if dev_runner_ver:
-                dev_runner_ver_t = [
-                    int(v) if v.isdigit() else v for v in dev_runner_ver.split(".")
+            sys_runtime_ver = pydcmi.dcmi_get_cann_version()
+            sys_runtime_ver_t = None
+            if sys_runtime_ver:
+                sys_runtime_ver_t = [
+                    int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")
                 ]
+            else:
+                sys_runtime_ver = None
 
             _, card_list = pydcmi.dcmi_get_card_list()
             for dev_card_id in card_list:
@@ -96,9 +107,7 @@ class AscendDetector(Detector):
                         dev_name = f"Ascend {dev_virt_info.query_info.name}"
                         dev_mem, dev_mem_used = 0, 0
                         if hasattr(dev_virt_info.query_info.computing, "memory_size"):
-                            dev_mem = (
-                                dev_virt_info.query_info.computing.memory_size << 20
-                            )
+                            dev_mem = dev_virt_info.query_info.computing.memory_size
                         dev_index = dev_virt_info.vdev_id
                     else:
                         dev_chip_info = pydcmi.dcmi_get_device_chip_info_v2(
@@ -165,24 +174,20 @@ class AscendDetector(Detector):
                             uuid=dev_uuid.upper(),
                             driver_version=sys_driver_ver,
                             driver_version_tuple=sys_driver_ver_t,
-                            runtime_version=dev_runner_ver,
-                            runtime_version_tuple=dev_runner_ver_t,
-                            compute_capability="",
-                            compute_capability_tuple=None,
+                            runtime_version=sys_runtime_ver,
+                            runtime_version_tuple=sys_runtime_ver_t,
                             cores=dev_cores_aicore,
                             cores_utilization=dev_util_aicore,
-                            memory=dev_mem >> 20,  # Convert from bytes to MiB
-                            memory_used=dev_mem_used >> 20,  # Convert from bytes to MiB
+                            memory=dev_mem,
+                            memory_used=dev_mem_used,
                             memory_utilization=(
                                 (dev_mem_used / dev_mem) * 100 if dev_mem > 0 else 0
                             ),
                             temperature=dev_temp,
-                            power=0,
                             power_used=dev_power_used / 10,  # Convert from 0.1W to W
                             appendix=dev_appendix,
                         ),
                     )
-
         except pydcmi.DCMIError:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Failed to fetch devices")
@@ -202,29 +207,29 @@ def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
     Get device memory information.
 
     Returns:
-        A tuple containing total memory and used memory in bytes.
+        A tuple containing total memory and used memory in MiB.
 
     """
     try:
         dev_hbm_info = pydcmi.dcmi_get_device_hbm_info(dev_card_id, dev_device_id)
         if dev_hbm_info.memory_size > 0:
-            dev_mem = dev_hbm_info.memory_size << 20  # Convert from MB to bytes
-            dev_mem_used = dev_hbm_info.memory_usage << 20  # Convert from MB to bytes
+            dev_mem = dev_hbm_info.memory_size
+            dev_mem_used = dev_hbm_info.memory_usage
         else:
             dev_memory_info = pydcmi.dcmi_get_device_memory_info_v3(
                 dev_card_id,
                 dev_device_id,
             )
-            dev_mem = dev_memory_info.memory_size << 20  # Convert from MB to bytes
-            dev_mem_used = dev_memory_info.utiliza << 20  # Convert from MB to bytes
+            dev_mem = dev_memory_info.memory_size
+            dev_mem_used = dev_memory_info.utiliza
     except pydcmi.DCMIError as e:
         if e.value == pydcmi.DCMI_ERROR_FUNCTION_NOT_FOUND:
             dev_memory_info = pydcmi.dcmi_get_device_memory_info_v3(
                 dev_card_id,
                 dev_device_id,
             )
-            dev_mem = dev_memory_info.memory_size << 20  # Convert from MB to bytes
-            dev_mem_used = dev_memory_info.utiliza << 20  # Convert from MB to bytes
+            dev_mem = dev_memory_info.memory_size
+            dev_mem_used = dev_memory_info.utiliza
         else:
             raise
 

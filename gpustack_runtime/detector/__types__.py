@@ -149,34 +149,34 @@ class Device:
     """
     UUID of the device.
     """
-    driver_version: str = ""
+    driver_version: str | None = None
     """
     Driver version of the device.
     """
     driver_version_tuple: list[int | str] | None = None
     """
     Driver version tuple of the device.
-    None if `driver_version` is blank.
+    None if `driver_version` is missed.
     """
-    runtime_version: str = ""
+    runtime_version: str | None = None
     """
     Runtime version of the device.
     """
     runtime_version_tuple: list[int | str] | None = None
     """
     Runtime version tuple of the device.
-    None if `runtime_version` is blank.
+    None if `runtime_version` is missed.
     """
-    compute_capability: str = ""
+    compute_capability: str | None = None
     """
     Compute capability of the device.
     """
     compute_capability_tuple: list[int | str] | None = None
     """
     Compute capability tuple of the device.
-    None if `compute_capability` is blank.
+    None if `compute_capability` is missed.
     """
-    cores: int = 0
+    cores: int | None = None
     """
     Total cores of the device.
     """
@@ -196,15 +196,15 @@ class Device:
     """
     Memory utilization of the device in percentage.
     """
-    temperature: int = 0
+    temperature: int | None = None
     """
     Temperature of the device in Celsius.
     """
-    power: int = 0
+    power: int | None = None
     """
     Power consumption of the device in Watts.
     """
-    power_used: int = 0
+    power_used: int | None = None
     """
     Used power of the device in Watts.
     """

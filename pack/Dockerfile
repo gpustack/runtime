@@ -7,14 +7,17 @@
 #    - Install Python buildkit.
 #    - Install Platform toolkit.
 # 2. gpustack-runtime target.
+#    - Fetch the ROCm base image only for later libraries vendoring.
+#    - Install gpustack-runtime package from the mounted source code.
+#    - Setup entrypoint to gpustack-runtime command.
 
 # Argument usage:
 # - PYTHON_VERSION: Version of Python to use.
 # - GPUSTACK_RUNTIME_BASE_IMAGE: Base image for the gpustack-runtime stage.
-# - GPUSTACK_RUNTIME_VENV_INSTALL: Whether to install GPUStack runtime in a virtual environment.
+# - GPUSTACK_RUNTIME_ROCM_VERSION: Version of ROCm to vendor libraries from, update this if project dependencies has changed.
 ARG PYTHON_VERSION=3.11
 ARG GPUSTACK_RUNTIME_BASE_IMAGE=runtime
-ARG GPUSTACK_RUNTIME_VENV_INSTALL=true
+ARG GPUSTACK_RUNTIME_ROCM_VERSION=6.2.4
 
 FROM ubuntu:22.04@sha256:3c61d3759c2639d4b836d32a2d3c83fa0214e36f195a3421018dbaaf79cbe37f AS runtime
 SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
@@ -219,6 +222,11 @@ EOT
         && rm -rf /tmp/*
 EOF
 
+# Vendor ROCm libraries from ROCm base image,
+# now only linux/amd64 is supported.
+# Must build on linux/amd64 platform.
+FROM --platform=${BUILDPLATFORM} rocm/dev-ubuntu-22.04:${GPUSTACK_RUNTIME_ROCM_VERSION} AS rocm-base
+
 # Stage GPUStack Runtime
 #
 # Example build command:
@@ -234,44 +242,51 @@ ARG TARGETARCH
 
 ## Install
 
-ARG GPUSTACK_RUNTIME_VENV_INSTALL
 
 RUN --mount=type=bind,target=/workspace/runtime,rw <<EOF
-    # Prepare environment
-    if [[ "${GPUSTACK_RUNTIME_VENV_INSTALL}" == "true" ]]; then
-        echo "Installing GPUStack runtime in a virtual environment..."
-        uv venv /opt/gpustack-runtime
-        source /opt/gpustack-runtime/bin/activate
-    else
-        echo "Installing GPUStack runtime in the system Python environment..."
-        export UV_SYSTEM_PYTHON=1
-    fi
-
-    # Install gpustack-runtime
+   # Install gpustack-runtime
+    echo "Installing GPUStack runtime in the system Python environment..."
+    export UV_SYSTEM_PYTHON=1
     export UV_PRERELEASE=allow
     export UV_NO_CACHE=1
     uv pip install \
         /workspace/runtime
     uv pip tree
-
-    # Symlink gpustack-runtime if installed in a virtual environment
-    if [[ $(which gpustack-runtime) == "/opt/gpustack-runtime/bin/gpustack-runtime" ]]; then
-        ln -s /opt/gpustack-runtime/bin/gpustack-runtime /usr/bin/gpustack-runtime
-    fi
 EOF
 
 ## Entrypoint
 
-ENV AMD_VISIBLE_DEVICES="0"
+## Active all AMD devices detection,
+## works with (default) ROCm container runtime and privileged mode.
+## Options:
+## - Mount /opt/rocm from the host to detect the correct ROCm version.
+## E.g. docker run --privileged --runtime amd gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+RUN --mount=type=bind,from=rocm-base,source=/opt/rocm/share,target=/opt/rocm/share,rw <<EOF
+    # Reinstall amd-smi
+    echo "Installing GPUStack runtime in the system Python environment..."
+    export UV_SYSTEM_PYTHON=1
+    export UV_PRERELEASE=allow
+    export UV_NO_CACHE=1
+    uv pip install --no-build-isolation \
+        /opt/rocm/share/amd_smi
+    uv pip tree
+EOF
+ENV AMD_VISIBLE_DEVICES="0" \
+    ROCM_HOME="/opt/rocm"
+
+## Active all Ascend devices detection,
+## works with (default) Ascend container runtime and privileged mode.
+## Options:
+## - Mount /usr/local/Ascend/ascend-toolkit/latest to detect the correct CANN version.
+## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
 ENV ASCEND_VISIBLE_DEVICES="0"
+
+## Active all NVIDIA devices detection,
+## works with (default) NVIDIA container runtime and privileged mode.
+## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
 ENV NVIDIA_DISABLE_REQUIRE="true" \
-    NVIDIA_VISIBLE_DEVICES="all" \
+    NVIDIA_VISIBLE_DEVICES="0" \
     NVIDIA_DRIVER_CAPABILITIES="compute,utility"
 
 WORKDIR /
 ENTRYPOINT [ "tini", "--" ]
-
-# docker run -it --rm \
-#   --volume /var/run/docker.sock:/var/run/docker.sock \
-#   gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
-#   gpustack-runtime --help

@@ -10,12 +10,14 @@ from .__types__ import (
     supported_backends,
     supported_manufacturers,
 )
+from .amd import AMDDetector
 from .ascend import AscendDetector
 from .nvidia import NVIDIADetector
 
 detectors: list[Detector] = [
-    NVIDIADetector(),
+    AMDDetector(),
     AscendDetector(),
+    NVIDIADetector(),
 ]
 
 
