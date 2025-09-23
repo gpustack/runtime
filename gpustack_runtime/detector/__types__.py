@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -133,12 +133,13 @@ class Device:
     """
     Manufacturer of the device.
     """
-    indexes: list[int] = field(default_factory=list)
+    index: int = 0
     """
-    Indexes of the device.
-    For most devices, this field usually contains only one index.
-    However, some devices use the chip on the device as the actual device,
-    so this field may contain multiple indexes.
+    Index of the device.
+    If GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY is set to 1,
+    this will be the physical index of the device.
+    Otherwise, it will be the logical index of the device.
+    Physical index is adapted to non-virtualized devices.
     """
     name: str = ""
     """

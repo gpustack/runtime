@@ -115,11 +115,7 @@ def format_devices_table(devs: Devices) -> str:
     device_lines = []
     for dev in devs:
         row_data = [
-            str(
-                dev.indexes[0]
-                if dev.indexes and len(dev.indexes) == 1
-                else ", ".join(str(i) for i in dev.indexes),
-            ),
+            dev.index,
             dev.name if dev.name else "N/A",
             f"{dev.memory_used}MiB / {dev.memory}MiB"
             if dev.memory and dev.memory_used

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -87,3 +88,64 @@ def get_pci_devices(
         )
 
     return pci_devices
+
+
+@dataclass
+class DeviceFile:
+    path: Path
+    """
+    Path to the device file.
+    """
+    number: int | None = None
+    """
+    Number of the device file.
+    """
+
+
+def get_device_files(pattern: str, directory: Path = Path("/dev")) -> list[DeviceFile]:
+    r"""
+    Get device files with the given pattern.
+
+    Args:
+        pattern:
+            Pattern of the device files to search for.
+            Pattern must include a regex group for the number,
+            e.g nvidia(?P<number>\d+).
+        directory:
+            Directory to search for device files,
+            e.g /dev.
+
+    Returns:
+        List of DeviceFile objects.
+
+    """
+    if "(?P<number>" not in pattern:
+        msg = "Pattern must include a regex group for the number, e.g nvidia(?P<number>\\d+)."
+        raise ValueError(msg)
+
+    device_files = []
+    if not directory.exists():
+        return device_files
+
+    regex = re.compile(f"^{directory!s}/{pattern}$")
+    for path in directory.iterdir():
+        matched = regex.match(str(path))
+        if not matched:
+            continue
+        number = matched.group("number")
+        try:
+            number = int(number)
+        except ValueError:
+            number = None
+        device_files.append(
+            DeviceFile(
+                path=path,
+                number=number,
+            ),
+        )
+
+    # Sort by number in ascending order, None values at the end
+    return sorted(
+        device_files,
+        key=lambda df: (df.number is None, df.number),
+    )

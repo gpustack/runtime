@@ -9,7 +9,7 @@ import pynvml
 
 from .. import envs
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import get_pci_devices
+from .__utils__ import get_device_files, get_pci_devices
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +82,12 @@ class NVIDIADetector(Detector):
             dev_runtime_ver = f"{dev_runtime_ver_t[0]}.{dev_runtime_ver_t[1]}"
 
             dev_count = pynvml.nvmlDeviceGetCount()
+            dev_files = None
             for dev_idx in range(dev_count):
                 dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
 
-                dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
                 dev_is_vgpu = False
+                dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
                 for addr in [dev_pci_info.busIdLegacy, dev_pci_info.busId]:
                     if addr in pci_devs:
                         dev_is_vgpu = _is_vgpu(pci_devs[addr].config)
@@ -94,11 +95,12 @@ class NVIDIADetector(Detector):
 
                 dev_index = dev_idx
                 if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                    dev_index = (
-                        dev_pci_info.bus - 1
-                        if dev_pci_info.bus > 0
-                        else dev_pci_info.bus
-                    )
+                    if dev_files is None:
+                        dev_files = get_device_files(pattern=r"nvidia(?P<number>\d+)")
+                    if len(dev_files) > dev_idx:
+                        dev_file = dev_files[dev_idx]
+                        if dev_file.number is not None:
+                            dev_index = dev_file.number
                 dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
                 dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
                 dev_mem = pynvml.nvmlDeviceGetMemoryInfo(dev)
@@ -140,11 +142,7 @@ class NVIDIADetector(Detector):
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
-                            indexes=(
-                                dev_index
-                                if isinstance(dev_index, list)
-                                else [dev_index]
-                            ),
+                            index=dev_index,
                             name=dev_name,
                             uuid=dev_uuid.upper(),
                             driver_version=sys_driver_ver,
@@ -176,6 +174,7 @@ class NVIDIADetector(Detector):
                 for mdev_idx in range(mdev_count):
                     mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
 
+                    mdev_index = mdev_idx
                     mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
                     mdev_mem = pynvml.nvmlDeviceGetMemoryInfo(mdev)
                     mdev_temp = pynvml.nvmlDeviceGetTemperature(
@@ -191,10 +190,6 @@ class NVIDIADetector(Detector):
 
                     mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
                     mdev_appendix["compute_instance_id"] = mdev_ci_id
-
-                    mdev_index = mdev_idx
-                    if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                        mdev_index = [mdev_gi_id, mdev_ci_id]
 
                     if not mdev_name:
                         mdev_attrs = pynvml.nvmlDeviceGetAttributes(mdev)
@@ -272,11 +267,7 @@ class NVIDIADetector(Detector):
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
-                            indexes=(
-                                mdev_index
-                                if isinstance(mdev_index, list)
-                                else [mdev_index]
-                            ),
+                            index=mdev_index,
                             name=mdev_name,
                             uuid=mdev_uuid.upper(),
                             driver_version=sys_driver_ver,

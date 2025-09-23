@@ -81,15 +81,7 @@ class AscendDetector(Detector):
             for dev_card_id in card_list:
                 device_num_in_card = pydcmi.dcmi_get_device_num_in_card(dev_card_id)
                 for dev_device_id in range(device_num_in_card):
-                    dev_index = pydcmi.dcmi_get_device_logic_id(
-                        dev_card_id,
-                        dev_device_id,
-                    )
-                    dev_uuid = pydcmi.dcmi_get_device_die_v2(
-                        dev_card_id,
-                        dev_device_id,
-                        pydcmi.DCMI_DIE_TYPE_VDIE,
-                    )
+                    dev_is_vgpu = False
                     dev_virt_info = _get_device_virtual_info(
                         dev_card_id,
                         dev_device_id,
@@ -99,13 +91,15 @@ class AscendDetector(Detector):
                         and hasattr(dev_virt_info, "query_info")
                         and hasattr(dev_virt_info.query_info, "computing")
                     ):
+                        dev_is_vgpu = True
                         dev_cores_aicore = dev_virt_info.query_info.computing.aic
-                        dev_name = f"Ascend VDC {dev_virt_info.vdev_id}"
+                        dev_name = f"Ascend {dev_virt_info.query_info.name}"
                         dev_mem, dev_mem_used = 0, 0
                         if hasattr(dev_virt_info.query_info.computing, "memory_size"):
                             dev_mem = (
                                 dev_virt_info.query_info.computing.memory_size << 20
                             )
+                        dev_index = dev_virt_info.vdev_id
                     else:
                         dev_chip_info = pydcmi.dcmi_get_device_chip_info_v2(
                             dev_card_id,
@@ -119,6 +113,19 @@ class AscendDetector(Detector):
                             dev_card_id,
                             dev_device_id,
                         )
+                        dev_index = pydcmi.dcmi_get_device_logic_id(
+                            dev_card_id,
+                            dev_device_id,
+                        )
+                        if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                            dev_index = pydcmi.dcmi_get_device_phyid_from_logicid(
+                                dev_index,
+                            )
+                    dev_uuid = pydcmi.dcmi_get_device_die_v2(
+                        dev_card_id,
+                        dev_device_id,
+                        pydcmi.DCMI_DIE_TYPE_VDIE,
+                    )
                     dev_util_aicore = pydcmi.dcmi_get_device_utilization_rate(
                         dev_card_id,
                         dev_device_id,
@@ -133,6 +140,7 @@ class AscendDetector(Detector):
                         dev_device_id,
                     )
                     dev_appendix = {
+                        "vgpu": dev_is_vgpu,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
                     }
@@ -152,11 +160,7 @@ class AscendDetector(Detector):
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
-                            indexes=(
-                                dev_index
-                                if isinstance(dev_index, list)
-                                else [dev_index]
-                            ),
+                            index=dev_index,
                             name=dev_name,
                             uuid=dev_uuid.upper(),
                             driver_version=sys_driver_ver,

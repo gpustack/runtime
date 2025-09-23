@@ -46,4 +46,5 @@ copyright: Copyright &copy; 2025, GPUStack Contributors
 nav:
   - Modules:
       - gpustack_runtime: modules/gpustack_runtime.md
-      - gpustack_runtime.detect: modules/gpustack_runtime.detect.md
+      - gpustack_runtime.detector: modules/gpustack_runtime.detector.md
+      - gpustack_runtime.deployer: modules/gpustack_runtime.deployer.md
