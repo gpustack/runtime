@@ -198,6 +198,13 @@ class AscendDetector(Detector):
 
 
 def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
+    """
+    Get device memory information.
+
+    Returns:
+        A tuple containing total memory and used memory in bytes.
+
+    """
     try:
         dev_hbm_info = pydcmi.dcmi_get_device_hbm_info(dev_card_id, dev_device_id)
         if dev_hbm_info.memory_size > 0:
@@ -228,6 +235,13 @@ def _get_device_roce_network_info(
     dev_card_id,
     dev_device_id,
 ) -> tuple[str | None, str | None, str | None]:
+    """
+    Get device RoCE network information.
+
+    Returns:
+        A tuple containing IP address, subnet mask, and gateway.
+
+    """
     ip, mask, gateway = None, None, None
 
     try:
@@ -252,6 +266,13 @@ def _get_device_virtual_info(
     dev_card_id,
     dev_device_id,
 ) -> pydcmi.c_dcmi_vdev_query_stru | None:
+    """
+    Get device virtual information.
+
+    Returns:
+        A c_dcmi_vdev_query_stru object if successful, None otherwise.
+
+    """
     try:
         c_vdev_query_stru = pydcmi.c_dcmi_vdev_query_stru()
         pydcmi.dcmi_get_device_info(
