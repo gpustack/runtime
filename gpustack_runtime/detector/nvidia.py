@@ -532,7 +532,7 @@ def _is_vgpu(dev_config: bytes) -> bool:
     pos = dev_config[cap_start]
     while pos != 0 and pos not in visited and pos < len(dev_config) - 2:
         visited.add(pos)
-        ptr = dev_config[pos : pos + 2]  # id, next, length
+        ptr = dev_config[pos : pos + 3]  # id, next, length
         if ptr[0] == 0xFF:
             break
         if ptr[0] == cap_vendor_specific_id:
