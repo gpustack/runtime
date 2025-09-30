@@ -1,6 +1,8 @@
 ##
 # Python bindings for the DCMI library
 ##
+from __future__ import annotations
+
 import contextlib
 import os
 import re
@@ -199,12 +201,16 @@ class DCMIError(Exception):
             return f"DCMI Error with code {self.value}"
 
     def __eq__(self, other):
-        return self.value == other.value
+        if isinstance(other, DCMIError):
+            return self.value == other.value
+        if isinstance(other, int):
+            return self.value == other
+        return False
 
 
 def dcmiExceptionClass(dcmiErrorCode):
     if dcmiErrorCode not in DCMIError._valClassMapping:
-        msg = f"dcmiErrorCode {dcmiErrorCode} is not valid"
+        msg = f"DCMI erro code {dcmiErrorCode} is not valid"
         raise ValueError(msg)
     return DCMIError._valClassMapping[dcmiErrorCode]
 
@@ -434,14 +440,13 @@ class c_dcmi_ip_addr(_PrintableStructure):
         if self.ip_type == DCMI_IPADDR_TYPE_V4:
             parts = [str(b) for b in self.u_addr.ip4]
             return ".".join(parts)
-        elif self.ip_type == DCMI_IPADDR_TYPE_V6:
+        if self.ip_type == DCMI_IPADDR_TYPE_V6:
             parts = [
                 f"{self.u_addr.ip6[i] << 8 | self.u_addr.ip6[i + 1]:x}"
                 for i in range(0, 16, 2)
             ]
             return ":".join(parts)
-        else:
-            return ""
+        return ""
 
 
 class c_dcmi_base_resource(_PrintableStructure):
@@ -729,10 +734,8 @@ def _LoadDcmiLibrary():
                     # Windows support would require different path handling
                     raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
-                try:
+                with contextlib.suppress(OSError):
                     dcmiLib = CDLL("libdcmi.so")
-                except OSError:
-                    raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
                 if dcmiLib is None:
                     raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
         finally:

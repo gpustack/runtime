@@ -332,26 +332,26 @@ def _get_arch_family(dev_cc_t: list[int]) -> str:
     """
     match dev_cc_t[0]:
         case 1:
-            return "tesla"
+            return "Tesla"
         case 2:
-            return "fermi"
+            return "Fermi"
         case 3:
-            return "kepler"
+            return "Kepler"
         case 5:
-            return "maxwell"
+            return "Maxwell"
         case 6:
-            return "pascal"
+            return "Pascal"
         case 7:
-            return "volta" if dev_cc_t[1] < 5 else "turing"
+            return "Volta" if dev_cc_t[1] < 5 else "Turing"
         case 8:
             if dev_cc_t[1] < 9:
-                return "ampere"
-            return "ada-lovelace"
+                return "Ampere"
+            return "Ada-Lovelace"
         case 9:
-            return "hopper"
+            return "Hopper"
         case 10 | 12:
-            return "blackwell"
-    return "unknown"
+            return "Blackwell"
+    return "Unknown"
 
 
 def _get_gpu_instance_slices(dev_gi_prf_id: int) -> int:

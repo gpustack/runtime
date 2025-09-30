@@ -260,6 +260,7 @@ EOF
 ## works with (default) ROCm container runtime and privileged mode.
 ## Options:
 ## - Mount /opt/rocm from the host to detect the correct ROCm version.
+## - Mount /sys from the host to detect the correct devices' PCI info.
 ## E.g. docker run --privileged --runtime amd gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
 RUN --mount=type=bind,from=rocm-base,source=/opt/rocm/share,target=/opt/rocm/share,rw <<EOF
     # Reinstall amd-smi
@@ -278,11 +279,14 @@ ENV AMD_VISIBLE_DEVICES="0" \
 ## works with (default) Ascend container runtime and privileged mode.
 ## Options:
 ## - Mount /usr/local/Ascend/ascend-toolkit/latest to detect the correct CANN version.
+## - Mount /sys from the host to detect the correct devices' PCI info.
 ## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
 ENV ASCEND_VISIBLE_DEVICES="0"
 
 ## Active all NVIDIA devices detection,
 ## works with (default) NVIDIA container runtime and privileged mode.
+## Options:
+## - Mount /sys from the host to detect the correct devices' PCI info.
 ## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
 ENV NVIDIA_DISABLE_REQUIRE="true" \
     NVIDIA_VISIBLE_DEVICES="0" \

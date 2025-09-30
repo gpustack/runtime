@@ -5,6 +5,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
+from . import pyamdgpu, pyamdsmi, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import PCIDevice, get_device_files, get_pci_devices
 
@@ -34,13 +35,6 @@ class AMDDetector(Detector):
         pci_devs = AMDDetector.detect_pci_devices()
         if not pci_devs:
             logger.debug("No AMD PCI devices found")
-            return supported
-
-        try:
-            import amdsmi as pyamdsmi  # noqa: PLC0415
-        except ImportError:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.exception("amdsmi module is not installed")
             return supported
 
         try:
@@ -76,35 +70,41 @@ class AMDDetector(Detector):
         if not self.is_supported():
             return None
 
-        try:
-            import amdsmi as pyamdsmi  # noqa: PLC0415
-        except ImportError:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.exception("amdsmi module is not installed")
-            return None
-
         ret: Devices = []
 
         try:
             pyamdsmi.amdsmi_init()
 
-            sys_runtime_ver = None
+            sys_runtime_ver = pyamdsmi.amdsmi_get_rocm_version2()
             sys_runtime_ver_t = None
+            if sys_runtime_ver:
+                sys_runtime_ver_t = [
+                    int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")
+                ]
 
             devs = pyamdsmi.amdsmi_get_processor_handles()
-            dev_files = None
+            dev_files = get_device_files(
+                pattern=r"card(?P<number>\d+)",
+                directory="/dev/dri",
+            )
             for dev_idx, dev in enumerate(devs):
+                dev_card = None
                 dev_index = dev_idx
-                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                    if dev_files is None:
-                        dev_files = get_device_files(
-                            pattern=r"card(?P<number>\d+)",
-                            directory="/dev/dri",
-                        )
-                    if len(dev_files) > dev_idx:
-                        dev_file = dev_files[dev_idx]
-                        if dev_file.number is not None:
-                            dev_index = dev_file.number - 1
+                if len(dev_files) > dev_idx:
+                    dev_file = dev_files[dev_idx]
+                    if dev_file.number is not None:
+                        dev_card = dev_file.number
+                        if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                            dev_index = (
+                                dev_file.number - 1 if dev_file.number > 0 else 0
+                            )
+
+                dev_gpu_device_info = None
+                if dev_card is not None:
+                    with contextlib.suppress(pyamdgpu.AMDGPUError):
+                        _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(dev_card)
+                        dev_gpu_device_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
+                        pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
 
                 dev_uuid = pyamdsmi.amdsmi_get_gpu_device_uuid(dev)
 
@@ -114,10 +114,25 @@ class AMDDetector(Detector):
                     int(v) if v.isdigit() else v for v in dev_driver_ver.split(".")
                 ]
 
-                dev_gpu_board_info = pyamdsmi.amdsmi_get_gpu_board_info(dev)
-                dev_name = "AMD " + dev_gpu_board_info.get("product_name")
+                dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
+                dev_name = "AMD " + dev_gpu_asic_info.get("market_name")
+                dev_cc = None
+                dev_cc_t = None
+                if hasattr(dev_gpu_asic_info, "target_graphics_version"):
+                    dev_cc = dev_gpu_asic_info.target_graphics_version
+                else:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
+                if dev_cc:
+                    dev_cc = dev_cc[3:]  # Strip "gfx" prefix
+                    dev_cc_t = [int(v) if v.isdigit() else v for v in dev_cc.split(".")]
 
                 dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
+                dev_cores = (
+                    dev_gpu_device_info.cu_active_number
+                    if dev_gpu_device_info
+                    else None
+                )
                 dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)
                 dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
                 dev_mem = dev_gpu_vram_usage.get("vram_total")
@@ -139,6 +154,7 @@ class AMDDetector(Detector):
                     )
 
                 dev_appendix = {
+                    "arch_family": _get_arch_family(dev_gpu_device_info),
                     "vgpu": dev_compute_partition is not None,
                 }
 
@@ -152,6 +168,9 @@ class AMDDetector(Detector):
                         driver_version_tuple=dev_driver_ver_t,
                         runtime_version=sys_runtime_ver,
                         runtime_version_tuple=sys_runtime_ver_t,
+                        compute_capability=dev_cc,
+                        compute_capability_tuple=dev_cc_t,
+                        cores=dev_cores,
                         cores_utilization=dev_cores_util,
                         memory=dev_mem,
                         memory_used=dev_mem_used,
@@ -176,3 +195,35 @@ class AMDDetector(Detector):
             pyamdsmi.amdsmi_shut_down()
 
         return ret
+
+
+def _get_arch_family(
+    dev_gpu_device_info: pyamdgpu.c_amdgpu_gpu_info | None,
+) -> str | None:
+    if not dev_gpu_device_info:
+        return None
+
+    family_id = dev_gpu_device_info.family_id
+    if family_id is None:
+        return None
+
+    arch_family = {
+        pyamdgpu.AMDGPU_FAMILY_SI: "Southern Islands",
+        pyamdgpu.AMDGPU_FAMILY_CI: "Sea Islands",
+        pyamdgpu.AMDGPU_FAMILY_KV: "Kaveri",
+        pyamdgpu.AMDGPU_FAMILY_VI: "Volcanic Islands",
+        pyamdgpu.AMDGPU_FAMILY_CZ: "Carrizo",
+        pyamdgpu.AMDGPU_FAMILY_AI: "Arctic Islands",
+        pyamdgpu.AMDGPU_FAMILY_RV: "Raven",
+        pyamdgpu.AMDGPU_FAMILY_NV: "Navi",
+        pyamdgpu.AMDGPU_FAMILY_VGH: "Van Gogh",
+        pyamdgpu.AMDGPU_FAMILY_GC_11_0_0: "GC 11.0.0",
+        pyamdgpu.AMDGPU_FAMILY_YC: "Yellow Carp",
+        pyamdgpu.AMDGPU_FAMILY_GC_11_0_1: "GC 11.0.1",
+        pyamdgpu.AMDGPU_FAMILY_GC_10_3_6: "GC 10.3.6",
+        pyamdgpu.AMDGPU_FAMILY_GC_10_3_7: "GC 10.3.7",
+        pyamdgpu.AMDGPU_FAMILY_GC_11_5_0: "GC 11.5.0",
+        pyamdgpu.AMDGPU_FAMILY_GC_12_0_0: "GC 12.0.0",
+    }
+
+    return arch_family.get(family_id, "Unknown")
