@@ -80,13 +80,11 @@ class AscendDetector(Detector):
             ]
 
             sys_runtime_ver = pydcmi.dcmi_get_cann_version()
-            sys_runtime_ver_t = None
-            if sys_runtime_ver:
-                sys_runtime_ver_t = [
-                    int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")
-                ]
-            else:
-                sys_runtime_ver = None
+            sys_runtime_ver_t = (
+                [int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")]
+                if sys_runtime_ver
+                else None
+            )
 
             _, card_list = pydcmi.dcmi_get_card_list()
             for dev_card_id in card_list:

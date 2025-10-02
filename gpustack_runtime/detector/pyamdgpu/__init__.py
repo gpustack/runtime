@@ -43,22 +43,23 @@ libLoadLock = threading.Lock()
 
 
 class AMDGPUError(Exception):
-    _errcode_to_string: ClassVar[dict[int, str]] = {
-        **errno.errorcode,
-        -99997: "Library Not Initialized",
-        -99998: "Function Not Found",
-        -99999: "Library Not Found",
+    _extend_errcode_to_string: ClassVar[dict[int, str]] = {
+        AMDGPU_ERROR_UNINITIALIZED: "Library Not Initialized",
+        AMDGPU_ERROR_FUNCTION_NOT_FOUND: "Function Not Found",
+        AMDGPU_ERROR_LIBRARY_NOT_FOUND: "Library Not Found",
     }
 
     def __init__(self, value):
-        self.value = -value
+        self.value = (
+            -value if value not in AMDGPUError._extend_errcode_to_string else value
+        )
 
     def __str__(self):
-        if self.value not in AMDGPUError._errcode_to_string:
+        if self.value in AMDGPUError._extend_errcode_to_string:
+            return f"AMDGPU error {self.value}: {AMDGPUError._extend_errcode_to_string[self.value]}"
+        elif self.value not in errno.errorcode:
             return f"Unknown AMDGPU error {self.value}"
-        return (
-            f"AMDGPU error {self.value}: {AMDGPUError._errcode_to_string[self.value]}"
-        )
+        return f"AMDGPU error {self.value}: {errno.errorcode[self.value]}"
 
     def __eq__(self, other):
         if isinstance(other, AMDGPUError):

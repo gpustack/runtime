@@ -76,11 +76,11 @@ class AMDDetector(Detector):
             pyamdsmi.amdsmi_init()
 
             sys_runtime_ver = pyamdsmi.amdsmi_get_rocm_version2()
-            sys_runtime_ver_t = None
-            if sys_runtime_ver:
-                sys_runtime_ver_t = [
-                    int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")
-                ]
+            sys_runtime_ver_t = (
+                [int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")]
+                if sys_runtime_ver
+                else None
+            )
 
             devs = pyamdsmi.amdsmi_get_processor_handles()
             dev_files = get_device_files(
@@ -106,15 +106,16 @@ class AMDDetector(Detector):
                         dev_gpu_device_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
                         pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
 
-                dev_uuid = pyamdsmi.amdsmi_get_gpu_device_uuid(dev)
-
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
                 dev_driver_ver = dev_gpu_driver_info.get("driver_version")
-                dev_driver_ver_t = [
-                    int(v) if v.isdigit() else v for v in dev_driver_ver.split(".")
-                ]
+                dev_driver_ver_t = (
+                    [int(v) if v.isdigit() else v for v in dev_driver_ver.split(".")]
+                    if dev_driver_ver
+                    else None
+                )
 
                 dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
+                dev_uuid = dev_gpu_asic_info.get("asic_serial")
                 dev_name = "AMD " + dev_gpu_asic_info.get("market_name")
                 dev_cc = None
                 dev_cc_t = None
@@ -122,6 +123,7 @@ class AMDDetector(Detector):
                     dev_cc = dev_gpu_asic_info.target_graphics_version
                 else:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        pyrocmsmi.rsmi_init()
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
                 if dev_cc:
                     dev_cc = dev_cc[3:]  # Strip "gfx" prefix

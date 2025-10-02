@@ -12,11 +12,13 @@ from .__types__ import (
 )
 from .amd import AMDDetector
 from .ascend import AscendDetector
+from .hygon import HygonDetector
 from .nvidia import NVIDIADetector
 
 detectors: list[Detector] = [
     AMDDetector(),
     AscendDetector(),
+    HygonDetector(),
     NVIDIADetector(),
 ]
 

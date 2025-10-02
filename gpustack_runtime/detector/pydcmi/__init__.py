@@ -720,7 +720,6 @@ def convertStrBytes(func):
         return res
 
     return wrapper
-    return func
 
 
 def _LoadDcmiLibrary():
@@ -1115,12 +1114,13 @@ def dcmi_get_dcmi_version():
 
 
 def dcmi_get_cann_version():
-    cann_version = ""
     ascend_home_path = Path(
         os.getenv("ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest"),
     )
     if not ascend_home_path.exists():
-        return cann_version
+        return None
+
+    cann_version = ""
 
     for sub_dir in ascend_home_path.iterdir():
         if not sub_dir.is_dir():
@@ -1143,7 +1143,7 @@ def dcmi_get_cann_version():
                         cann_version = line.strip().split("=")[-1]
                         break
 
-    return cann_version
+    return cann_version if cann_version else None
 
 
 def dcmi_get_mainboard_id(card_id, device_id):
