@@ -8,6 +8,7 @@ from math import ceil
 import pynvml
 
 from .. import envs
+from . import pycuda
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import PCIDevice, get_device_files, get_pci_devices
 
@@ -112,7 +113,14 @@ class NVIDIADetector(Detector):
                         if dev_file.number is not None:
                             dev_index = dev_file.number
                 dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
-                dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
+                dev_cores = None
+                with contextlib.suppress(pycuda.CUDAError):
+                    pycuda.cuInit()
+                    dev_gpudev = pycuda.cuDeviceGet(dev_idx)
+                    dev_cores = pycuda.cuDeviceGetAttribute(
+                        dev_gpudev,
+                        pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                    )
                 dev_mem = pynvml.nvmlDeviceGetMemoryInfo(dev)
                 dev_util = pynvml.nvmlDeviceGetUtilizationRates(dev)
                 dev_temp = pynvml.nvmlDeviceGetTemperature(

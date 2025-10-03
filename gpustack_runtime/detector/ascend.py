@@ -38,7 +38,6 @@ class AscendDetector(Detector):
 
         try:
             pydcmi.dcmi_init()
-            pydcmi.dcmi_shutdown()
             supported = True
         except pydcmi.DCMIError:
             if logger.isEnabledFor(logging.DEBUG):
@@ -194,8 +193,6 @@ class AscendDetector(Detector):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Failed to process devices fetching")
             raise
-        finally:
-            pydcmi.dcmi_shutdown()
 
         return ret
 

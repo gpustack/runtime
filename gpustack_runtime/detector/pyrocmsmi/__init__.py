@@ -44,7 +44,7 @@ class ROCMSMIError(Exception):
     def __str__(self):
         if self.value in ROCMSMIError._extend_errcode_to_string:
             return f"ROCMSMI error {self.value}: {ROCMSMIError._extend_errcode_to_string[self.value]}"
-        elif self.value not in rsmi_status_verbose_err_out:
+        if self.value not in rsmi_status_verbose_err_out:
             return f"Unknown ROCMSMI error {self.value}"
         return f"ROCMSMI error {self.value}: {rsmi_status_verbose_err_out[self.value]}"
 
@@ -173,7 +173,10 @@ def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
         metric = rsmi_temperature_metric_t.RSMI_TEMP_CURRENT
     c_temp = c_int64(0)
     ret = rocmsmiLib.rsmi_dev_temp_metric_get(
-        c_uint32(device), sensor, metric, byref(c_temp)
+        c_uint32(device),
+        sensor,
+        metric,
+        byref(c_temp),
     )
     _rocmsmiCheckReturn(ret)
     return c_temp.value // 1000

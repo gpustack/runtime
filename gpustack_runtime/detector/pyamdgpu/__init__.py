@@ -57,7 +57,7 @@ class AMDGPUError(Exception):
     def __str__(self):
         if self.value in AMDGPUError._extend_errcode_to_string:
             return f"AMDGPU error {self.value}: {AMDGPUError._extend_errcode_to_string[self.value]}"
-        elif self.value not in errno.errorcode:
+        if self.value not in errno.errorcode:
             return f"Unknown AMDGPU error {self.value}"
         return f"AMDGPU error {self.value}: {errno.errorcode[self.value]}"
 

@@ -147,7 +147,6 @@ DCMI_ERROR_LIBRARY_NOT_FOUND = -99999
 ## Lib loading ##
 dcmiLib = None
 libLoadLock = threading.Lock()
-_dcmiLib_refcount = 0  # Incremented on each dcmiInit and decremented on dcmiShutdown
 
 
 ## Error Checking ##
@@ -210,7 +209,7 @@ class DCMIError(Exception):
 
 def dcmiExceptionClass(dcmiErrorCode):
     if dcmiErrorCode not in DCMIError._valClassMapping:
-        msg = f"DCMI erro code {dcmiErrorCode} is not valid"
+        msg = f"DCMI error code {dcmiErrorCode} is not valid"
         raise ValueError(msg)
     return DCMIError._valClassMapping[dcmiErrorCode]
 
@@ -729,8 +728,8 @@ def _LoadDcmiLibrary():
         try:
             if dcmiLib is None:
                 if sys.platform.startswith("win"):
-                    # DCMI is typically used on Linux, but for completeness
-                    # Windows support would require different path handling
+                    # DCMI is typically used on Linux, but for completeness,
+                    # Windows support would require different path handling.
                     raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
                 with contextlib.suppress(OSError):
@@ -749,21 +748,6 @@ def dcmi_init():
     fn = _dcmiGetFunctionPointer("dcmi_init")
     ret = fn()
     _dcmiCheckReturn(ret)
-
-    # Atomically update refcount
-    global _dcmiLib_refcount
-    libLoadLock.acquire()
-    _dcmiLib_refcount += 1
-    libLoadLock.release()
-
-
-def dcmi_shutdown():
-    # Atomically update refcount
-    global _dcmiLib_refcount
-    libLoadLock.acquire()
-    if _dcmiLib_refcount > 0:
-        _dcmiLib_refcount -= 1
-    libLoadLock.release()
 
 
 def dcmi_get_card_list():

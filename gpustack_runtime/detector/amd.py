@@ -99,11 +99,11 @@ class AMDDetector(Detector):
                                 dev_file.number - 1 if dev_file.number > 0 else 0
                             )
 
-                dev_gpu_device_info = None
+                dev_gpudev_info = None
                 if dev_card is not None:
                     with contextlib.suppress(pyamdgpu.AMDGPUError):
                         _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(dev_card)
-                        dev_gpu_device_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
+                        dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
                         pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
 
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
@@ -131,9 +131,7 @@ class AMDDetector(Detector):
 
                 dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
                 dev_cores = (
-                    dev_gpu_device_info.cu_active_number
-                    if dev_gpu_device_info
-                    else None
+                    dev_gpudev_info.cu_active_number if dev_gpudev_info else None
                 )
                 dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)
                 dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
@@ -156,7 +154,7 @@ class AMDDetector(Detector):
                     )
 
                 dev_appendix = {
-                    "arch_family": _get_arch_family(dev_gpu_device_info),
+                    "arch_family": _get_arch_family(dev_gpudev_info),
                     "vgpu": dev_compute_partition is not None,
                 }
 
@@ -200,12 +198,12 @@ class AMDDetector(Detector):
 
 
 def _get_arch_family(
-    dev_gpu_device_info: pyamdgpu.c_amdgpu_gpu_info | None,
+    dev_gpudev_info: pyamdgpu.c_amdgpu_gpu_info | None,
 ) -> str | None:
-    if not dev_gpu_device_info:
+    if not dev_gpudev_info:
         return None
 
-    family_id = dev_gpu_device_info.family_id
+    family_id = dev_gpudev_info.family_id
     if family_id is None:
         return None
 

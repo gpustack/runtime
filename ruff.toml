@@ -121,6 +121,7 @@ parametrize-names-type = "csv"
 "tests/*.py" = ["D", "S101"]
 "gpustack_runtime/detector/pyamdsmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyamdgpu/*.py" = ["ALL"]
+"gpustack_runtime/detector/pycuda/*.py" = ["ALL"]
 "gpustack_runtime/detector/pydcmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyrocmsmi/*.py" = ["ALL"]
 
@@ -129,7 +130,7 @@ max-complexity = 50
 
 [lint.pylint]
 max-branches = 60
-max-statements = 120
+max-statements = 125
 max-returns = 20
 max-args = 20
 allow-magic-value-types = ["str", "bytes", "int"]
