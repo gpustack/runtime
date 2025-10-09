@@ -50,6 +50,7 @@ class AMDDetector(Detector):
     @staticmethod
     @lru_cache
     def detect_pci_devices() -> dict[str, PCIDevice] | None:
+        # See https://pcisig.com/membership/member-companies?combine=AMD.
         pci_devs = get_pci_devices(vendor="0x1002")
         if not pci_devs:
             return None
@@ -60,11 +61,14 @@ class AMDDetector(Detector):
 
     def detect(self) -> Devices | None:
         """
-        Detect AMD GPUs.
+        Detect AMD GPUs using pyamdsmi, pyamdgpu and pyrocmsmi.
 
         Returns:
             A list of detected AMD GPU devices,
-            or None if detection fails.
+            or None if not supported.
+
+        Raises:
+            If there is an error during detection.
 
         """
         if not self.is_supported():

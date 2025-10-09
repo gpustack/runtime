@@ -1,4 +1,4 @@
-# Fake amdsmi module to avoid import errors when amdsmi is not installed
+# Bridge amdsmi module to avoid import errors when amdsmi is not installed
 # This module raises an exception when amdsmi_init is called
 # and does nothing when amdsmi_shut_down is called.
 from __future__ import annotations

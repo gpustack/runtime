@@ -48,6 +48,7 @@ class AscendDetector(Detector):
     @staticmethod
     @lru_cache
     def detect_pci_devices() -> dict[str, PCIDevice] | None:
+        # See https://pcisig.com/membership/member-companies?combine=Huawei.
         pci_devs = get_pci_devices(vendor="0x19e5")
         if not pci_devs:
             return None
@@ -62,7 +63,10 @@ class AscendDetector(Detector):
 
         Returns:
             A list of detected Ascend NPU devices,
-            or None if detection is not supported.
+            or None if not supported.
+
+        Raises:
+            If there is an error during detection.
 
         """
         if not self.is_supported():

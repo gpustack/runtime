@@ -123,6 +123,7 @@ parametrize-names-type = "csv"
 "gpustack_runtime/detector/pyamdgpu/*.py" = ["ALL"]
 "gpustack_runtime/detector/pycuda/*.py" = ["ALL"]
 "gpustack_runtime/detector/pydcmi/*.py" = ["ALL"]
+"gpustack_runtime/detector/pymtml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyrocmsmi/*.py" = ["ALL"]
 
 [lint.mccabe]

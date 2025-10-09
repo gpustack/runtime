@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -152,3 +156,215 @@ def get_device_files(pattern: str, directory: Path | str = "/dev") -> list[Devic
         device_files,
         key=lambda df: (df.number is None, df.number),
     )
+
+
+def support_command(command: str) -> bool:
+    """
+    Determine whether a command is available.
+
+    Args:
+        command:
+            The name of the command to check.
+
+    Returns:
+        True if the command is available, False otherwise.
+
+    """
+    return shutil.which(command) is not None
+
+
+def execute_shell_command(command: str, cwd: str | None = None) -> str | None:
+    """
+    Execute a shell command and return its output.
+
+    Args:
+        command:
+            The command to run.
+        cwd:
+            The working directory to run the command in, or None to use a temporary directory.
+
+    Returns:
+        The output of the command.
+
+    Raises:
+        If the command fails or returns a non-zero exit code.
+
+    """
+    if cwd is None:
+        cwd = tempfile.gettempdir()
+
+    command = command.strip()
+    if not command:
+        msg = "Command is empty"
+        raise ValueError(msg)
+
+    try:
+        result = subprocess.run(  # noqa: S602
+            command,
+            capture_output=True,
+            check=False,
+            shell=True,
+            text=True,
+            cwd=cwd,
+            encoding="utf-8",
+        )
+    except Exception as e:
+        msg = f"Failed to run command '{command}'"
+        raise RuntimeError(msg) from e
+    else:
+        if result.returncode != 0:
+            msg = f"Unexpected result: {result}"
+            raise RuntimeError(msg)
+
+        return result.stdout
+
+
+def execute_command(command: list[str], cwd: str | None = None) -> str | None:
+    """
+    Execute a command and return its output.
+
+    Args:
+        command:
+            The command to run.
+        cwd:
+            The working directory to run the command in, or None to use a temporary directory.
+
+    Returns:
+        The output of the command.
+
+    Raises:
+        If the command fails or returns a non-zero exit code.
+
+    """
+    if cwd is None:
+        cwd = tempfile.gettempdir()
+
+    if not command:
+        msg = "Command list is empty"
+        raise ValueError(msg)
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            cwd=cwd,
+            encoding="utf-8",
+        )
+    except Exception as e:
+        msg = f"Failed to run command '{command}'"
+        raise RuntimeError(msg) from e
+    else:
+        if result.returncode != 0:
+            msg = f"Unexpected result: {result}"
+            raise RuntimeError(msg)
+
+        return result.stdout
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    """
+    Safely convert a value to int.
+
+    Args:
+        value:
+            The value to convert.
+        default:
+            The default value to return if conversion fails.
+
+    Returns:
+        The converted int value, or 0 if conversion fails.
+
+    """
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    """
+    Safely convert a value to float.
+
+    Args:
+        value:
+            The value to convert.
+        default:
+            The default value to return if conversion fails.
+
+    Returns:
+        The converted float value, or 0.0 if conversion fails.
+
+    """
+    if value is None:
+        return default
+    if isinstance(value, float):
+        return value
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_bool(value: Any, default: bool = False) -> bool:
+    """
+    Safely convert a value to bool.
+
+    Args:
+        value:
+            The value to convert.
+        default:
+            The default value to return if conversion fails.
+
+    Returns:
+        The converted bool value, or False if conversion fails.
+
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        value_lower = value.strip().lower()
+        if value_lower in ("true", "1", "yes", "on"):
+            return True
+        if value_lower in ("false", "0", "no", "off"):
+            return False
+    try:
+        return bool(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_str(value: Any, default: str = "") -> str:
+    """
+    Safely convert a value to str.
+
+    Args:
+        value:
+            The value to convert.
+        default:
+            The default value to return if conversion fails.
+
+    Returns:
+        The converted str value, or an empty string if conversion fails.
+
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8", errors="ignore")
+        except (ValueError, TypeError):
+            return default
+    try:
+        return str(value)
+    except (ValueError, TypeError):
+        return default

@@ -53,6 +53,7 @@ class NVIDIADetector(Detector):
     @staticmethod
     @lru_cache
     def detect_pci_devices() -> dict[str, PCIDevice] | None:
+        # See https://pcisig.com/membership/member-companies?combine=NVIDIA.
         pci_devs = get_pci_devices(vendor="0x10de")
         if not pci_devs:
             return None
@@ -67,7 +68,10 @@ class NVIDIADetector(Detector):
 
         Returns:
             A list of detected NVIDIA GPU devices,
-            or None if detection is not supported.
+            or None if not supported.
+
+        Raises:
+            If there is an error during detection.
 
         """
         if not self.is_supported():
@@ -121,8 +125,8 @@ class NVIDIADetector(Detector):
                         dev_gpudev,
                         pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
                     )
-                dev_mem = pynvml.nvmlDeviceGetMemoryInfo(dev)
-                dev_util = pynvml.nvmlDeviceGetUtilizationRates(dev)
+                dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
+                dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
                 dev_temp = pynvml.nvmlDeviceGetTemperature(
                     dev,
                     pynvml.NVML_TEMPERATURE_GPU,
@@ -170,12 +174,12 @@ class NVIDIADetector(Detector):
                             compute_capability=dev_cc,
                             compute_capability_tuple=dev_cc_t,
                             cores=dev_cores,
-                            cores_utilization=dev_util.gpu,
-                            memory=dev_mem.total >> 20,
-                            memory_used=dev_mem.used >> 20,
+                            cores_utilization=dev_util_rates.gpu,
+                            memory=dev_mem_info.total >> 20,
+                            memory_used=dev_mem_info.used >> 20,
                             memory_utilization=(
-                                (dev_mem.used * 100 // dev_mem.total)
-                                if dev_mem.total > 0
+                                (dev_mem_info.used * 100 // dev_mem_info.total)
+                                if dev_mem_info.total > 0
                                 else 0
                             ),
                             temperature=dev_temp,
@@ -267,7 +271,7 @@ class NVIDIADetector(Detector):
                                         dev_ci_prf_id,
                                     )
                                     ci_mem = _get_compute_instance_memory_in_gib(
-                                        dev_mem,
+                                        dev_mem_info,
                                         mdev_attrs,
                                     )
 

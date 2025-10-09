@@ -13,51 +13,52 @@ class ManufacturerEnum(str, Enum):
     Enum for Manufacturers.
     """
 
-    UNKNOWN = "unknown"
-    """
-    Unknown Manufacturer
-    """
-    NVIDIA = "nvidia"
-    """
-    NVIDIA Corporation
-    """
     AMD = "amd"
     """
     Advanced Micro Devices, Inc.
     """
     ASCEND = "ascend"
     """
-    Huawei Ascend
-    """
-    MTHREADS = "mthreads"
-    """
-    MThreads Technologies Co., Ltd.
-    """
-    HYGON = "hygon"
-    """
-    Hygon Information Technology Co., Ltd.
-    """
-    ILUVATAR = "iluvatar"
-    """
-    Iluvatar CoreX
+    Huawei Technologies Co., Ltd.
     """
     CAMBRICON = "cambricon"
     """
     Cambricon Technologies Corporation Limited
     """
+    HYGON = "hygon"
+    """
+    Chengdu Higon Integrated Circuit Design Co., Ltd.
+    """
+    ILUVATAR = "iluvatar"
+    """
+    Shanghai Iluvatar CoreX Semiconductor Co., Ltd.
+    """
+    MTHREADS = "mthreads"
+    """
+    Moore Threads Technology Co.,Ltd
+    """
+    NVIDIA = "nvidia"
+    """
+    NVIDIA Corporation
+    """
+    UNKNOWN = "unknown"
+    """
+    Unknown Manufacturer
+    """
 
 
 _MANUFACTURER_BACKEND_MAPPING: dict[ManufacturerEnum, str] = {
-    ManufacturerEnum.NVIDIA: "cuda",
     ManufacturerEnum.AMD: "rocm",
     ManufacturerEnum.ASCEND: "cann",
-    ManufacturerEnum.MTHREADS: "musa",
+    ManufacturerEnum.CAMBRICON: "cnrt",
     ManufacturerEnum.HYGON: "dtk",
     ManufacturerEnum.ILUVATAR: "corex",
-    ManufacturerEnum.CAMBRICON: "cnrt",
+    ManufacturerEnum.MTHREADS: "musa",
+    ManufacturerEnum.NVIDIA: "cuda",
 }
 """
-Mapping of manufacturer to runtime backend.
+Mapping of manufacturer to runtime backend,
+which should map to the gpustack-runner's backend names.
 """
 
 
@@ -180,31 +181,31 @@ class Device:
     """
     Total cores of the device.
     """
-    cores_utilization: int = 0
+    cores_utilization: int | float = 0
     """
     Core utilization of the device in percentage.
     """
-    memory: int = 0
+    memory: int | float = 0
     """
     Total memory of the device in MiB.
     """
-    memory_used: int = 0
+    memory_used: int | float = 0
     """
     Used memory of the device in MiB.
     """
-    memory_utilization: int = 0
+    memory_utilization: int | float = 0
     """
     Memory utilization of the device in percentage.
     """
-    temperature: int | None = None
+    temperature: int | float | None = None
     """
     Temperature of the device in Celsius.
     """
-    power: int | None = None
+    power: int | float | None = None
     """
     Power consumption of the device in Watts.
     """
-    power_used: int | None = None
+    power_used: int | float | None = None
     """
     Used power of the device in Watts.
     """

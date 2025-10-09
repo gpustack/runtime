@@ -94,6 +94,9 @@ def rsmi_init(flags=0):
 
 @convertStrBytes
 def rsmi_driver_version_get():
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     component = rsmi_sw_component_t.RSMI_SW_COMP_DRIVER
     c_version = create_string_buffer(256)
     ret = rocmsmiLib.rsmi_version_str_get(component, c_version, 256)
@@ -102,6 +105,9 @@ def rsmi_driver_version_get():
 
 
 def rsmi_num_monitor_devices():
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_num_devices = c_uint32()
     ret = rocmsmiLib.rsmi_num_monitor_devices(byref(c_num_devices))
     _rocmsmiCheckReturn(ret)
@@ -110,6 +116,9 @@ def rsmi_num_monitor_devices():
 
 @convertStrBytes
 def rsmi_dev_name_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_name = create_string_buffer(256)
     ret = rocmsmiLib.rsmi_dev_name_get(device, c_name, 256)
     _rocmsmiCheckReturn(ret)
@@ -118,6 +127,9 @@ def rsmi_dev_name_get(device=0):
 
 @convertStrBytes
 def rsmi_dev_serial_number_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_serial = create_string_buffer(256)
     ret = rocmsmiLib.rsmi_dev_serial_number_get(device, c_serial, 256)
     _rocmsmiCheckReturn(ret)
@@ -125,6 +137,9 @@ def rsmi_dev_serial_number_get(device=0):
 
 
 def rsmi_dev_unique_id_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_uid = c_uint64()
     ret = rocmsmiLib.rsmi_dev_unique_id_get(device, byref(c_uid))
     _rocmsmiCheckReturn(ret)
@@ -132,6 +147,9 @@ def rsmi_dev_unique_id_get(device=0):
 
 
 def rsmi_dev_busy_percent_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_percent = c_uint32()
     ret = rocmsmiLib.rsmi_dev_busy_percent_get(device, byref(c_percent))
     _rocmsmiCheckReturn(ret)
@@ -139,6 +157,9 @@ def rsmi_dev_busy_percent_get(device=0):
 
 
 def rsmi_dev_memory_usage_get(device=0, memory_type=None):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     if memory_type is None:
         memory_type = rsmi_memory_type_t.RSMI_MEM_TYPE_VRAM
     c_used = c_uint64()
@@ -148,6 +169,9 @@ def rsmi_dev_memory_usage_get(device=0, memory_type=None):
 
 
 def rsmi_dev_memory_total_get(device=0, memory_type=None):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     if memory_type is None:
         memory_type = rsmi_memory_type_t.RSMI_MEM_TYPE_VRAM
     c_total = c_uint64()
@@ -157,6 +181,9 @@ def rsmi_dev_memory_total_get(device=0, memory_type=None):
 
 
 def rsmi_dev_target_graphics_version_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_version = c_uint64()
     ret = rocmsmiLib.rsmi_dev_target_graphics_version_get(device, byref(c_version))
     _rocmsmiCheckReturn(ret)
@@ -167,6 +194,9 @@ def rsmi_dev_target_graphics_version_get(device=0):
 
 
 def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     if sensor is None:
         sensor = rsmi_temperature_type_t.RSMI_TEMP_TYPE_JUNCTION
     if metric is None:
@@ -183,6 +213,9 @@ def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
 
 
 def rsmi_dev_power_cap_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_power_cap = c_uint64()
     ret = rocmsmiLib.rsmi_dev_power_cap_get(device, 0, byref(c_power_cap))
     _rocmsmiCheckReturn(ret)
@@ -190,6 +223,9 @@ def rsmi_dev_power_cap_get(device=0):
 
 
 def rsmi_dev_power_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
     c_power = c_uint64()
     c_power_type = rsmi_power_type_t()
     ret = rocmsmiLib.rsmi_dev_power_get(device, byref(c_power), byref(c_power_type))
