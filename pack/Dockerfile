@@ -262,7 +262,7 @@ EOF
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /opt/rocm from the host to detect the correct ROCm version.
-## E.g. docker run --privileged --runtime amd gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+## E.g. docker run --privileged --runtime amd gpustack/runtime:main gpustack-runtime detect --format json
 RUN --mount=type=bind,from=rocm-base,source=/opt/rocm/share,target=/opt/rocm/share,rw <<EOF
     # Reinstall amd-smi
     echo "Installing GPUStack runtime in the system Python environment..."
@@ -282,7 +282,7 @@ ENV AMD_VISIBLE_DEVICES="0" \
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /usr/local/Ascend/ascend-toolkit to detect the correct CANN version and SoC name.
-## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+## E.g. docker run --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV ASCEND_VISIBLE_DEVICES="0" \
     ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/latest"
 
@@ -293,7 +293,7 @@ ENV ASCEND_VISIBLE_DEVICES="0" \
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /usr/bin/cnmon to detect the correct devices. [TODO, TBD] maybe we can mount /usr/local/neuware to detect the correct Neuware version futher.
-## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+## E.g. docker run --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV CAMBRICON_VISIBLE_DEVICES="0"
 
 ## Active all Hygon devices detection,
@@ -301,7 +301,7 @@ ENV CAMBRICON_VISIBLE_DEVICES="0"
 ## See https://github.com/Project-HAMi/dcu-dcgm/blob/master/pkg/dcgm/include/rocm_smi.h.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+## E.g. docker run --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV HYGON_VISIBLE_DEVICES="0"
 
 ## Active all Iluvatar devices detection,
@@ -311,7 +311,7 @@ ENV HYGON_VISIBLE_DEVICES="0"
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /run/udev from the host to detect the correct devices' udev info.
 ## - Mount /usr/bin/ixsmi to detect the correct devices. [TODO, TBD] maybe we can mount /usr/local/corex to detect the correct CoreX version futher.
-## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+## E.g. docker run --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV ILUVATAR_VISIBLE_DEVICES="0"
 
 ## Active all MThread devices detection,
@@ -319,7 +319,7 @@ ENV ILUVATAR_VISIBLE_DEVICES="0"
 ## See https://docs.mthreads.com/cloud-native/cloud-native-doc-online/install_guide.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+## E.g. docker run --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV MTHREADS_VISIBLE_DEVICES="0" \
     MTHREADS_DRIVER_CAPABILITIES="compute,utility"
 
@@ -328,7 +328,7 @@ ENV MTHREADS_VISIBLE_DEVICES="0" \
 ## See https://docs.nvidia.com/deploy/nvml-api/nvml-api-reference.html#nvml-api-reference.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
+## E.g. docker run --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV NVIDIA_DISABLE_REQUIRE="true" \
     NVIDIA_VISIBLE_DEVICES="0" \
     NVIDIA_DRIVER_CAPABILITIES="compute,utility"

@@ -294,3 +294,89 @@ def _get_device_virtual_info(
         return c_vdev_query_stru
 
     return None
+
+
+# Borrowed from https://gitcode.com/Ascend/pytorch/blob/master/torch_npu/csrc/core/npu/NpuVariables.cpp#L13-L40 and
+# https://gitcode.com/Ascend/pytorch/blob/master/torch_npu/csrc/core/npu/NpuVariables.h#L5-L34.
+_soc_name_version_mapping: dict[str, int] = {
+    "Ascend910PremiumA": 100,
+    "Ascend910ProA": 101,
+    "Ascend910A": 102,
+    "Ascend910ProB": 103,
+    "Ascend910B": 104,
+    "Ascend310P1": 200,
+    "Ascend310P2": 201,
+    "Ascend310P3": 202,
+    "Ascend310P4": 203,
+    "Ascend310P5": 204,
+    "Ascend310P7": 205,
+    "Ascend910B1": 220,
+    "Ascend910B2": 221,
+    "Ascend910B2C": 222,
+    "Ascend910B3": 223,
+    "Ascend910B4": 224,
+    "Ascend910B4-1": 225,
+    "Ascend310B1": 240,
+    "Ascend310B2": 241,
+    "Ascend310B3": 242,
+    "Ascend310B4": 243,
+    "Ascend910_9391": 250,
+    "Ascend910_9392": 251,
+    "Ascend910_9381": 252,
+    "Ascend910_9382": 253,
+    "Ascend910_9372": 254,
+    "Ascend910_9362": 255,
+}
+
+
+def get_ascend_soc_version(name: str | None) -> int:
+    """
+    Get the Ascend SoC version based on the SoC name.
+
+    Args:
+        name:
+            The name of the SoC, e.g., "Ascend910A", "Ascend310P1", etc.
+
+    Returns:
+        The corresponding version number, or -1 if not found.
+
+    """
+    if not name:
+        return -1
+
+    version = _soc_name_version_mapping.get(name)
+    if version is None:
+        return -1
+
+    return version
+
+
+def get_ascend_cann_variant(name: str | None) -> str | None:
+    """
+    Get the CANN variant based on the SoC name.
+
+    Args:
+        name:
+            The name of the SoC, e.g., "Ascend910A", "Ascend310P1", etc.
+
+    Returns:
+        The corresponding cluster name, or None if not found.
+
+    """
+    if not name:
+        return None
+
+    version = get_ascend_soc_version(name)
+    if version <= 0:
+        return None
+    if version < 200:
+        return "910"
+    if version < 220:
+        return "310p"
+    if version < 240:
+        return "910b"
+    if version < 250:
+        return "310b"
+    if version < 260:
+        return "a3"  # 910c
+    return None
