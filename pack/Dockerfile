@@ -281,9 +281,10 @@ ENV AMD_VISIBLE_DEVICES="0" \
 ## See https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/devmanager/dcmi/dcmi_interface_api.h.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## - Mount /usr/local/Ascend/ascend-toolkit/latest to detect the correct CANN version and SoC version.
+## - Mount /usr/local/Ascend/ascend-toolkit to detect the correct CANN version and SoC name.
 ## E.g. docker run --privileged gpustack/runtime:$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') gpustack-runtime detect --format json
-ENV ASCEND_VISIBLE_DEVICES="0"
+ENV ASCEND_VISIBLE_DEVICES="0" \
+    ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/latest"
 
 ## Active all Cambricon devices detection,
 ## works with (default) Cambricon container runtime and privileged mode.

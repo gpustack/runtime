@@ -11,7 +11,7 @@ from ctypes import *
 from typing import ClassVar
 
 ## C Type mappings ##
-## Enums
+## Enums ##
 ## /opt/amdgpu/include/libdrm/amdgpu_drm.h
 AMDGPU_FAMILY_UNKNOWN = 0
 AMDGPU_FAMILY_SI = 110  # Hainan, Oland, Verde, Pitcairn, Tahiti
@@ -219,12 +219,13 @@ def _LoadAMDGPULibrary():
                     # Do not support Windows yet.
                     raise AMDGPUError(AMDGPU_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
-                for libname in (
+                locs = [
                     "libdrm_amdgpu.so.1.0.0",
                     "libdrm_amdgpu.so",
-                ):
+                ]
+                for loc in locs:
                     try:
-                        amdgpuLib = CDLL(libname)
+                        amdgpuLib = CDLL(loc)
                         break
                     except OSError:
                         pass

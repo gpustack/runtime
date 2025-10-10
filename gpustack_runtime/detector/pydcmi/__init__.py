@@ -3,101 +3,14 @@
 ##
 from __future__ import annotations
 
-import contextlib
-import os
-import re
 import string
 import sys
 import threading
 from ctypes import *
 from functools import wraps
-from pathlib import Path
 from typing import ClassVar
 
 ## C Type mappings ##
-## Enums
-DCMI_IPADDR_TYPE_V4 = 0
-DCMI_IPADDR_TYPE_V6 = 1
-DCMI_IPADDR_TYPE_ANY = 2
-
-DCMI_UNIT_TYPE_NPU = 0
-DCMI_UNIT_TYPE_MCU = 1
-DCMI_UNIT_TYPE_CPU = 2
-DCMI_UNIT_TYPE_INVALID = 0xFF
-
-DCMI_RDFX_DETECT_OK = 0
-DCMI_RDFX_DETECT_SOCK_FAIL = 1
-DCMI_RDFX_DETECT_RECV_TIMEOUT = 2
-DCMI_RDFX_DETECT_UNREACH = 3
-DCMI_RDFX_DETECT_TIME_EXCEEDED = 4
-DCMI_RDFX_DETECT_FAULT = 5
-DCMI_RDFX_DETECT_INIT = 6
-DCMI_RDFX_DETECT_THREAD_ERR = 7
-DCMI_RDFX_DETECT_IP_SET = 8
-DCMI_RDFX_DETECT_MAX = 0xFF
-
-DCMI_PORT_TYPE_VNIC_PORT = 0
-DCMI_PORT_TYPE_ROCE_PORT = 1
-
-DCMI_MAIN_CMD_DVPP = 0
-DCMI_MAIN_CMD_ISP = 1
-DCMI_MAIN_CMD_TS_GROUP_NUM = 2
-DCMI_MAIN_CMD_CAN = 3
-DCMI_MAIN_CMD_UART = 4
-DCMI_MAIN_CMD_UPGRADE = 5
-DCMI_MAIN_CMD_HCCS = 16
-DCMI_MAIN_CMD_TEMP = 50
-DCMI_MAIN_CMD_SVM = 51
-DCMI_MAIN_CMD_VDEV_MNG = 52
-DCMI_MAIN_CMD_SIO = 56
-DCMI_MAIN_CMD_DEVICE_SHARE = 0x8001
-DCMI_MAIN_CMD_MAX = 57
-
-DCMI_SVM_SUB_CMD_CREATE = 1
-DCMI_VMNG_SUB_CMD_GET_VDEV_RESOURCE = 0
-DCMI_VMNG_SUB_CMD_GET_TOTAL_RESOURCE = 1
-DCMI_VMNG_SUB_CMD_GET_FREE_RESOURCE = 2
-DCMI_EX_COMPUTING_SUB_CMD_TOKEN = 1
-DCMI_TS_SUB_CMD_AICORE_UTILIZATION_RATE = 0
-DCMI_TS_SUB_CMD_VECTORCORE_UTILIZATION_RATE = 1
-DCMI_TS_SUB_CMD_FFTS_TYPE = 2
-DCMI_TS_SUB_CMD_SET_FAULT_MASK = 3
-DCMI_TS_SUB_CMD_GET_FAULT_MASK = 4
-
-DCMI_FREQ_TYPE_DDR = 1
-DCMI_FREQ_TYPE_CTRLCPU = 2
-DCMI_FREQ_TYPE_HBM = 6
-DCMI_FREQ_TYPE_AICORE_CURRENT_ = 7
-DCMI_FREQ_TYPE_AICORE_MAX = 9
-DCMI_FREQ_TYPE_VECTORCORE_CURRENT = 12
-
-DCMI_RESET_CHANNEL_OUTBAND = 0
-DCMI_RESET_CHANNEL_INBAND = 1
-
-DCMI_BOOT_STATUS_UNINIT = 0
-DCMI_BOOT_STATUS_BIOS = 1
-DCMI_BOOT_STATUS_OS = 2
-DCMI_BOOT_STATUS_FINISH = 3
-
-DCMI_DEVICE_TYPE_DDR = 0
-DCMI_DEVICE_TYPE_SRAM = 1
-DCMI_DEVICE_TYPE_HBM = 2
-DCMI_DEVICE_TYPE_NPU = 3
-DCMI_DEVICE_TYPE_NONE = 0xFF
-
-DCMI_INPUT_TYPE_MEMORY = 1
-DCMI_INPUT_TYPE_AICORE = 2
-DCMI_INPUT_TYPE_AICPU = 3
-DCMI_INPUT_TYPE_CTRLCPU = 4
-DCMI_INPUT_TYPE_MEM_BANDWIDTH = 5
-DCMI_INPUT_TYPE_ONCHIP_MEMORY = 6
-DCMI_INPUT_TYPE_ONCHIP_MEM_BANDWIDTH = 10
-
-DCMI_DMS_FAULT_EVENT = 0
-
-DCMI_DIE_TYPE_NDIE = 0
-DCMI_DIE_TYPE_VDIE = 1
-
 ## Constants ##
 MAX_CHIP_NAME_LEN = 32
 TEMPLATE_NAME_LEN = 32
@@ -118,6 +31,101 @@ HCCS_RES_PCS_NUM = 64
 IP_ADDR_LIST_LEN = 1024
 HCCS_PING_MESH_MAX_NUM = 48
 ADDR_MAX_LEN = 16
+
+## Enums ##
+DCMI_IPADDR_TYPE_V4 = 0
+DCMI_IPADDR_TYPE_V6 = 1
+DCMI_IPADDR_TYPE_ANY = 2
+
+## Enums ##
+DCMI_UNIT_TYPE_NPU = 0
+DCMI_UNIT_TYPE_MCU = 1
+DCMI_UNIT_TYPE_CPU = 2
+DCMI_UNIT_TYPE_INVALID = 0xFF
+
+## Enums ##
+DCMI_RDFX_DETECT_OK = 0
+DCMI_RDFX_DETECT_SOCK_FAIL = 1
+DCMI_RDFX_DETECT_RECV_TIMEOUT = 2
+DCMI_RDFX_DETECT_UNREACH = 3
+DCMI_RDFX_DETECT_TIME_EXCEEDED = 4
+DCMI_RDFX_DETECT_FAULT = 5
+DCMI_RDFX_DETECT_INIT = 6
+DCMI_RDFX_DETECT_THREAD_ERR = 7
+DCMI_RDFX_DETECT_IP_SET = 8
+DCMI_RDFX_DETECT_MAX = 0xFF
+
+## Enums ##
+DCMI_PORT_TYPE_VNIC_PORT = 0
+DCMI_PORT_TYPE_ROCE_PORT = 1
+
+## Enums ##
+DCMI_MAIN_CMD_DVPP = 0
+DCMI_MAIN_CMD_ISP = 1
+DCMI_MAIN_CMD_TS_GROUP_NUM = 2
+DCMI_MAIN_CMD_CAN = 3
+DCMI_MAIN_CMD_UART = 4
+DCMI_MAIN_CMD_UPGRADE = 5
+DCMI_MAIN_CMD_HCCS = 16
+DCMI_MAIN_CMD_TEMP = 50
+DCMI_MAIN_CMD_SVM = 51
+DCMI_MAIN_CMD_VDEV_MNG = 52
+DCMI_MAIN_CMD_SIO = 56
+DCMI_MAIN_CMD_DEVICE_SHARE = 0x8001
+DCMI_MAIN_CMD_MAX = 57
+
+## Enums ##
+DCMI_SVM_SUB_CMD_CREATE = 1
+DCMI_VMNG_SUB_CMD_GET_VDEV_RESOURCE = 0
+DCMI_VMNG_SUB_CMD_GET_TOTAL_RESOURCE = 1
+DCMI_VMNG_SUB_CMD_GET_FREE_RESOURCE = 2
+DCMI_EX_COMPUTING_SUB_CMD_TOKEN = 1
+DCMI_TS_SUB_CMD_AICORE_UTILIZATION_RATE = 0
+DCMI_TS_SUB_CMD_VECTORCORE_UTILIZATION_RATE = 1
+DCMI_TS_SUB_CMD_FFTS_TYPE = 2
+DCMI_TS_SUB_CMD_SET_FAULT_MASK = 3
+DCMI_TS_SUB_CMD_GET_FAULT_MASK = 4
+
+## Enums ##
+DCMI_FREQ_TYPE_DDR = 1
+DCMI_FREQ_TYPE_CTRLCPU = 2
+DCMI_FREQ_TYPE_HBM = 6
+DCMI_FREQ_TYPE_AICORE_CURRENT_ = 7
+DCMI_FREQ_TYPE_AICORE_MAX = 9
+DCMI_FREQ_TYPE_VECTORCORE_CURRENT = 12
+
+## Enums ##
+DCMI_RESET_CHANNEL_OUTBAND = 0
+DCMI_RESET_CHANNEL_INBAND = 1
+
+## Enums ##
+DCMI_BOOT_STATUS_UNINIT = 0
+DCMI_BOOT_STATUS_BIOS = 1
+DCMI_BOOT_STATUS_OS = 2
+DCMI_BOOT_STATUS_FINISH = 3
+
+## Enums ##
+DCMI_DEVICE_TYPE_DDR = 0
+DCMI_DEVICE_TYPE_SRAM = 1
+DCMI_DEVICE_TYPE_HBM = 2
+DCMI_DEVICE_TYPE_NPU = 3
+DCMI_DEVICE_TYPE_NONE = 0xFF
+
+## Enums ##
+DCMI_INPUT_TYPE_MEMORY = 1
+DCMI_INPUT_TYPE_AICORE = 2
+DCMI_INPUT_TYPE_AICPU = 3
+DCMI_INPUT_TYPE_CTRLCPU = 4
+DCMI_INPUT_TYPE_MEM_BANDWIDTH = 5
+DCMI_INPUT_TYPE_ONCHIP_MEMORY = 6
+DCMI_INPUT_TYPE_ONCHIP_MEM_BANDWIDTH = 10
+
+## Enums ##
+DCMI_DMS_FAULT_EVENT = 0
+
+## Enums ##
+DCMI_DIE_TYPE_NDIE = 0
+DCMI_DIE_TYPE_VDIE = 1
 
 ## Error Codes ##
 DCMI_SUCCESS = 0
@@ -732,8 +740,15 @@ def _LoadDcmiLibrary():
                     # Windows support would require different path handling.
                     raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
-                with contextlib.suppress(OSError):
-                    dcmiLib = CDLL("libdcmi.so")
+                locs = [
+                    "libdcmi.so",
+                ]
+                for loc in locs:
+                    try:
+                        dcmiLib = CDLL(loc)
+                        break
+                    except OSError:
+                        pass
                 if dcmiLib is None:
                     raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
         finally:
@@ -1095,39 +1110,6 @@ def dcmi_get_dcmi_version():
     ret = fn(c_dcmi_ver, c_uint(32))
     _dcmiCheckReturn(ret)
     return c_dcmi_ver.value
-
-
-def dcmi_get_cann_version():
-    ascend_home_path = Path(
-        os.getenv("ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest"),
-    )
-    if not ascend_home_path.exists():
-        return None
-
-    cann_version = ""
-
-    for sub_dir in ascend_home_path.iterdir():
-        if not sub_dir.is_dir():
-            continue
-
-        # iterate all files under the sub directory,
-        # and check if the file name matches "ascend_.*_install\.info"
-        for file in sub_dir.iterdir():
-            if not file.is_file():
-                continue
-
-            match = re.match(r"ascend_.*_install\.info", file.name)
-            if not match:
-                continue
-
-            # read the file and extract the version information
-            with file.open("r") as f:
-                for line in f:
-                    if line.find("version") != -1:
-                        cann_version = line.strip().split("=")[-1]
-                        break
-
-    return cann_version if cann_version else None
 
 
 def dcmi_get_mainboard_id(card_id, device_id):

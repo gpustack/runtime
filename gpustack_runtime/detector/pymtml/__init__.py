@@ -3,7 +3,6 @@
 ##
 from __future__ import annotations
 
-import contextlib
 import string
 import sys
 import threading
@@ -12,7 +11,7 @@ from functools import wraps
 from typing import ClassVar
 
 ## C Type mappings ##
-## Enums
+## Constants ##
 MTML_LIBRARY_VERSION_BUFFER_SIZE = 32
 MTML_DRIVER_VERSION_BUFFER_SIZE = 80
 MTML_DEVICE_NAME_BUFFER_SIZE = 32
@@ -34,30 +33,38 @@ MTML_DEVICE_SLOT_NAME_BUFFER_SIZE = 32
 MTML_MEMORY_VENDOR_BUFFER_SIZE = 64
 MTML_DEVICE_SERIAL_NUMBER_BUFFER_SIZE = 64
 
+## Enums ##
 MTML_BRAND_MTT = 0
 MTML_BRAND_UNKNOWN = 1
 
+## Enums ##
 MTML_DEVICE_NOT_SUPPORT_VIRTUALIZATION = 0
 MTML_DEVICE_SUPPORT_VIRTUALIZATION = 1
 
+## Enums ##
 MTML_VIRT_ROLE_NONE = 0
 MTML_VIRT_ROLE_HOST_VIRTDEVICE = 1
 
+## Enums ##
 MTML_MPC_TYPE_NONE = 0
 MTML_MPC_TYPE_PARENT = 1
 MTML_MPC_TYPE_INSTANCE = 2
 
+## Enums ##
 MTML_DEVICE_NOT_SUPPORT_MPC = 0
 MTML_DEVICE_SUPPORT_MPC = 1
 
+## Enums ##
 MTML_DEVICE_NOT_SUPPORT_MTLINK = 0
 MTML_DEVICE_SUPPORT_MTLINK = 1
 
+## Enums ##
 MTML_GPU_ENGINE_GEOMETRY = 0
 MTML_GPU_ENGINE_2D = 1
 MTML_GPU_ENGINE_3D = 2
 MTML_GPU_ENGINE_COMPUTE = 3
 
+## Enums ##
 MTML_DEVICE_MPC_DISABLE = 0
 MTML_DEVICE_MPC_ENABLE = 1
 
@@ -407,8 +414,15 @@ def _LoadMtmlLibrary():
                     # Windows support would require different path handling.
                     raise MTMLError(MTML_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
-                with contextlib.suppress(OSError):
-                    mtmlLib = CDLL("libmtml.so")
+                locs = [
+                    "libmtml.so",
+                ]
+                for loc in locs:
+                    try:
+                        mtmlLib = CDLL(loc)
+                        break
+                    except OSError:
+                        pass
                 if mtmlLib is None:
                     raise MTMLError(MTML_ERROR_LIBRARY_NOT_FOUND)
         finally:

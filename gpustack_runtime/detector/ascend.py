@@ -4,7 +4,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
-from . import pydcmi
+from . import pyacl, pydcmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import PCIDevice, get_pci_devices
 
@@ -82,7 +82,7 @@ class AscendDetector(Detector):
                 int(v) if v.isdigit() else v for v in sys_driver_ver.split(".")
             ]
 
-            sys_runtime_ver = pydcmi.dcmi_get_cann_version()
+            sys_runtime_ver = pyacl.aclsysGetCANNVersion()
             sys_runtime_ver_t = (
                 [int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")]
                 if sys_runtime_ver
@@ -150,6 +150,7 @@ class AscendDetector(Detector):
                         dev_device_id,
                     )
                     dev_appendix = {
+                        "arch_family": pyacl.aclrtGetSocName(),
                         "vgpu": dev_is_vgpu,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,

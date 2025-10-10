@@ -30,28 +30,22 @@ except (ImportError, KeyError, OSError):
 
 
 def amdsmi_get_rocm_version2() -> str | None:
-    possible_locations = ["librocm-core.so"]
+    locs = [
+        "librocm-core.so",
+    ]
     rocm_path = os.getenv("ROCM_HOME", os.getenv("ROCM_PATH"))
     if rocm_path:
-        possible_locations.append(os.path.join(rocm_path, "lib/librocm-core.so"))
+        locs.append(os.path.join(rocm_path, "lib/librocm-core.so"))
     if Path("/opt/rocm/lib/librocm-core.so").exists():
-        possible_locations.append("/opt/rocm/lib/librocm-core.so")
+        locs.append("/opt/rocm/lib/librocm-core.so")
 
-    for possible_location in possible_locations:
+    for loc in locs:
         try:
-            rocmcore = CDLL(possible_location)
-            get_rocm_core_version = rocmcore.getROCmVersion
-            get_rocm_core_version.restype = c_uint32
-            get_rocm_core_version.argtypes = [
-                POINTER(c_uint32),
-                POINTER(c_uint32),
-                POINTER(c_uint32),
-            ]
-
+            clib = CDLL(loc)
             major = c_uint32()
             minor = c_uint32()
             patch = c_uint32()
-            ret = get_rocm_core_version(byref(major), byref(minor), byref(patch))
+            ret = clib.getROCmVersion(byref(major), byref(minor), byref(patch))
         except (OSError, AttributeError):
             continue
         else:

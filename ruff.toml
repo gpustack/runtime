@@ -119,6 +119,7 @@ parametrize-names-type = "csv"
 
 [lint.per-file-ignores]
 "tests/*.py" = ["D", "S101"]
+"gpustack_runtime/detector/pyacl/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyamdsmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyamdgpu/*.py" = ["ALL"]
 "gpustack_runtime/detector/pycuda/*.py" = ["ALL"]

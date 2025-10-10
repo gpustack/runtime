@@ -8,7 +8,7 @@ from ctypes import *
 from typing import ClassVar
 
 ## C Type mappings ##
-## Enums
+## Enums ##
 ## https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html#CUdevice_attribute
 CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1
 CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X = 2
@@ -408,8 +408,15 @@ def _LoadCudaLibrary():
                     # Do not support Windows yet.
                     raise CUDAError(CUDA_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
-                with contextlib.suppress(OSError):
-                    cudaLib = CDLL("libcuda.so")
+                locs = [
+                    "libcuda.so",
+                ]
+                for loc in locs:
+                    try:
+                        cudaLib = CDLL(loc)
+                        break
+                    except OSError:
+                        pass
                 if cudaLib is None:
                     raise CUDAError(CUDA_ERROR_LIBRARY_NOT_FOUND)
         finally:
