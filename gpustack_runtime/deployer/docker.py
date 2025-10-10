@@ -955,7 +955,7 @@ class DockerDeployer(Deployer):
         workload.validate_and_default()
         workload.labels[_LABEL_WORKLOAD] = workload.name
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Creating workload:\n%s", workload.to_json(indent=2))
+            logger.debug("Creating workload:\n%s", workload.to_yaml())
 
         # Create ephemeral file if needed,
         # (container index, configured path): <actual filename>

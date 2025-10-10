@@ -10,6 +10,7 @@ from dataclasses_json import dataclass_json
 
 from .. import envs
 from ..detector import detect_backend
+from .__utils__ import render_image, safe_json, safe_yaml
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -572,7 +573,12 @@ class Container:
 
     image: str
     """
-    Image of the container.
+    Image of the container,
+    allow the following placeholders:
+        - {OS}: the operating system of the host, e.g., linux, windows.
+        - {ARCH}: the architecture of the host, e.g., amd64, arm64
+        - {BACKEND}: the backend related to the device manufacturer of the host, e.g., nvidia -> cuda13.0, amd -> rocm6.4, ascend -> cann8.1-910b.
+        - {BACKEND_CORRECTED}: similar to {BACKEND}, but the backend version is the closest version of gpustack-runner, e.g., nvidia -> cuda12.6, amd -> rocm6.3, ascend -> cann8.2-910b.
     """
     name: str
     """
@@ -683,7 +689,6 @@ WorkloadNamespace = str
 """
 Namespace for a workload.
 """
-
 
 WorkloadName = str
 """
@@ -838,6 +843,27 @@ class WorkloadPlan(WorkloadSecurity):
                     c.restart_policy = ContainerRestartPolicyEnum.NEVER
             elif not c.restart_policy:
                 c.restart_policy = ContainerRestartPolicyEnum.ALWAYS
+            c.image = render_image(c.image)
+
+    def to_json(self) -> str:
+        """
+        Convert the workload plan to a JSON string.
+
+        Returns:
+            The JSON string.
+
+        """
+        return safe_json(self, indent=2)
+
+    def to_yaml(self) -> str:
+        """
+        Convert the workload plan to a YAML string.
+
+        Returns:
+            The YAML string.
+
+        """
+        return safe_yaml(self, indent=2, sort_keys=False)
 
 
 class WorkloadStatusStateEnum(str, Enum):

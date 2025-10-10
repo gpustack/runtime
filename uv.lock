@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [[package]]
@@ -262,14 +262,14 @@ wheels = [
 
 [[package]]
 name = "gpustack-runner"
-version = "0.1.5"
+version = "0.1.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dataclasses-json" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/78/e97556f6f12fb9e986167221ea29cf45e4da99cafa3dc9ec023a5c8140eb/gpustack_runner-0.1.5.tar.gz", hash = "sha256:1815733559d80f1fd0f2eaa6742650cc6d09a87ff6240301c466481201792713", size = 76379, upload-time = "2025-09-18T03:25:39.17Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d5/4f/88de34d38b3cd84fd0d70e04e73aabcb5aec742b3ff616eb87345b07b7b5/gpustack_runner-0.1.6.tar.gz", hash = "sha256:ea8239ecbffebfad4d775bbe8ab63f83324df342fedb273fe30cc33bd821c345", size = 76589, upload-time = "2025-10-10T09:57:50.371Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/84/765035cc946ed8ba63e1655b24a06a72fdec6172001a376c204152a04ddd/gpustack_runner-0.1.5-py3-none-any.whl", hash = "sha256:63f2e58ea4e2d2506e6fa468cab02db98e986d6e5913202e811ffe64e18c31ef", size = 11953, upload-time = "2025-09-18T03:25:37.604Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/89/8efcaa686c915ce30e7099c84916013b6629acadd61eafb6c43b05c96dfd/gpustack_runner-0.1.6-py3-none-any.whl", hash = "sha256:60efcc4e0eb06ae267b1f77282e42c21faff0153ff2852061ccf6bab5c971f41", size = 12062, upload-time = "2025-10-10T09:57:49.294Z" },
 ]
 
 [[package]]
@@ -280,6 +280,7 @@ dependencies = [
     { name = "gpustack-runner" },
     { name = "kubernetes" },
     { name = "nvidia-ml-py" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -300,9 +301,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "docker" },
-    { name = "gpustack-runner", specifier = ">=0.1.5" },
+    { name = "gpustack-runner", specifier = ">=0.1.6" },
     { name = "kubernetes" },
     { name = "nvidia-ml-py", specifier = ">=13.580.65" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata.requires-dev]

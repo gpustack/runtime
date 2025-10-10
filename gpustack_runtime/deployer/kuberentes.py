@@ -989,7 +989,7 @@ class KubernetesDeployer(Deployer):
             workload.namespace or envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
         )
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Creating workload:\n%s", workload.to_json(indent=2))
+            logger.debug("Creating workload:\n%s", workload.to_yaml())
 
         # Create ephemeral file if needed,
         # (container index, configured path): <actual ConfigMap name>

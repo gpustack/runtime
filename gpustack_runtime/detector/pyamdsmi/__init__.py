@@ -29,7 +29,7 @@ except (ImportError, KeyError, OSError):
         pass
 
 
-def amdsmi_get_rocm_version2() -> str | None:
+def amdsmi_get_rocm_version_major_minor() -> str | None:
     locs = [
         "librocm-core.so",
     ]
@@ -51,6 +51,6 @@ def amdsmi_get_rocm_version2() -> str | None:
         else:
             if ret != 0:
                 return None
-            return f"{major.value}.{minor.value}.{patch.value}"
+            return f"{major.value}.{minor.value}"
 
     return None

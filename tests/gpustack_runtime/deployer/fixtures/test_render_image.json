@@ -1,0 +1,53 @@
+[
+  [
+    "no placeholder",
+    {
+      "image": "cuda12.8-vllm0.10.0"
+    },
+    "cuda12.8-vllm0.10.0"
+  ],
+  [
+    "with placeholder - default rendering",
+    {
+      "image": "{BACKEND}-{OS}-{ARCH}",
+      "os": "linux",
+      "arch": "amd64",
+      "backend_name": "",
+      "backend_version": "12.8"
+    },
+    "cuda12.8-linux-amd64"
+  ],
+  [
+    "with placeholder - automic variant filling",
+    {
+      "image": "{BACKEND}-{OS}-{ARCH}",
+      "os": "linux",
+      "arch": "amd64",
+      "backend_name": "cann",
+      "backend_version": "8.2"
+    },
+    "cann8.2-910b-linux-amd64"
+  ],
+  [
+    "with placeholder - correct rendering",
+    {
+      "image": "{BACKEND_CORRECTED}-{OS}-{ARCH}",
+      "os": "linux",
+      "arch": "amd64",
+      "backend_name": "cann",
+      "backend_version": "8.1"
+    },
+    "cann8.2-910b-linux-amd64"
+  ],
+  [
+    "with placeholder - invalid item",
+    {
+      "image": "{INVALID}-{OS}-{ARCH}",
+      "os": "linux",
+      "arch": "amd64",
+      "backend_name": "cann",
+      "backend_version": "8.1"
+    },
+    "{INVALID}-{OS}-{ARCH}"
+  ]
+]

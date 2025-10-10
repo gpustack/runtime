@@ -79,7 +79,7 @@ class AMDDetector(Detector):
         try:
             pyamdsmi.amdsmi_init()
 
-            sys_runtime_ver = pyamdsmi.amdsmi_get_rocm_version2()
+            sys_runtime_ver = pyamdsmi.amdsmi_get_rocm_version_major_minor()
             sys_runtime_ver_t = (
                 [int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")]
                 if sys_runtime_ver
