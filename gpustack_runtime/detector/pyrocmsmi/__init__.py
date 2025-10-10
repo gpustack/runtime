@@ -18,10 +18,18 @@ ROCMSMI_ERROR_UNINITIALIZED = -99997
 rocmsmiLib = None
 libLoadLock = threading.Lock()
 
-if rocmsmiLib is None and Path("/opt/rocm/libexec/rocm_smi").exists():
+if rocmsmiLib is None:
+    for p in [
+        "/opt/rocm/libexec/rocm_smi/",
+        "/opt/dtk/rocm_smi/bindings/",
+    ]:
+        if p in sys.path:
+            continue
+        if Path(p).exists():
+            sys.path.append(p)
+
     libLoadLock.acquire()
 
-    sys.path.append("/opt/rocm/libexec/rocm_smi/")
     try:
         # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
         from rsmiBindings import *

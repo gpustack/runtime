@@ -50,7 +50,7 @@ class ManufacturerEnum(str, Enum):
 _MANUFACTURER_BACKEND_MAPPING: dict[ManufacturerEnum, str] = {
     ManufacturerEnum.AMD: "rocm",
     ManufacturerEnum.ASCEND: "cann",
-    ManufacturerEnum.CAMBRICON: "cnrt",
+    ManufacturerEnum.CAMBRICON: "neuware",
     ManufacturerEnum.HYGON: "dtk",
     ManufacturerEnum.ILUVATAR: "corex",
     ManufacturerEnum.MTHREADS: "musa",

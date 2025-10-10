@@ -131,7 +131,7 @@ variables: dict[str, Callable[[], Any]] = {
             "musa=mthreads.com/devices;"
             "dtk=hygon.com/devices;"
             "corex=iluvatar.ai/devices;"
-            "cnrt=cambricon.com/devices;",
+            "neuware=cambricon.com/devices;",
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(

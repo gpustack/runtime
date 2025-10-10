@@ -295,8 +295,8 @@ class DockerDeployer(Deployer):
 
         return wrapper
 
+    @staticmethod
     def _create_ephemeral_files(
-        self,
         workload: DockerWorkloadPlan,
     ) -> dict[tuple[int, str], str]:
         """
