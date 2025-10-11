@@ -412,11 +412,13 @@ def _LoadAclLibrary():
                     ),
                 )
                 if ascend_path.exists():
-                    locs += [
-                        str(ascend_path / "runtime/lib64/libascendcl.so"),
-                        str(ascend_path / "aarch64-linux/lib64/libascendcl.so"),
-                        str(ascend_path / "x86_64-linux/lib64/libascendcl.so"),
-                    ]
+                    locs.extend(
+                        [
+                            str(ascend_path / "runtime/lib64/libascendcl.so"),
+                            str(ascend_path / "aarch64-linux/lib64/libascendcl.so"),
+                            str(ascend_path / "x86_64-linux/lib64/libascendcl.so"),
+                        ]
+                    )
                 for loc in locs:
                     try:
                         aclLib = CDLL(loc)

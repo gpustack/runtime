@@ -33,12 +33,9 @@ def amdsmi_get_rocm_version_major_minor() -> str | None:
     locs = [
         "librocm-core.so",
     ]
-    rocm_path = os.getenv("ROCM_HOME", os.getenv("ROCM_PATH"))
-    if rocm_path:
-        locs.append(os.path.join(rocm_path, "lib/librocm-core.so"))
-    if Path("/opt/rocm/lib/librocm-core.so").exists():
-        locs.append("/opt/rocm/lib/librocm-core.so")
-
+    rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
+    if rocm_path.exists():
+        locs.append(str(rocm_path / "lib/librocm-core.so"))
     for loc in locs:
         try:
             clib = CDLL(loc)

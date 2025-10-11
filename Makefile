@@ -71,14 +71,15 @@ PACKAGE_NAMESPACE ?= gpustack
 PACKAGE_REPOSITORY ?= runtime
 PACKAGE_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 PACKAGE_ARCH ?= $(shell uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/')
-PACKAGE_TAG ?= $(PACKAGE_OS)-$(PACKAGE_ARCH)
+PACKAGE_TAG ?= main
+PACKAGE_ON_HOST ?= false
 package:
 	@echo "+++ $@ +++"
 	if [[ -z $$(command -v docker) ]]; then \
 		echo "[FATAL] Docker is not installed. Please install Docker to use this target."; \
 		exit 1; \
 	fi
-	if [[ -z $$(docker buildx inspect --builder "gpustack" 2>/dev/null) ]]; then \
+	if [[ "$(PACKAGE_ON_HOST)" == "false" ]] && [[ -z $$(docker buildx inspect --builder "gpustack" 2>/dev/null) ]]; then \
     	echo "[INFO] Creating new buildx builder 'gpustack'"; \
 	    docker run --rm --privileged tonistiigi/binfmt:qemu-v9.2.2-52 --uninstall qemu-*; \
 	    docker run --rm --privileged tonistiigi/binfmt:qemu-v9.2.2 --install all; \
@@ -90,16 +91,16 @@ package:
 	    	--bootstrap; \
 	fi
 	TAG=$(PACKAGE_NAMESPACE)/$(PACKAGE_REPOSITORY):$(PACKAGE_TAG); \
+	BUILD_ARGS=(buildx build --pull --cache-from "type=registry,ref=gpustack/runtime:build-cache" --allow network.host --allow security.insecure --progress plain --builder "gpustack"); \
+	if [[ "$(PACKAGE_ON_HOST)" == "true" ]]; then \
+		BUILD_ARGS=(build --pull --cache-from "type=registry,ref=gpustack/runtime:build-cache"); \
+	fi; \
 	echo "[INFO] Building '$${TAG}'"; \
-	docker buildx build \
-		--pull \
-		--allow network.host \
-		--allow security.insecure \
-		--builder "gpustack" \
+	echo "       for platform '$(PACKAGE_OS)/$(PACKAGE_ARCH)'"; \
+	docker $${BUILD_ARGS[@]} \
 		--platform "$(PACKAGE_OS)/$(PACKAGE_ARCH)" \
 		--tag "$${TAG}" \
 		--file "$(SRCDIR)/pack/Dockerfile" \
-		--progress plain \
 		$(SRCDIR)
 	@echo "--- $@ ---"
 

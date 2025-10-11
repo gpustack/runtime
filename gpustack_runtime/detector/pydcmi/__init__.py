@@ -8,6 +8,7 @@ import sys
 import threading
 from ctypes import *
 from functools import wraps
+from pathlib import Path
 from typing import ClassVar
 
 ## C Type mappings ##
@@ -742,6 +743,8 @@ def _LoadDcmiLibrary():
                 # Linux path
                 locs = [
                     "libdcmi.so",
+                    "/usr/local/Ascend/driver/lib64/driver/libdcmi.so",
+                    "/usr/local/dcmi/libdcmi.so",
                 ]
                 for loc in locs:
                     try:
