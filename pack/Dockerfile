@@ -284,7 +284,8 @@ ENV AMD_VISIBLE_DEVICES="0" \
 ## - Mount /usr/local/Ascend/ascend-toolkit to detect the correct CANN version and SoC name.
 ## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV ASCEND_VISIBLE_DEVICES="0" \
-    ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/latest"
+    ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/latest" \
+    LD_LIBRARY_PATH="/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/ascend-toolkit/latest/runtime/lib64:${LD_LIBRARY_PATH}"
 
 ## Active all Cambricon devices detection,
 ## works with (default) Cambricon container runtime and privileged mode.

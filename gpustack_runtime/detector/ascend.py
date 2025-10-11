@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 from functools import lru_cache
 
@@ -145,10 +146,12 @@ class AscendDetector(Detector):
                         dev_card_id,
                         dev_device_id,
                     )
-                    dev_power_used = pydcmi.dcmi_get_device_power_info(
-                        dev_card_id,
-                        dev_device_id,
-                    )
+                    dev_power_used = None
+                    with contextlib.suppress(pydcmi.DCMIError):
+                        dev_power_used = pydcmi.dcmi_get_device_power_info(
+                            dev_card_id,
+                            dev_device_id,
+                        )
                     dev_appendix = {
                         "arch_family": pyacl.aclrtGetSocName(),
                         "vgpu": dev_is_vgpu,
@@ -186,7 +189,11 @@ class AscendDetector(Detector):
                                 (dev_mem_used / dev_mem) * 100 if dev_mem > 0 else 0
                             ),
                             temperature=dev_temp,
-                            power_used=dev_power_used / 10,  # Convert from 0.1W to W
+                            power_used=(
+                                dev_power_used / 10  # Convert from 0.1W to W
+                                if dev_power_used
+                                else None
+                            ),
                             appendix=dev_appendix,
                         ),
                     )
@@ -223,7 +230,11 @@ def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
             dev_mem = dev_memory_info.memory_size
             dev_mem_used = dev_memory_info.utiliza
     except pydcmi.DCMIError as e:
-        if e.value == pydcmi.DCMI_ERROR_FUNCTION_NOT_FOUND:
+        if e.value in [
+            pydcmi.DCMI_ERROR_FUNCTION_NOT_FOUND,
+            pydcmi.DCMI_ERROR_NOT_SUPPORT,
+            pydcmi.DCMI_ERROR_NOT_SUPPORT_IN_CONTAINER,
+        ]:
             dev_memory_info = pydcmi.dcmi_get_device_memory_info_v3(
                 dev_card_id,
                 dev_device_id,
