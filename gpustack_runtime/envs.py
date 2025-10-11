@@ -34,6 +34,10 @@ if TYPE_CHECKING:
     """
     Deployer to use (e.g., Auto, Docker, Kubernetes).
     """
+    GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE: bool = True
+    """
+    Correct the gpustack-runner image by rendering it with the host's detection.
+    """
     GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX: str | None = None
     """
     Label prefix for the deployer.
@@ -137,6 +141,9 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY",
         "Auto",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE", "1"),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX",

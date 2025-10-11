@@ -1,0 +1,42 @@
+[
+  [
+    "skip image",
+    {
+      "image": "other/image:tag"
+    },
+    "other/image:tag"
+  ],
+  [
+    "adjust backend version",
+    {
+      "image": "gpustack/runner:cuda11.8-vllm0.10.0"
+    },
+    "gpustack/runner:cuda12.8-vllm0.10.0"
+  ],
+  [
+    "host detection (fill variant)",
+    {
+      "image": "gpustack/runner:HostX.Y-vllm0.10.0",
+      "backend": "cann"
+    },
+    "gpustack/runner:cann8.2-910b-vllm0.10.0"
+  ],
+  [
+    "host detection (correct version) ",
+    {
+      "image": "gpustack/runner:HostX.Y-vllm0.10.0",
+      "backend": "cuda",
+      "backend_version": "12.5"
+    },
+    "gpustack/runner:cuda12.4-vllm0.10.0"
+  ],
+  [
+    "invalid in runner",
+    {
+      "image": "gpustack/runner:cuda12.5-vllm0.10.1",
+      "backend": "cuda",
+      "backend_version": "12.4"
+    },
+    "gpustack/runner:cuda12.5-vllm0.10.1"
+  ]
+]

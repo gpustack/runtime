@@ -10,7 +10,7 @@ from dataclasses_json import dataclass_json
 
 from .. import envs
 from ..detector import detect_backend
-from .__utils__ import render_image, safe_json, safe_yaml
+from .__utils__ import correct_runner_image, safe_json, safe_yaml
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -574,11 +574,9 @@ class Container:
     image: str
     """
     Image of the container,
-    allow the following placeholders:
-        - {OS}: the operating system of the host, e.g., linux, windows.
-        - {ARCH}: the architecture of the host, e.g., amd64, arm64
-        - {BACKEND}: the backend related to the device manufacturer of the host, e.g., nvidia -> cuda13.0, amd -> rocm6.4, ascend -> cann8.1-910b.
-        - {BACKEND_CORRECTED}: similar to {BACKEND}, but the backend version is the closest version of gpustack-runner, e.g., nvidia -> cuda12.6, amd -> rocm6.3, ascend -> cann8.2-910b.
+    if GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE is enabled,
+    a gpustack-runner formatted image will be corrected if possible,
+    see `correct_runner_image` for details.
     """
     name: str
     """
@@ -843,7 +841,8 @@ class WorkloadPlan(WorkloadSecurity):
                     c.restart_policy = ContainerRestartPolicyEnum.NEVER
             elif not c.restart_policy:
                 c.restart_policy = ContainerRestartPolicyEnum.ALWAYS
-            c.image = render_image(c.image)
+            if envs.GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE:
+                c.image = correct_runner_image(c.image)
 
     def to_json(self) -> str:
         """

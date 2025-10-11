@@ -3,13 +3,10 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import platform
 import sys
 import time
 from argparse import REMAINDER
 from typing import TYPE_CHECKING
-
-from gpustack_runner import list_service_runners
 
 from .. import envs
 from ..deployer import (
@@ -31,7 +28,7 @@ from ..deployer import (
     list_workloads,
     logs_workload,
 )
-from ..detector import detect_devices, supported_backends
+from ..detector import supported_backends
 from .__types__ import SubCommand
 
 if TYPE_CHECKING:
@@ -162,46 +159,6 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             raise ValueError(msg)
 
     def run(self):
-        arch_name = platform.machine()
-        match arch_name:
-            case "amd64" | "x86_64" | "AMD64":
-                arch_name = "amd64"
-            case "arm64" | "aarch64" | "ARM64":
-                arch_name = "arm64"
-            case _:
-                msg = f"Unsupported architecture: {arch_name}"
-                raise ValueError(msg)
-
-        runners = list_service_runners(
-            backend=self.backend,
-            service=self.service,
-            service_version_prefix=self.version,
-            platform=f"linux/{arch_name}",
-        )
-        if not runners:
-            msg = (
-                f"No runners found for service '{self.service}' "
-                f"with version prefix '{self.version}' "
-                f"and backend '{self.backend}'."
-            )
-            raise ValueError(msg)
-
-        runner = None
-        if len(runners[0].versions[0].backends[0].versions) > 1:
-            rt_v = "0.0"
-            if devs := detect_devices():
-                rt_v = devs[0].runtime_version
-            for v in runners[0].versions[0].backends[0].versions:
-                if v.version > rt_v:
-                    continue
-                runner = v.variants[0].platforms[0]
-                break
-        if not runner:
-            runner = (
-                runners[0].versions[0].backends[0].versions[0].variants[0].platforms[0]
-            )
-
-        print(f"Using runner image: {runner.docker_image}")
         env = [
             ContainerEnv(
                 name=name,
@@ -255,7 +212,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             host_network=True,
             containers=[
                 Container(
-                    image=runner.docker_image,
+                    image=f"gpustack/runner:HostX.Y-{self.service}{self.version}",
                     name="default",
                     envs=env,
                     resources=resources,

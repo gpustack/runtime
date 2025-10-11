@@ -19,7 +19,7 @@ dependencies = [
     "docker",
     "kubernetes",
     "pyyaml",
-    "gpustack-runner>=0.1.6",
+    "gpustack-runner>=0.1.9",
     "nvidia-ml-py>=13.580.65",
 ]
 dynamic = ["version"]

@@ -672,6 +672,15 @@ class KubernetesDeployer(Deployer):
                 If creating the Pod fails.
 
         """
+        if not self._node_name:
+            # Get the first node name of the cluster if not configured.
+            # Required list permission on Kubernetes Node resources.
+            core_api = kubernetes.client.CoreV1Api(self._client)
+            with contextlib.suppress(kubernetes.client.exceptions.ApiException):
+                nodes = core_api.list_node(limit=1)
+                if nodes.items:
+                    self._node_name = nodes.items[0].metadata.name
+
         pod = kubernetes.client.V1Pod(
             metadata=kubernetes.client.V1ObjectMeta(
                 name=workload.name,
@@ -948,14 +957,6 @@ class KubernetesDeployer(Deployer):
         super().__init__()
         self._client = self._get_client()
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
-        if self._client and not self._node_name:
-            # Get the first node name of the cluster if not configured.
-            # Required list permission on Kubernetes Node resources.
-            core_api = kubernetes.client.CoreV1Api(self._client)
-            with contextlib.suppress(kubernetes.client.exceptions.ApiException):
-                nodes = core_api.list_node(limit=1)
-                if nodes.items:
-                    self._node_name = nodes.items[0].metadata.name
 
     @_supported
     def create(self, workload: WorkloadPlan):
