@@ -106,7 +106,7 @@ class AscendDetector(Detector):
                     ):
                         dev_is_vgpu = True
                         dev_cores_aicore = dev_virt_info.query_info.computing.aic
-                        dev_name = f"Ascend {dev_virt_info.query_info.name}"
+                        dev_name = dev_virt_info.query_info.name
                         dev_mem, dev_mem_used = 0, 0
                         if hasattr(dev_virt_info.query_info.computing, "memory_size"):
                             dev_mem = dev_virt_info.query_info.computing.memory_size
@@ -117,9 +117,7 @@ class AscendDetector(Detector):
                             dev_device_id,
                         )
                         dev_cores_aicore = dev_chip_info.aicore_cnt
-                        dev_name = (
-                            f"{dev_chip_info.chip_type} {dev_chip_info.chip_name}"
-                        )
+                        dev_name = dev_chip_info.chip_name
                         dev_mem, dev_mem_used = _get_device_memory_info(
                             dev_card_id,
                             dev_device_id,
@@ -153,7 +151,10 @@ class AscendDetector(Detector):
                             dev_device_id,
                         )
                     dev_appendix = {
-                        "arch_family": pyacl.aclrtGetSocName(),
+                        "arch_family": (
+                            pyacl.aclrtGetSocName()
+                            or _guess_soc_name_from_dev_name(dev_name)
+                        ),
                         "vgpu": dev_is_vgpu,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
@@ -338,6 +339,24 @@ _soc_name_version_mapping: dict[str, int] = {
     "Ascend910_9372": 254,
     "Ascend910_9362": 255,
 }
+
+
+def _guess_soc_name_from_dev_name(dev_name: str) -> str | None:
+    """
+    Guess the SoC name from the device name.
+
+    Args:
+        dev_name:
+            The name of the device, e.g., "910A", "310P1", etc.
+
+    Returns:
+        The guessed SoC name, or None if not found.
+
+    """
+    soc_name = f"Ascend{dev_name}"
+    if soc_name in _soc_name_version_mapping:
+        return soc_name
+    return None
 
 
 def get_ascend_soc_version(name: str | None) -> int:

@@ -120,7 +120,7 @@ class AMDDetector(Detector):
 
                 dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
                 dev_uuid = dev_gpu_asic_info.get("asic_serial")
-                dev_name = "AMD " + dev_gpu_asic_info.get("market_name")
+                dev_name = dev_gpu_asic_info.get("market_name")
                 dev_cc = None
                 dev_cc_t = None
                 if hasattr(dev_gpu_asic_info, "target_graphics_version"):
