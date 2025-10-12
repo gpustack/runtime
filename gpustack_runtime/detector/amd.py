@@ -94,14 +94,10 @@ class AMDDetector(Detector):
             for dev_idx, dev in enumerate(devs):
                 dev_card = None
                 dev_index = dev_idx
-                if len(dev_files) > dev_idx:
+                if len(dev_files) >= len(devs):
                     dev_file = dev_files[dev_idx]
                     if dev_file.number is not None:
                         dev_card = dev_file.number
-                        if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                            dev_index = (
-                                dev_file.number - 1 if dev_file.number > 0 else 0
-                            )
 
                 dev_gpudev_info = None
                 if dev_card is not None:

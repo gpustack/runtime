@@ -129,13 +129,14 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY": lambda: to_dict(
         getenv(
             "GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY",
-            "cuda=nvidia.com/devices;"
             "rocm=amd.com/devices;"
             "cann=huawei.com/devices;"
-            "musa=mthreads.com/devices;"
+            "neuware=cambricon.com/devices;"
             "dtk=hygon.com/devices;"
             "corex=iluvatar.ai/devices;"
-            "neuware=cambricon.com/devices;",
+            "maca=metax-tech.com/devices;"
+            "musa=mthreads.com/devices;"
+            "cuda=nvidia.com/devices;",
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(
@@ -156,25 +157,27 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES": lambda: to_dict(
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES",
-            "nvidia.com/devices=NVIDIA_VISIBLE_DEVICES;"
             "amd.com/devices=AMD_VISIBLE_DEVICES;"
             "huawei.com/devices=ASCEND_VISIBLE_DEVICES;"
-            "mthreads.com/devices=METHERDS_VISIBLE_DEVICES;"
+            "cambricon.com/devices=CAMBRICON_VISIBLE_DEVICES;"
             "hygon.com/devices=HYGON_VISIBLE_DEVICES;"
             "iluvatar.ai/devices=ILUVATAR_VISIBLE_DEVICES;"
-            "cambricon.com/devices=CAMBRICON_VISIBLE_DEVICES;",
+            "metax-tech.com/devices=METAX_VISIBLE_DEVICES;"
+            "mthreads.com/devices=METHERDS_VISIBLE_DEVICES;"
+            "nvidia.com/devices=NVIDIA_VISIBLE_DEVICES;",
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES": lambda: to_dict(
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES",
-            "nvidia.com/devices=CUDA_VISIBLE_DEVICES;"
             "amd.com/devices=ROCR_VISIBLE_DEVICES;"
             "huawei.com/devices=ASCEND_RT_VISIBLE_DEVICES,NPU_VISIBLE_DEVICES;"
-            "mthreads.com/devices=CUDA_VISIBLE_DEVICES;"
+            "cambricon.com/devices=MLU_VISIBLE_DEVICES;"
             "hygon.com/devices=HIP_VISIBLE_DEVICES;"
             "iluvatar.ai/devices=CUDA_VISIBLE_DEVICES;"
-            "cambricon.com/devices=MLU_VISIBLE_DEVICES;",
+            "metax-tech.com/devices=CUDA_VISIBLE_DEVICES;"
+            "mthreads.com/devices=CUDA_VISIBLE_DEVICES;"
+            "nvidia.com/devices=CUDA_VISIBLE_DEVICES;",
         ),
         list_sep=",",
     ),

@@ -88,10 +88,13 @@ class MThreadsDetector(Detector):
                 dev = pymtml.mtmlLibraryInitDeviceByIndex(dev_idx)
                 try:
                     dev_props = pymtml.mtmlDeviceGetProperty(dev)
-                    dev_is_gpu = (
+                    dev_is_vgpu = (
                         dev_props.virtRole == pymtml.MTML_VIRT_ROLE_HOST_VIRTDEVICE
                     )
-                    if dev_is_gpu and dev_props.mpcCap != pymtml.MTML_MPC_TYPE_INSTANCE:
+                    if (
+                        dev_is_vgpu
+                        and dev_props.mpcCap != pymtml.MTML_MPC_TYPE_INSTANCE
+                    ):
                         continue
 
                     dev_index = dev_idx
@@ -117,7 +120,7 @@ class MThreadsDetector(Detector):
                     pymtml.mtmlDeviceFreeGpu(devgpu)
 
                 dev_appendix = {
-                    "vgpu": dev_is_gpu,
+                    "vgpu": dev_is_vgpu,
                 }
 
                 ret.append(

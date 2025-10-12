@@ -315,6 +315,15 @@ ENV HYGON_VISIBLE_DEVICES="0"
 ## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
 ENV ILUVATAR_VISIBLE_DEVICES="0"
 
+## Active all MetaX devices detection,
+## works with (default) MetaX container runtime and privileged mode.
+## See https://developer.metax-tech.com/api/client/document/preview/626/k8s/03_component.html#container-runtime.
+## Options:
+## - Mount /sys from the host to detect the correct devices' PCI info.
+## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
+ENV METAX_VISIBLE_DEVICES="0" \
+    LD_LIBRARY_PATH="/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:${LD_LIBRARY_PATH}"
+
 ## Active all MThread devices detection,
 ## works with (default) MThread container runtime and privileged mode.
 ## See https://docs.mthreads.com/cloud-native/cloud-native-doc-online/install_guide.

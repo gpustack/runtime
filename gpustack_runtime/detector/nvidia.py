@@ -112,7 +112,7 @@ class NVIDIADetector(Detector):
                 if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
                     if dev_files is None:
                         dev_files = get_device_files(pattern=r"nvidia(?P<number>\d+)")
-                    if len(dev_files) > dev_idx:
+                    if len(dev_files) > dev_count:
                         dev_file = dev_files[dev_idx]
                         if dev_file.number is not None:
                             dev_index = dev_file.number
