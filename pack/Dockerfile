@@ -321,7 +321,9 @@ ENV ILUVATAR_VISIBLE_DEVICES="0"
 ## See https://developer.metax-tech.com/api/client/document/preview/626/k8s/03_component.html#container-runtime.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
+## - Mount /opt/maca from the host to support device detecting.
+## - Mount /opt/mxdriver/ from the host to support device detecting.
+## E.g. docker run --rm -it --privileged -v /opt/mxdriver:/opt/mxdriver -v /opt/maca:/opt/maca gpustack/runtime:main gpustack-runtime detect --format json
 ENV METAX_VISIBLE_DEVICES="0" \
     LD_LIBRARY_PATH="/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:${LD_LIBRARY_PATH}"
 

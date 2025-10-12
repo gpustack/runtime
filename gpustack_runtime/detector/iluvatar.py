@@ -99,8 +99,8 @@ class IluvatarDetector(Detector):
 
                 dev_cores_util = safe_float(row[2].split()[0])
 
-                dev_mem = safe_int(row[3].split()[0]) * 1024 * 1024
-                dev_mem_used = safe_int(row[4].split()[0]) * 1024 * 1024
+                dev_mem = safe_int(row[3].split()[0]) << 20
+                dev_mem_used = safe_int(row[4].split()[0]) << 20
 
                 dev_temp = safe_float(row[5].split()[0])
 

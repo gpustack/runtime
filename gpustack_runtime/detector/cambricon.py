@@ -96,8 +96,8 @@ class CambriconDetector(Detector):
                 dev_cores_util = safe_float(dev_util_info.get("MLUAverage", 0))
 
                 dev_mem_usage_info = dev_info.get("PhysicalMemUsage", {})
-                dev_mem = safe_int(dev_mem_usage_info.get("Total", 0)) * 1024 * 1024
-                dev_mem_used = safe_int(dev_mem_usage_info.get("Used", 0)) * 1024 * 1024
+                dev_mem = safe_int(dev_mem_usage_info.get("Total", 0)) << 20
+                dev_mem_used = safe_int(dev_mem_usage_info.get("Used", 0)) << 20
 
                 dev_temp_info = dev_info.get("Temperature", {})
                 dev_temp = safe_float(dev_temp_info.get("Chip", 0))

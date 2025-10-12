@@ -140,8 +140,8 @@ class MetaXDetector(Detector):
                         runtime_version=sys_runtime_ver,
                         runtime_version_tuple=sys_runtime_ver_t,
                         cores_utilization=dev_core_util,
-                        memory=dev_mem,
-                        memory_used=dev_mem_used,
+                        memory=dev_mem >> 10,
+                        memory_used=dev_mem_used >> 10,
                         memory_utilization=(
                             (dev_mem_used * 100 // dev_mem) if dev_mem > 0 else 0
                         ),
