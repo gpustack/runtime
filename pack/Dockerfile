@@ -262,6 +262,7 @@ EOF
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /opt/rocm from the host to detect the correct ROCm version.
+## - Mount /usr/share/misc from the host to detect the correct device name.
 ## E.g. docker run --privileged --runtime amd gpustack/runtime:main gpustack-runtime detect --format json
 RUN --mount=type=bind,from=rocm-base,source=/opt/rocm/share,target=/opt/rocm/share,rw <<EOF
     # Reinstall amd-smi
