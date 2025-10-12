@@ -1,0 +1,122 @@
+[
+  {
+    "manufacturer": "ascend",
+    "index": 0,
+    "name": "310P3",
+    "uuid": "6F786E64 2100848D 5CD085A4 3778030A F6003039",
+    "driver_version": "25.2.0",
+    "driver_version_tuple": [
+      25,
+      2,
+      0
+    ],
+    "runtime_version": null,
+    "runtime_version_tuple": null,
+    "compute_capability": null,
+    "compute_capability_tuple": null,
+    "cores": 8,
+    "cores_utilization": 0,
+    "memory": 44280,
+    "memory_used": 3,
+    "memory_utilization": 0.006775067750677507,
+    "temperature": 71,
+    "power": null,
+    "power_used": null,
+    "appendix": {
+      "arch_family": "Ascend310P3",
+      "vgpu": false,
+      "card_id": 0,
+      "device_id": 0
+    }
+  },
+  {
+    "manufacturer": "ascend",
+    "index": 1,
+    "name": "310P3",
+    "uuid": "6F786E64 2140D78D C1D005A4 3778030A 3D003019",
+    "driver_version": "25.2.0",
+    "driver_version_tuple": [
+      25,
+      2,
+      0
+    ],
+    "runtime_version": null,
+    "runtime_version_tuple": null,
+    "compute_capability": null,
+    "compute_capability_tuple": null,
+    "cores": 8,
+    "cores_utilization": 0,
+    "memory": 43693,
+    "memory_used": 3,
+    "memory_utilization": 0.006866088389444533,
+    "temperature": 59,
+    "power": null,
+    "power_used": null,
+    "appendix": {
+      "arch_family": "Ascend310P3",
+      "vgpu": false,
+      "card_id": 0,
+      "device_id": 1
+    }
+  },
+  {
+    "manufacturer": "ascend",
+    "index": 2,
+    "name": "310P3",
+    "uuid": "1F786E64 2100E91D 74E695E4 3778030A 7D003039",
+    "driver_version": "25.2.0",
+    "driver_version_tuple": [
+      25,
+      2,
+      0
+    ],
+    "runtime_version": null,
+    "runtime_version_tuple": null,
+    "compute_capability": null,
+    "compute_capability_tuple": null,
+    "cores": 8,
+    "cores_utilization": 0,
+    "memory": 44280,
+    "memory_used": 3,
+    "memory_utilization": 0.006775067750677507,
+    "temperature": 65,
+    "power": null,
+    "power_used": null,
+    "appendix": {
+      "arch_family": "Ascend310P3",
+      "vgpu": false,
+      "card_id": 32,
+      "device_id": 0
+    }
+  },
+  {
+    "manufacturer": "ascend",
+    "index": 3,
+    "name": "310P3",
+    "uuid": "1F786E6C 2140A11D BAC615E4 3778030A 63003039",
+    "driver_version": "25.2.0",
+    "driver_version_tuple": [
+      25,
+      2,
+      0
+    ],
+    "runtime_version": null,
+    "runtime_version_tuple": null,
+    "compute_capability": null,
+    "compute_capability_tuple": null,
+    "cores": 8,
+    "cores_utilization": 0,
+    "memory": 43693,
+    "memory_used": 3,
+    "memory_utilization": 0.006866088389444533,
+    "temperature": 64,
+    "power": null,
+    "power_used": null,
+    "appendix": {
+      "arch_family": "Ascend310P3",
+      "vgpu": false,
+      "card_id": 32,
+      "device_id": 1
+    }
+  }
+]
