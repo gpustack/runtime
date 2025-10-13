@@ -34,6 +34,36 @@ if TYPE_CHECKING:
     """
     Deployer to use (e.g., Auto, Docker, Kubernetes).
     """
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME: str | None = None
+    """
+    The name of the deployer.
+    Works with `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT`.
+    In some senses, the deployer needs to know its own name to execute mirrored deployment,
+    e.g., when the deployer is a Kubernetes Pod, it need to know its own Pod name.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT: bool = False
+    """
+    Enable mirrored deployment mode.
+    During deployment mirroring, when deployer deploys a workload,
+    it will configure the workload with the same following settings as the deployer:
+        - Container Runtime(e.g., nvidia, amd, .etc),
+        - Customized environment variables,
+        - Customized volume mounts.
+    To be noted, without `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME` configured,
+    if the deployer failed to retrieve its own settings, it will skip mirrored deployment.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS: set[str] | None = (
+        None
+    )
+    """
+    The environment variable names to ignore during mirrored deployment.
+    Works only when `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT` is enabled.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES: set[str] | None = None
+    """
+    The volume mount destinations to ignore during mirrored deployment.
+    Works only when `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT` is enabled.
+    """
     GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE: bool = True
     """
     Correct the gpustack-runner image by rendering it with the host's detection.
@@ -92,11 +122,12 @@ if TYPE_CHECKING:
     ## Kubernetes
     GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME: str | None = None
     """
-    Kubernetes node name to use.
+    Name of the Kubernetes Node to deploy workloads to,
+    if not set, take the first Node name from the cluster.
     """
     GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE: str | None = None
     """
-    Kubernetes namespace to use.
+    Namespace of the Kubernetes to deploy workloads to.
     """
     GPUSTACK_RUNTIME_KUBERNETES_DOMAIN_SUFFIX: str | None = None
     """
@@ -142,6 +173,22 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY",
         "Auto",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME": lambda: getenv(
+        "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT", "0"),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS": lambda: to_set(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS",
+        ),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES": lambda: to_set(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE", "1"),
@@ -298,23 +345,28 @@ def to_dict(
     If list_sep is provided, values containing list_sep will be split into lists.
 
     Args:
-        value (str): The (sep)-separated string.
-        sep (str): The separator used in the string.
-        list_sep (str, optional): Separator for splitting values into lists.
+        value:
+            The (sep)-separated string.
+        sep:
+            The separator used in the string.
+        list_sep:
+            Separator for splitting values into lists.
 
     Returns:
-        dict[str, str] | dict[str, list[str]]: The resulting dictionary.
+        The resulting dictionary.
 
     """
-    result = {}
+    if not value:
+        return {}
 
+    result = {}
     for item in value.split(sep):
         if "=" in item:
             key, val = item.split("=", 1)
             key = key.strip()
             val = val.strip()
             if list_sep:
-                val = [v.strip() for v in val.split(list_sep) if v.strip()]
+                val = to_list(value, sep=list_sep)
         else:
             key = item.strip()
             val = ""
@@ -323,23 +375,45 @@ def to_dict(
 
         if key:
             result[key] = val
-
     return result
 
 
-def to_list(value: str, sep: str = ",") -> list[str]:
+def to_list(value: str | None, sep: str = ",") -> list[str]:
     """
-    Convert a comma-separated string to a list.
+    Convert a (sep)-separated string to a list.
 
     Args:
-        value (str): The comma-separated string.
-        sep (str): The separator used in the string.
+        value:
+            The (sep)-separated string.
+        sep:
+            The separator used in the string.
 
     Returns:
-        list[str]: The resulting list.
+        The resulting list.
 
     """
+    if not value:
+        return []
     return [item.strip() for item in value.split(sep) if item.strip()]
+
+
+def to_set(value: str | None, sep: str = ",") -> set[str]:
+    """
+    Convert a (sep)-separated string to a set.
+
+    Args:
+        value:
+            The (sep)-separated string.
+        sep:
+            The separator used in the string.
+
+    Returns:
+        The resulting set.
+
+    """
+    if not value:
+        return set()
+    return {item.strip() for item in value.split(sep) if item.strip()}
 
 
 def choice(value: str, options: list[str], default: str = "") -> str:

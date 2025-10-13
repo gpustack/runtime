@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 from dataclasses import dataclass, field
 from functools import lru_cache
 from math import ceil
@@ -36,8 +37,7 @@ from .__types__ import (
 )
 
 if TYPE_CHECKING:
-    import socket
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +232,10 @@ class DockerDeployer(Deployer):
     _client: docker.DockerClient | None = None
     """
     Client for interacting with the Docker daemon.
+    """
+    _mutate_create_options: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    """
+    Function to handle mirrored deployment, internal use only.
     """
 
     @staticmethod
@@ -729,7 +733,7 @@ class DockerDeployer(Deployer):
             }
 
             if not workload.host_network:
-                create_options["hostname"] = c.name
+                create_options["hostname"] = workload.name
 
             if workload.pid_shared:
                 create_options["pid_mode"] = pause_container_namespace
@@ -862,6 +866,8 @@ class DockerDeployer(Deployer):
 
             # Create the container.
             try:
+                if c.profile == ContainerProfileEnum.RUN:
+                    create_options = self._mutate_create_options(create_options)
                 d_container = self._client.containers.create(
                     image=self._pull_image(c.image),
                     detach=detach,
@@ -926,6 +932,118 @@ class DockerDeployer(Deployer):
         super().__init__()
         self._client = self._get_client()
 
+    def _prepare_create(self):
+        """
+        Prepare for creation.
+
+        """
+        # Prepare mirrored deployment if enabled.
+        if self._mutate_create_options:
+            return
+        self._mutate_create_options = lambda o: o
+        if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
+            logger.debug("Skipping mirrored deployment")
+            return
+
+        # Retrieve self-container info.
+        self_container_id = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
+        if not self_container_id:
+            self_container_id = socket.gethostname()
+            logger.warning(
+                "Mirrored deployment enabled but no Container name set, using hostname(%s) instead",
+                self_container_id,
+            )
+        try:
+            self_container = self._client.containers.get(self_container_id)
+            self_image = self_container.image
+        except docker.errors.APIError as e:
+            msg = f"Mirrored deployment enabled but failed to get self Container {self_container_id}"
+            raise OperationError(msg) from e
+
+        # Process mirrored deployment options.
+        self_container_envs: dict[str, str] = dict(
+            item.split("=", 1) for item in self_container.attrs["Config"].get("Env", [])
+        )
+        self_container_mounts: list[dict[str, Any]] = (
+            self_container.attrs["Mounts"] or []
+        )
+        self_image_envs: dict[str, str] = dict(
+            item.split("=", 1) for item in self_image.attrs["Config"].get("Env", [])
+        )
+        mirrored_runtime: str = self_container.attrs["HostConfig"].get("Runtime", "")
+        mirrored_envs: dict[str, str] = {
+            # Only keep envs that are different from image defaults.
+            k: v
+            for k, v in self_container_envs.items()
+            if k not in self_image_envs or v != self_image_envs[k]
+        }
+        if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS:
+            mirrored_envs = {
+                # Filter out ignored envs.
+                k: v
+                for k, v in mirrored_envs.items()
+                if k not in igs
+            }
+        mirrored_mounts: list[dict[str, Any]] = [
+            # Always filter out Docker Socket mount.
+            m
+            for m in self_container_mounts
+            if m.get("Destination") == "/var/run/docker.sock"
+        ]
+        if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
+            mirrored_mounts = [
+                # Filter out ignored volume mounts.
+                m
+                for m in self_container_mounts
+                if m.get("Destination") not in igs
+            ]
+
+        # Construct mutation function.
+        def mutate_create_options(create_options: dict[str, Any]) -> dict[str, Any]:
+            if mirrored_runtime and "runtime" not in create_options:
+                create_options["runtime"] = mirrored_runtime
+
+            if mirrored_envs:
+                c_envs = create_options.get("environment", {})
+                for k, v in mirrored_envs.items():
+                    if k not in c_envs:
+                        c_envs[k] = v
+                create_options["environment"] = c_envs
+
+            if mirrored_mounts:
+                c_mounts = create_options.get("mounts", [])
+                c_mounts_paths = {m.get("Target") for m in c_mounts}
+                for m in mirrored_mounts:
+                    if m.get("Destination") in c_mounts_paths:
+                        continue
+                    type_ = m.get("Type", "volume")
+                    source = m.get("Source")
+                    if type_ == "volume":
+                        source = m.get("Name")
+                    target = m.get("Destination")
+                    read_only = (
+                        m.get("Mode", "") in ("ro", "readonly")
+                        or m.get("RW", True) is False
+                    )
+                    propagation = (
+                        m.get("Propagation") if m.get("Propagation", "") else None
+                    )
+                    c_mounts.append(
+                        docker.types.Mount(
+                            type=type_,
+                            source=source,
+                            target=target,
+                            read_only=read_only,
+                            propagation=propagation,
+                        ),
+                    )
+                    c_mounts_paths.add(target)
+                create_options["mounts"] = c_mounts
+
+            return create_options
+
+        self._mutate_create_options = mutate_create_options
+
     @_supported
     def create(self, workload: WorkloadPlan):
         """
@@ -951,6 +1069,8 @@ class DockerDeployer(Deployer):
             raise TypeError(msg)
         if isinstance(workload, WorkloadPlan):
             workload = DockerWorkloadPlan(**workload.__dict__)
+
+        self._prepare_create()
 
         workload.validate_and_default()
         workload.labels[_LABEL_WORKLOAD] = workload.name

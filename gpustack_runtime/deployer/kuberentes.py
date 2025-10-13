@@ -3,9 +3,11 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import logging
+import socket
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import kubernetes
@@ -32,8 +34,7 @@ from .__types__ import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
+    from collections.abc import Callable, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +242,12 @@ class KubernetesDeployer(Deployer):
     _node_name: str | None = None
     """
     Name of the node where the deployer is running.
+    """
+    _mutate_create_pod: (
+        Callable[[kubernetes.client.V1Pod], kubernetes.client.V1Pod] | None
+    ) = None
+    """
+    Function to handle mirrored deployment, internal use only.
     """
 
     @staticmethod
@@ -672,15 +679,6 @@ class KubernetesDeployer(Deployer):
                 If creating the Pod fails.
 
         """
-        if not self._node_name:
-            # Get the first node name of the cluster if not configured.
-            # Required list permission on Kubernetes Node resources.
-            core_api = kubernetes.client.CoreV1Api(self._client)
-            with contextlib.suppress(kubernetes.client.exceptions.ApiException):
-                nodes = core_api.list_node(limit=1)
-                if nodes.items:
-                    self._node_name = nodes.items[0].metadata.name
-
         pod = kubernetes.client.V1Pod(
             metadata=kubernetes.client.V1ObjectMeta(
                 name=workload.name,
@@ -901,6 +899,8 @@ class KubernetesDeployer(Deployer):
             else:
                 pod.spec.containers.append(container)
 
+        pod = self._mutate_create_pod(pod)
+
         core_api = kubernetes.client.CoreV1Api(self._client)
         try:
             actual_pod = None
@@ -958,6 +958,219 @@ class KubernetesDeployer(Deployer):
         self._client = self._get_client()
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
 
+    def _prepare_create(self):
+        """
+        Prepare for creation.
+
+        """
+        # Get the first node name of the cluster if not configured.
+        # Required list permission on Kubernetes Node resources.
+        if not self._node_name:
+            core_api = kubernetes.client.CoreV1Api(self._client)
+            try:
+                nodes = core_api.list_node(limit=1)
+            except kubernetes.client.exceptions.ApiException as e:
+                msg = "Failed to get the default node name of the cluster"
+                raise OperationError(msg) from e
+            else:
+                if nodes.items:
+                    self._node_name = nodes.items[0].metadata.name
+                else:
+                    msg = "Failed to get the default node name of the cluster: No nodes found"
+                    raise OperationError(msg)
+
+        # Prepare mirrored deployment if enabled.
+        if self._mutate_create_pod:
+            return
+        self._mutate_create_pod = lambda o: o
+        if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
+            logger.debug("Skipping mirrored deployment")
+            return
+
+        # Retrieve self-pod info.
+        core_api = kubernetes.client.CoreV1Api(self._client)
+        self_pod_namespace = "default"
+        self_pod_namespace_f = Path(
+            "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+        )
+        if self_pod_namespace_f.exists():
+            with self_pod_namespace_f.open("r") as f:
+                self_pod_namespace = f.read().strip()
+        self_pod_name = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
+        if not self_pod_name:
+            self_pod_name = socket.gethostname()
+            logger.warning(
+                "Mirrored deployment enabled but no Pod name set, using hostname(%s) instead",
+                self_pod_name,
+            )
+        try:
+            self_pod = core_api.read_namespaced_pod(
+                name=self_pod_name,
+                namespace=self_pod_namespace,
+            )
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Mirrored deployment enabled but failed to get self Pod {self_pod_namespace}/{self_pod_name}"
+            raise OperationError(msg) from e
+
+        # Preprocess mirrored deployment options.
+        in_same_namespace = (
+            self_pod_namespace == envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
+        )
+        self_container = self_pod.spec.containers[0]
+        self_container = next(
+            (c for c in self_pod.spec.containers if c.name == "default"),
+            self_container,
+        )
+        mirrored_runtime_class_name: str = self_pod.spec.runtime_class_name or ""
+        mirrored_envs: list[kubernetes.client.V1EnvVar] = [
+            e
+            for e in self_container.env or []
+            if (not e.value_from or in_same_namespace)
+        ]
+        if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS:
+            mirrored_envs = [
+                # Filter out ignored envs.
+                e
+                for e in mirrored_envs
+                if e.name not in igs
+            ]
+        mirrored_volume_mounts: list[kubernetes.client.V1VolumeMount] = (
+            self_container.volume_mounts or []
+        )
+        if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
+            mirrored_volume_mounts = [
+                # Filter out ignored volume mounts.
+                m
+                for m in mirrored_volume_mounts
+                if m.mount_path not in igs
+            ]
+        mirrored_volume_mounts_names = {m.name for m in mirrored_volume_mounts}
+        mirrored_volume_devices: list[kubernetes.client.V1VolumeDevice] = (
+            self_container.volume_devices or []
+        )
+        if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
+            mirrored_volume_devices = [
+                # Filter out ignored volume mounts.
+                d
+                for d in mirrored_volume_devices
+                if d.device_path not in igs
+            ]
+        mirrored_volume_devices_names = {d.name for d in mirrored_volume_devices}
+        mirrored_volumes: list[kubernetes.client.V1Volume] = []
+        # Filter out volumes not used by mirrored volume mounts or devices.
+        for v in self_pod.spec.volumes or []:
+            if (
+                v.name not in mirrored_volume_mounts_names
+                and v.name not in mirrored_volume_devices_names
+            ):
+                continue
+            # Skip downwardAPI/projected volumes
+            if v.downward_api or v.projected:
+                mirrored_volume_mounts_names.discard(v.name)
+                mirrored_volume_devices_names.discard(v.name)
+                continue
+            # Skip configMap/secret/PVC volumes if not in same namespace
+            if (
+                v.config_map or v.secret or v.persistent_volume_claim
+            ) and not in_same_namespace:
+                mirrored_volume_mounts_names.discard(v.name)
+                mirrored_volume_devices_names.discard(v.name)
+                continue
+            # Skip PVCs with RWO or RWOP access modes
+            if v.persistent_volume_claim:
+                pvc = core_api.read_namespaced_persistent_volume_claim(
+                    name=v.persistent_volume_claim.claim_name,
+                    namespace=self_pod_namespace,
+                )
+                ams = pvc.spec.access_modes or []
+                if any(mode in ams for mode in ("ReadWriteOnce", "ReadWriteOncePod")):
+                    mirrored_volume_mounts_names.discard(v.name)
+                    mirrored_volume_devices_names.discard(v.name)
+                    continue
+            mirrored_volumes.append(v)
+        # Correct volume_mounts/volume_devices without corresponding volumes.
+        mirrored_volume_mounts = [
+            m for m in mirrored_volume_mounts if m.name in mirrored_volume_mounts_names
+        ]
+        mirrored_volume_devices = [
+            d
+            for d in mirrored_volume_devices
+            if d.name in mirrored_volume_devices_names
+        ]
+
+        # Construct mutation function.
+        def mutate_create_pod(
+            pod: kubernetes.client.V1Pod,
+        ) -> kubernetes.client.V1Pod:
+            if mirrored_runtime_class_name and not pod.spec.runtime_class_name:
+                pod.spec.runtime_class_name = mirrored_runtime_class_name
+
+            if mirrored_envs:
+                for ci in pod.spec.containers:
+                    c_env_names = {ei.name for ei in ci.env or []}
+                    for ei in mirrored_envs:
+                        if ei.name not in c_env_names:
+                            ci.env.append(ei)
+
+            if mirrored_volume_mounts or mirrored_volume_devices:
+                for ci in pod.spec.containers:
+                    c_volume_mount_names = {
+                        # Map existing volume mount names.
+                        mi.name
+                        for mi in ci.volume_mounts or []
+                    }
+                    c_volume_mount_paths = {
+                        # Map existing volume mount paths.
+                        mi.mount_path
+                        for mi in ci.volume_mounts or []
+                    }
+                    # Append volume mounts if not exists.
+                    for mi in mirrored_volume_mounts:
+                        if (
+                            mi.name not in c_volume_mount_names
+                            and mi.mount_path not in c_volume_mount_paths
+                        ):
+                            ci.volume_mounts = ci.volume_mounts or []
+                            ci.volume_mounts.append(mi)
+                            c_volume_mount_names.add(mi.name)
+                            c_volume_mount_paths.add(mi.mount_path)
+                    # Append volume devices if not exists.
+                    c_volume_device_names = {
+                        # Map existing volume device names.
+                        di.name
+                        for di in ci.volume_devices or []
+                    }
+                    c_volume_device_paths = {
+                        # Map existing volume device paths.
+                        di.device_path
+                        for di in ci.volume_devices or []
+                    }
+                    for di in mirrored_volume_devices:
+                        if (
+                            di.name not in c_volume_device_names
+                            and di.device_path not in c_volume_device_paths
+                        ):
+                            ci.volume_devices = ci.volume_devices or []
+                            ci.volume_devices.append(di)
+                            c_volume_device_names.add(di.name)
+                            c_volume_device_paths.add(di.device_path)
+
+            if mirrored_volumes:
+                p_volume_names = {
+                    # Map existing volume names.
+                    v.name
+                    for v in pod.spec.volumes or []
+                }
+                for vi in mirrored_volumes:
+                    if vi.name not in p_volume_names:
+                        pod.spec.volumes = pod.spec.volumes or []
+                        pod.spec.volumes.append(vi)
+                        p_volume_names.add(vi.name)
+
+            return pod
+
+        self._mutate_create_pod = mutate_create_pod
+
     @_supported
     def create(self, workload: WorkloadPlan):
         """
@@ -983,6 +1196,8 @@ class KubernetesDeployer(Deployer):
             raise TypeError(msg)
         if isinstance(workload, WorkloadPlan):
             workload = KubernetesWorkloadPlan(**workload.__dict__)
+
+        self._prepare_create()
 
         workload.validate_and_default()
         workload.labels[_LABEL_WORKLOAD] = workload.name
@@ -1477,6 +1692,8 @@ def equal_containers(
         return False
     if (a.volume_mounts or []) != (b.volume_mounts or []):
         return False
+    if (a.volume_devices or []) != (b.volume_devices or []):
+        return False
     if (a.liveness_probe or {}) != (b.liveness_probe or {}):
         return False
     if (a.readiness_probe or {}) != (b.readiness_probe or {}):
@@ -1518,6 +1735,8 @@ def equal_pods(
     ):
         if not equal_containers(ac, bc):
             return False
+    if aspec.runtime_class_name != bspec.runtime_class_name:
+        return False
     if aspec.host_network != bspec.host_network:
         return False
     if aspec.host_ipc != bspec.host_ipc:
