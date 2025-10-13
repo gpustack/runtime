@@ -301,7 +301,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "docker" },
-    { name = "gpustack-runner", specifier = "==0.1.10" },
+    { name = "gpustack-runner", specifier = ">=0.1.10" },
     { name = "kubernetes" },
     { name = "nvidia-ml-py", specifier = ">=13.580.65" },
     { name = "pyyaml" },
