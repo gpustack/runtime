@@ -454,6 +454,6 @@ def aclsysGetCANNVersion(package_name=ACL_PKG_NAME_CANN):
         fn = _aclGetFunctionPointer("aclsysGetCANNVersion")
         ret = fn(package_name, byref(c_version))
         _aclCheckReturn(ret)
-        return f"{c_version.majorVersion}.{c_version.minorVersion}"
+        return f"{c_version.version}".lower()
 
     return None

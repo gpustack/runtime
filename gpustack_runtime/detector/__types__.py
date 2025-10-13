@@ -159,28 +159,17 @@ class Device:
     """
     Driver version of the device.
     """
-    driver_version_tuple: list[int | str] | None = None
-    """
-    Driver version tuple of the device.
-    None if `driver_version` is missed.
-    """
     runtime_version: str | None = None
     """
-    Runtime version of the device.
+    Runtime version in major[.minor] of the device.
     """
-    runtime_version_tuple: list[int | str] | None = None
+    runtime_version_original: str | None = None
     """
-    Runtime version tuple of the device.
-    None if `runtime_version` is missed.
+    Original runtime version string of the device.
     """
     compute_capability: str | None = None
     """
     Compute capability of the device.
-    """
-    compute_capability_tuple: list[int | str] | None = None
-    """
-    Compute capability tuple of the device.
-    None if `compute_capability` is missed.
     """
     cores: int | None = None
     """
@@ -190,15 +179,15 @@ class Device:
     """
     Core utilization of the device in percentage.
     """
-    memory: int | float = 0
+    memory: int = 0
     """
     Total memory of the device in MiB.
     """
-    memory_used: int | float = 0
+    memory_used: int = 0
     """
     Used memory of the device in MiB.
     """
-    memory_utilization: int | float = 0
+    memory_utilization: float = 0
     """
     Memory utilization of the device in percentage.
     """

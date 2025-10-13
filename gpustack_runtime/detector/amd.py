@@ -7,7 +7,13 @@ from functools import lru_cache
 from .. import envs
 from . import pyamdgpu, pyamdsmi, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import PCIDevice, get_device_files, get_pci_devices
+from .__utils__ import (
+    PCIDevice,
+    get_brief_version,
+    get_device_files,
+    get_pci_devices,
+    get_utilization,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +85,8 @@ class AMDDetector(Detector):
         try:
             pyamdsmi.amdsmi_init()
 
-            sys_runtime_ver = pyamdsmi.amdsmi_get_rocm_version_major_minor()
-            sys_runtime_ver_t = (
-                [int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")]
-                if sys_runtime_ver
-                else None
-            )
+            sys_runtime_ver_original = pyamdsmi.amdsmi_get_rocm_original_version()
+            sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             devs = pyamdsmi.amdsmi_get_processor_handles()
             dev_files = get_device_files(
@@ -108,17 +110,11 @@ class AMDDetector(Detector):
 
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
                 dev_driver_ver = dev_gpu_driver_info.get("driver_version")
-                dev_driver_ver_t = (
-                    [int(v) if v.isdigit() else v for v in dev_driver_ver.split(".")]
-                    if dev_driver_ver
-                    else None
-                )
 
                 dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
                 dev_uuid = dev_gpu_asic_info.get("asic_serial")
                 dev_name = dev_gpu_asic_info.get("market_name")
                 dev_cc = None
-                dev_cc_t = None
                 if hasattr(dev_gpu_asic_info, "target_graphics_version"):
                     dev_cc = dev_gpu_asic_info.target_graphics_version
                 else:
@@ -127,7 +123,6 @@ class AMDDetector(Detector):
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
                 if dev_cc:
                     dev_cc = dev_cc[3:]  # Strip "gfx" prefix
-                    dev_cc_t = [int(v) if v.isdigit() else v for v in dev_cc.split(".")]
 
                 dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
                 dev_cores = (
@@ -165,18 +160,14 @@ class AMDDetector(Detector):
                         name=dev_name,
                         uuid=dev_uuid,
                         driver_version=dev_driver_ver,
-                        driver_version_tuple=dev_driver_ver_t,
                         runtime_version=sys_runtime_ver,
-                        runtime_version_tuple=sys_runtime_ver_t,
+                        runtime_version_original=sys_runtime_ver_original,
                         compute_capability=dev_cc,
-                        compute_capability_tuple=dev_cc_t,
                         cores=dev_cores,
                         cores_utilization=dev_cores_util,
                         memory=dev_mem,
                         memory_used=dev_mem_used,
-                        memory_utilization=(
-                            (dev_mem_used * 100 // dev_mem) if dev_mem > 0 else 0
-                        ),
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         temperature=dev_temp,
                         power=dev_power,
                         power_used=dev_power_used,

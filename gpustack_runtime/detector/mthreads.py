@@ -6,7 +6,7 @@ from functools import lru_cache
 from .. import envs
 from . import pymtml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import PCIDevice, get_pci_devices
+from .__utils__ import PCIDevice, byte_to_mebibyte, get_pci_devices, get_utilization
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +79,15 @@ class MThreadsDetector(Detector):
             pymtml.mtmlLibraryInit()
 
             sys_driver_ver = pymtml.mtmlSystemGetDriverVersion()
-            sys_driver_ver_t = [
-                int(v) if v.isdigit() else v for v in sys_driver_ver.split(".")
-            ]
 
             dev_count = pymtml.mtmlLibraryCountDevice()
             for dev_idx in range(dev_count):
+                dev_index = dev_idx
+
+                dev_uuid = ""
+                dev_name = ""
+                dev_cores = 0
+                dev_power_used = None
                 dev = pymtml.mtmlLibraryInitDeviceByIndex(dev_idx)
                 try:
                     dev_props = pymtml.mtmlDeviceGetProperty(dev)
@@ -97,7 +100,6 @@ class MThreadsDetector(Detector):
                     ):
                         continue
 
-                    dev_index = dev_idx
                     dev_uuid = pymtml.mtmlDeviceGetUUID(dev)
                     dev_name = pymtml.mtmlDeviceGetName(dev)
                     dev_cores = pymtml.mtmlDeviceCountGpuCores(dev)
@@ -105,13 +107,21 @@ class MThreadsDetector(Detector):
                 finally:
                     pymtml.mtmlLibraryFreeDevice(dev)
 
+                dev_mem = 0
+                dev_mem_used = 0
                 devmem = pymtml.mtmlDeviceInitMemory(dev)
                 try:
-                    dev_mem = pymtml.mtmlMemoryGetTotal(devmem)
-                    dev_mem_used = pymtml.mtmlMemoryGetUsed(devmem)
+                    dev_mem = byte_to_mebibyte(  # byte to MiB
+                        pymtml.mtmlMemoryGetTotal(devmem),
+                    )
+                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                        pymtml.mtmlMemoryGetUsed(devmem),
+                    )
                 finally:
                     pymtml.mtmlDeviceFreeMemory(devmem)
 
+                dev_cores_util = 0
+                dev_temp = None
                 devgpu = pymtml.mtmlDeviceInitGpu(dev)
                 try:
                     dev_cores_util = pymtml.mtmlGpuGetUtilization(devgpu)
@@ -130,14 +140,11 @@ class MThreadsDetector(Detector):
                         uuid=dev_uuid,
                         name=dev_name,
                         driver_version=sys_driver_ver,
-                        driver_version_tuple=sys_driver_ver_t,
                         cores=dev_cores,
                         cores_utilization=dev_cores_util,
                         memory=dev_mem,
                         memory_used=dev_mem_used,
-                        memory_utilization=(
-                            (dev_mem_used * 100 // dev_mem) if dev_mem > 0 else 0
-                        ),
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         temperature=dev_temp,
                         power_used=dev_power_used,
                         appendix=dev_appendix,

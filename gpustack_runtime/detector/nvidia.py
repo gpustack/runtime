@@ -10,7 +10,14 @@ import pynvml
 from .. import envs
 from . import pycuda
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import PCIDevice, get_device_files, get_pci_devices
+from .__utils__ import (
+    PCIDevice,
+    byte_to_mebibyte,
+    get_brief_version,
+    get_device_files,
+    get_pci_devices,
+    get_utilization,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,16 +92,21 @@ class NVIDIADetector(Detector):
             pynvml.nvmlInit()
 
             sys_driver_ver = pynvml.nvmlSystemGetDriverVersion()
-            sys_driver_ver_t = [
-                int(v) if v.isdigit() else v for v in sys_driver_ver.split(".")
-            ]
 
-            sys_runtime_ver = pynvml.nvmlSystemGetCudaDriverVersion()
-            sys_runtime_ver_t = [
-                sys_runtime_ver // 1000,
-                (sys_runtime_ver % 1000) // 10,
-            ]
-            sys_runtime_ver = f"{sys_runtime_ver_t[0]}.{sys_runtime_ver_t[1]}"
+            sys_runtime_ver_original = pynvml.nvmlSystemGetCudaDriverVersion()
+            sys_runtime_ver_original = ".".join(
+                map(
+                    str,
+                    [
+                        sys_runtime_ver_original // 1000,
+                        (sys_runtime_ver_original % 1000) // 10,
+                        (sys_runtime_ver_original % 10),
+                    ],
+                ),
+            )
+            sys_runtime_ver = get_brief_version(
+                sys_runtime_ver_original,
+            )
 
             dev_count = pynvml.nvmlDeviceGetCount()
             dev_files = None
@@ -117,6 +129,7 @@ class NVIDIADetector(Detector):
                         if dev_file.number is not None:
                             dev_index = dev_file.number
                 dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+
                 dev_cores = None
                 with contextlib.suppress(pycuda.CUDAError):
                     pycuda.cuInit()
@@ -125,16 +138,28 @@ class NVIDIADetector(Detector):
                         dev_gpudev,
                         pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
                     )
+
                 dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
+                dev_mem = byte_to_mebibyte(  # byte to MiB
+                    dev_mem_info.total,
+                )
+                dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                    dev_mem_info.used,
+                )
+
                 dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
+
                 dev_temp = pynvml.nvmlDeviceGetTemperature(
                     dev,
                     pynvml.NVML_TEMPERATURE_GPU,
                 )
+
                 dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
                 dev_power_used = pynvml.nvmlDeviceGetPowerUsage(dev)
+
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
-                dev_cc = f"{dev_cc_t[0]}.{dev_cc_t[1]}"
+                dev_cc = ".".join(map(str, dev_cc_t))
+
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_cc_t),
                     "vgpu": dev_is_vgpu,
@@ -168,20 +193,14 @@ class NVIDIADetector(Detector):
                             name=dev_name,
                             uuid=dev_uuid,
                             driver_version=sys_driver_ver,
-                            driver_version_tuple=sys_driver_ver_t,
                             runtime_version=sys_runtime_ver,
-                            runtime_version_tuple=sys_runtime_ver_t,
+                            runtime_version_original=sys_runtime_ver_original,
                             compute_capability=dev_cc,
-                            compute_capability_tuple=dev_cc_t,
                             cores=dev_cores,
                             cores_utilization=dev_util_rates.gpu,
-                            memory=dev_mem_info.total >> 20,
-                            memory_used=dev_mem_info.used >> 20,
-                            memory_utilization=(
-                                (dev_mem_info.used * 100 // dev_mem_info.total)
-                                if dev_mem_info.total > 0
-                                else 0
-                            ),
+                            memory=dev_mem,
+                            memory_used=dev_mem_used,
+                            memory_utilization=get_utilization(dev_power_used, dev_mem),
                             temperature=dev_temp,
                             power=dev_power // 1000,
                             power_used=dev_power_used // 1000,
@@ -202,18 +221,26 @@ class NVIDIADetector(Detector):
 
                     mdev_index = mdev_idx
                     mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
-                    mdev_mem = pynvml.nvmlDeviceGetMemoryInfo(mdev)
+
+                    mdev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(mdev)
+                    mdev_mem = byte_to_mebibyte(  # byte to MiB
+                        mdev_mem_info.total,
+                    )
+                    mdev_mem_used = byte_to_mebibyte(  # byte to MiB
+                        mdev_mem_info.used,
+                    )
+
                     mdev_temp = pynvml.nvmlDeviceGetTemperature(
                         mdev,
                         pynvml.NVML_TEMPERATURE_GPU,
                     )
                     mdev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(mdev)
                     mdev_power_used = pynvml.nvmlDeviceGetPowerUsage(mdev)
+
                     mdev_appendix = dev_appendix.copy()
 
                     mdev_gi_id = pynvml.nvmlDeviceGetGpuInstanceId(mdev)
                     mdev_appendix["gpu_instance_id"] = mdev_gi_id
-
                     mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
                     mdev_appendix["compute_instance_id"] = mdev_ci_id
 
@@ -297,19 +324,13 @@ class NVIDIADetector(Detector):
                             name=mdev_name,
                             uuid=mdev_uuid,
                             driver_version=sys_driver_ver,
-                            driver_version_tuple=sys_driver_ver_t,
                             runtime_version=sys_runtime_ver,
-                            runtime_version_tuple=sys_runtime_ver_t,
+                            runtime_version_original=sys_runtime_ver_original,
                             compute_capability=dev_cc,
-                            compute_capability_tuple=dev_cc_t,
                             cores=mdev_cores,
-                            memory=mdev_mem.total >> 20,
-                            memory_used=mdev_mem.used >> 20,
-                            memory_utilization=(
-                                (mdev_mem.used >> 20) * 100 // (mdev_mem.total >> 20)
-                                if mdev_mem.total > 0
-                                else 0
-                            ),
+                            memory=mdev_mem,
+                            memory_used=mdev_mem_used,
+                            memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
                             temperature=mdev_temp,
                             power=mdev_power // 1000,
                             power_used=mdev_power_used // 1000,

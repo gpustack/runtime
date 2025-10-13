@@ -10,6 +10,7 @@ from .__utils__ import (
     PCIDevice,
     execute_shell_command,
     get_pci_devices,
+    get_utilization,
     safe_float,
     safe_int,
     support_command,
@@ -96,8 +97,8 @@ class CambriconDetector(Detector):
                 dev_cores_util = safe_float(dev_util_info.get("MLUAverage", 0))
 
                 dev_mem_usage_info = dev_info.get("PhysicalMemUsage", {})
-                dev_mem = safe_int(dev_mem_usage_info.get("Total", 0)) << 20
-                dev_mem_used = safe_int(dev_mem_usage_info.get("Used", 0)) << 20
+                dev_mem = safe_int(dev_mem_usage_info.get("Total", 0))
+                dev_mem_used = safe_int(dev_mem_usage_info.get("Used", 0))
 
                 dev_temp_info = dev_info.get("Temperature", {})
                 dev_temp = safe_float(dev_temp_info.get("Chip", 0))
@@ -115,9 +116,7 @@ class CambriconDetector(Detector):
                         cores_utilization=dev_cores_util,
                         memory=dev_mem,
                         memory_used=dev_mem_used,
-                        memory_utilization=(
-                            (dev_mem_used * 100 // dev_mem) if dev_mem > 0 else 0
-                        ),
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         temperature=dev_temp,
                         appendix=dev_appendix,
                     ),

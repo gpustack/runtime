@@ -368,3 +368,92 @@ def safe_str(value: Any, default: str = "") -> str:
         return str(value)
     except (ValueError, TypeError):
         return default
+
+
+def kibibyte_to_mebibyte(value: int) -> int:
+    """
+    Convert KiB to MiB.
+
+    Args:
+        value:
+            The value in kilobytes.
+
+    Returns:
+        The value in MiB, or 0 if the input is None or negative.
+
+    """
+    if value is None or value < 0:
+        return 0
+
+    try:
+        return value >> 10
+    except (ValueError, TypeError, OverflowError):
+        return 0
+
+
+def byte_to_mebibyte(value: int) -> int:
+    """
+    Convert bytes to MiB.
+
+    Args:
+        value:
+            The value in bytes.
+
+    Returns:
+        The value in MiB, or 0 if the input is None or negative.
+
+    """
+    if value is None or value < 0:
+        return 0
+
+    try:
+        return value >> 20
+    except (ValueError, TypeError, OverflowError):
+        return 0
+
+
+def get_brief_version(version: str | None) -> str | None:
+    """
+    Get a brief version string,
+    e.g., "11.2.152" -> "11.2".
+
+    Args:
+        version:
+            The full version string.
+
+    Returns:
+        The brief version string, or None if the input is None or empty.
+
+    """
+    if not version:
+        return None
+
+    splits = version.split(".", 3)
+    if len(splits) >= 2:
+        return ".".join(splits[:2])
+    if len(splits) == 1:
+        return splits[0]
+    return None
+
+
+def get_utilization(used: int | None, total: int | None) -> float:
+    """
+    Calculate utilization percentage.
+
+    Args:
+        used:
+            The used value.
+        total:
+            The total value.
+
+    Returns:
+        The utilization percentage, rounded to two decimal places.
+
+    """
+    if used is None or total is None or used < 0 or total <= 0:
+        return 0.0
+    try:
+        result = (used / total) * 100
+    except (OverflowError, ZeroDivisionError):
+        return 0.0
+    return round(result, 2)

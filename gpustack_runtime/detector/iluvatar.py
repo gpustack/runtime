@@ -10,6 +10,7 @@ from .__utils__ import (
     PCIDevice,
     execute_command,
     get_pci_devices,
+    get_utilization,
     safe_float,
     safe_int,
     support_command,
@@ -99,8 +100,8 @@ class IluvatarDetector(Detector):
 
                 dev_cores_util = safe_float(row[2].split()[0])
 
-                dev_mem = safe_int(row[3].split()[0]) << 20
-                dev_mem_used = safe_int(row[4].split()[0]) << 20
+                dev_mem = safe_int(row[3].split()[0])
+                dev_mem_used = safe_int(row[4].split()[0])
 
                 dev_temp = safe_float(row[5].split()[0])
 
@@ -119,9 +120,7 @@ class IluvatarDetector(Detector):
                         cores_utilization=dev_cores_util,
                         memory=dev_mem,
                         memory_used=dev_mem_used,
-                        memory_utilization=(
-                            (dev_mem_used / dev_mem) * 100 if dev_mem > 0 else 0
-                        ),
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         temperature=dev_temp,
                         power=dev_power,
                         power_used=dev_power_used,

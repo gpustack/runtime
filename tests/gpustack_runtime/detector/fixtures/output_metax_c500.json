@@ -1,0 +1,170 @@
+[
+  {
+    "manufacturer": "metax",
+    "index": 0,
+    "name": "MXC500",
+    "uuid": "GPU-d2a832de-fe77-cfdb-66b8-4612726169f5",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 59300,
+    "memory_utilization": 90.48,
+    "temperature": 36,
+    "power": 350,
+    "power_used": 73,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "metax",
+    "index": 1,
+    "name": "MXC500",
+    "uuid": "GPU-f6917af6-c7fe-f9a8-2afb-de2a317203b8",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 58806,
+    "memory_utilization": 89.73,
+    "temperature": 34,
+    "power": 350,
+    "power_used": 69,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "metax",
+    "index": 2,
+    "name": "MXC500",
+    "uuid": "GPU-aee00591-4809-ff6e-0220-e7fb9893b942",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 58806,
+    "memory_utilization": 89.73,
+    "temperature": 33,
+    "power": 350,
+    "power_used": 70,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "metax",
+    "index": 3,
+    "name": "MXC500",
+    "uuid": "GPU-e58d310f-ee48-51d7-c73f-1b29c298bb81",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 58806,
+    "memory_utilization": 89.73,
+    "temperature": 35,
+    "power": 350,
+    "power_used": 68,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "metax",
+    "index": 4,
+    "name": "MXC500",
+    "uuid": "GPU-be3bc8c9-9f15-cb6e-b2d5-18d319574542",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 858,
+    "memory_utilization": 1.31,
+    "temperature": 32,
+    "power": 350,
+    "power_used": 60,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "metax",
+    "index": 5,
+    "name": "MXC500",
+    "uuid": "GPU-45d50e91-8ab1-38c3-2717-e2fb4e9b881d",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 858,
+    "memory_utilization": 1.31,
+    "temperature": 32,
+    "power": 350,
+    "power_used": 56,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "metax",
+    "index": 6,
+    "name": "MXC500",
+    "uuid": "GPU-fddd2e4f-d191-2769-2f4f-82e93bfb1133",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 858,
+    "memory_utilization": 1.31,
+    "temperature": 33,
+    "power": 350,
+    "power_used": 57,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "metax",
+    "index": 7,
+    "name": "MXC500",
+    "uuid": "GPU-0e7f2404-ccf5-aea8-e239-4c2c347702b8",
+    "driver_version": "3.0.11",
+    "runtime_version": "3.1",
+    "runtime_version_original": "3.1.0.14",
+    "compute_capability": null,
+    "cores": null,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 3178,
+    "memory_utilization": 4.85,
+    "temperature": 33,
+    "power": 350,
+    "power_used": 69,
+    "appendix": {
+      "vgpu": false
+    }
+  }
+]

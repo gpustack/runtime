@@ -6,7 +6,13 @@ from functools import lru_cache
 from .. import envs
 from . import pymxsml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import PCIDevice, get_pci_devices
+from .__utils__ import (
+    PCIDevice,
+    get_brief_version,
+    get_pci_devices,
+    get_utilization,
+    kibibyte_to_mebibyte,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +83,8 @@ class MetaXDetector(Detector):
         try:
             pymxsml.mxSmlInit()
 
-            sys_runtime_ver = pymxsml.mxSmlGetMacaVersion()
-            sys_runtime_ver_t = (
-                [int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")]
-                if sys_runtime_ver
-                else None
-            )
+            sys_runtime_ver_original = pymxsml.mxSmlGetMacaVersion()
+            sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             dev_count = pymxsml.mxSmlGetDeviceCount()
             for dev_idx in range(dev_count):
@@ -91,11 +93,6 @@ class MetaXDetector(Detector):
                 dev_driver_ver = pymxsml.mxSmlGetDeviceVersion(
                     dev_idx,
                     pymxsml.MXSML_VERSION_DRIVER,
-                )
-                dev_driver_ver_t = (
-                    [int(v) if v.isdigit() else v for v in dev_driver_ver.split(".")]
-                    if dev_driver_ver
-                    else None
                 )
 
                 dev_info = pymxsml.mxSmlGetDeviceInfo(dev_idx)
@@ -111,19 +108,31 @@ class MetaXDetector(Detector):
                 )
 
                 dev_mem_info = pymxsml.mxSmlGetMemoryInfo(dev_idx)
-                dev_mem = dev_mem_info.vramTotal
-                dev_mem_used = dev_mem_info.vramUse
-
-                dev_temp = pymxsml.mxSmlGetTemperatureInfo(
-                    dev_idx,
-                    pymxsml.MXSML_TEMPERATURE_HOTSPOT,
+                dev_mem = kibibyte_to_mebibyte(  # KiB to MiB
+                    dev_mem_info.vramTotal,
+                )
+                dev_mem_used = kibibyte_to_mebibyte(  # KiB to MiB
+                    dev_mem_info.vramUse,
                 )
 
-                dev_power = pymxsml.mxSmlGetBoardPowerLimit(dev_idx)
+                dev_temp = (
+                    pymxsml.mxSmlGetTemperatureInfo(
+                        dev_idx,
+                        pymxsml.MXSML_TEMPERATURE_HOTSPOT,
+                    )
+                    // 100  # mC to C
+                )
+
+                dev_power = (
+                    pymxsml.mxSmlGetBoardPowerLimit(dev_idx) // 1000  # mW to W
+                )
                 dev_power_used = None
                 dev_power_info = pymxsml.mxSmlGetBoardPowerInfo(dev_idx)
                 if dev_power_info:
-                    dev_power_used = dev_power_info[0].power
+                    dev_power_used = (
+                        sum(i.power if i.power else 0 for i in dev_power_info)
+                        // 1000  # mW to W
+                    )
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
@@ -136,15 +145,12 @@ class MetaXDetector(Detector):
                         name=dev_name,
                         uuid=dev_uuid,
                         driver_version=dev_driver_ver,
-                        driver_version_tuple=dev_driver_ver_t,
                         runtime_version=sys_runtime_ver,
-                        runtime_version_tuple=sys_runtime_ver_t,
+                        runtime_version_original=sys_runtime_ver_original,
                         cores_utilization=dev_core_util,
-                        memory=dev_mem >> 10,
-                        memory_used=dev_mem_used >> 10,
-                        memory_utilization=(
-                            (dev_mem_used * 100 // dev_mem) if dev_mem > 0 else 0
-                        ),
+                        memory=dev_mem,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         temperature=dev_temp,
                         power=dev_power,
                         power_used=dev_power_used,

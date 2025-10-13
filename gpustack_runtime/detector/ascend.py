@@ -7,7 +7,7 @@ from functools import lru_cache
 from .. import envs
 from . import pyacl, pydcmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import PCIDevice, get_pci_devices
+from .__utils__ import PCIDevice, get_brief_version, get_pci_devices, get_utilization
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +79,9 @@ class AscendDetector(Detector):
             pydcmi.dcmi_init()
 
             sys_driver_ver = pydcmi.dcmi_get_driver_version()
-            sys_driver_ver_t = [
-                int(v) if v.isdigit() else v for v in sys_driver_ver.split(".")
-            ]
 
-            sys_runtime_ver = pyacl.aclsysGetCANNVersion()
-            sys_runtime_ver_t = (
-                [int(v) if v.isdigit() else v for v in sys_runtime_ver.split(".")]
-                if sys_runtime_ver
-                else None
-            )
+            sys_runtime_ver_original = pyacl.aclsysGetCANNVersion()
+            sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             _, card_list = pydcmi.dcmi_get_card_list()
             for dev_card_id in card_list:
@@ -150,6 +143,8 @@ class AscendDetector(Detector):
                             dev_card_id,
                             dev_device_id,
                         )
+                    if dev_power_used:
+                        dev_power_used = dev_power_used / 10  # 0.1W to W
                     dev_appendix = {
                         "arch_family": (
                             pyacl.aclrtGetSocName()
@@ -179,22 +174,15 @@ class AscendDetector(Detector):
                             name=dev_name,
                             uuid=dev_uuid.upper(),
                             driver_version=sys_driver_ver,
-                            driver_version_tuple=sys_driver_ver_t,
                             runtime_version=sys_runtime_ver,
-                            runtime_version_tuple=sys_runtime_ver_t,
+                            runtime_version_original=sys_runtime_ver_original,
                             cores=dev_cores_aicore,
                             cores_utilization=dev_util_aicore,
                             memory=dev_mem,
                             memory_used=dev_mem_used,
-                            memory_utilization=(
-                                (dev_mem_used / dev_mem) * 100 if dev_mem > 0 else 0
-                            ),
+                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
                             temperature=dev_temp,
-                            power_used=(
-                                dev_power_used / 10  # Convert from 0.1W to W
-                                if dev_power_used
-                                else None
-                            ),
+                            power_used=dev_power_used,
                             appendix=dev_appendix,
                         ),
                     )

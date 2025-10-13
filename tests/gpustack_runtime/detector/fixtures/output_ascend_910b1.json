@@ -1,0 +1,56 @@
+[
+  {
+    "manufacturer": "ascend",
+    "index": 4,
+    "name": "910B1",
+    "uuid": "6A87A664 120AD47 452C72B2 84528485 104301E2",
+    "driver_version": "24.1.rc3",
+    "runtime_version": "8.1",
+    "runtime_version_original": "8.1.rc1",
+    "compute_capability": null,
+    "cores": 25,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 3376,
+    "memory_utilization": 5.15,
+    "temperature": 36,
+    "power": null,
+    "power_used": 89.8,
+    "appendix": {
+      "arch_family": "Ascend910B1",
+      "vgpu": false,
+      "card_id": 4,
+      "device_id": 0,
+      "roce_ip": "29.17.45.215",
+      "roce_mask": "255.255.0.0",
+      "roce_gateway": "29.17.0.1"
+    }
+  },
+  {
+    "manufacturer": "ascend",
+    "index": 5,
+    "name": "910B1",
+    "uuid": "1EC1A664 16090F1 3EB130B2 98500485 104301E2",
+    "driver_version": "24.1.rc3",
+    "runtime_version": "8.1",
+    "runtime_version_original": "8.1.rc1",
+    "compute_capability": null,
+    "cores": 25,
+    "cores_utilization": 0,
+    "memory": 65536,
+    "memory_used": 3373,
+    "memory_utilization": 5.15,
+    "temperature": 37,
+    "power": null,
+    "power_used": 92.4,
+    "appendix": {
+      "arch_family": "Ascend910B1",
+      "vgpu": false,
+      "card_id": 5,
+      "device_id": 0,
+      "roce_ip": "29.17.67.76",
+      "roce_mask": "255.255.0.0",
+      "roce_gateway": "29.17.0.1"
+    }
+  }
+]
