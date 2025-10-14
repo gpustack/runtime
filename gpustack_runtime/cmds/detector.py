@@ -51,13 +51,20 @@ class DetectDevicesSubCommand(SubCommand):
     def run(self):
         try:
             while True:
-                devs: Devices = detect_devices()
+                devs: Devices = detect_devices(fast=False)
                 print("\033[2J\033[H", end="")
                 match self.format.lower():
                     case "json":
                         print(format_devices_json(devs))
                     case _:
-                        print(format_devices_table(devs))
+                        # Group devs by manufacturer
+                        grouped_devs: dict[str, Devices] = {}
+                        for dev in devs:
+                            if dev.manufacturer not in grouped_devs:
+                                grouped_devs[dev.manufacturer] = []
+                            grouped_devs[dev.manufacturer].append(dev)
+                        for manu in sorted(grouped_devs.keys()):
+                            print(format_devices_table(grouped_devs[manu]))
                 if not self.watch:
                     break
                 time.sleep(self.watch)

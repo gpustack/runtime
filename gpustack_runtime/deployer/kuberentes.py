@@ -989,6 +989,7 @@ class KubernetesDeployer(Deployer):
 
         # Retrieve self-pod info.
         core_api = kubernetes.client.CoreV1Api(self._client)
+        ## - Get Pod namespace, default to "default" if not found.
         self_pod_namespace = "default"
         self_pod_namespace_f = Path(
             "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
@@ -996,6 +997,7 @@ class KubernetesDeployer(Deployer):
         if self_pod_namespace_f.exists():
             with self_pod_namespace_f.open("r") as f:
                 self_pod_namespace = f.read().strip()
+        ## - Get Pod name, default to hostname if not set.
         self_pod_name = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
         if not self_pod_name:
             self_pod_name = socket.gethostname()
@@ -1011,17 +1013,20 @@ class KubernetesDeployer(Deployer):
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Mirrored deployment enabled but failed to get self Pod {self_pod_namespace}/{self_pod_name}"
             raise OperationError(msg) from e
-
-        # Preprocess mirrored deployment options.
-        in_same_namespace = (
-            self_pod_namespace == envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
-        )
+        ## - Get the first Container, or the Container named "default" if exists.
         self_container = self_pod.spec.containers[0]
         self_container = next(
             (c for c in self_pod.spec.containers if c.name == "default"),
             self_container,
         )
+
+        # Preprocess mirrored deployment options.
+        in_same_namespace = (
+            self_pod_namespace == envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
+        )
+        ## - Pod runtime class name
         mirrored_runtime_class_name: str = self_pod.spec.runtime_class_name or ""
+        ## - Container envs
         mirrored_envs: list[kubernetes.client.V1EnvVar] = [
             e
             for e in self_container.env or []
@@ -1034,6 +1039,7 @@ class KubernetesDeployer(Deployer):
                 for e in mirrored_envs
                 if e.name not in igs
             ]
+        ## - Container volume mounts
         mirrored_volume_mounts: list[kubernetes.client.V1VolumeMount] = (
             self_container.volume_mounts or []
         )
@@ -1044,7 +1050,7 @@ class KubernetesDeployer(Deployer):
                 for m in mirrored_volume_mounts
                 if m.mount_path not in igs
             ]
-        mirrored_volume_mounts_names = {m.name for m in mirrored_volume_mounts}
+        ## - Container volume devices
         mirrored_volume_devices: list[kubernetes.client.V1VolumeDevice] = (
             self_container.volume_devices or []
         )
@@ -1055,6 +1061,8 @@ class KubernetesDeployer(Deployer):
                 for d in mirrored_volume_devices
                 if d.device_path not in igs
             ]
+        ## - Pod volumes
+        mirrored_volume_mounts_names = {m.name for m in mirrored_volume_mounts}
         mirrored_volume_devices_names = {d.name for d in mirrored_volume_devices}
         mirrored_volumes: list[kubernetes.client.V1Volume] = []
         # Filter out volumes not used by mirrored volume mounts or devices.
@@ -1088,7 +1096,7 @@ class KubernetesDeployer(Deployer):
                     mirrored_volume_devices_names.discard(v.name)
                     continue
             mirrored_volumes.append(v)
-        # Correct volume_mounts/volume_devices without corresponding volumes.
+        ## - Correct Container volume mounts and volume devices without corresponding volumes.
         mirrored_volume_mounts = [
             m for m in mirrored_volume_mounts if m.name in mirrored_volume_mounts_names
         ]
@@ -1158,8 +1166,8 @@ class KubernetesDeployer(Deployer):
             if mirrored_volumes:
                 p_volume_names = {
                     # Map existing volume names.
-                    v.name
-                    for v in pod.spec.volumes or []
+                    vi.name
+                    for vi in pod.spec.volumes or []
                 }
                 for vi in mirrored_volumes:
                     if vi.name not in p_volume_names:

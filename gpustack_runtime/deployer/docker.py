@@ -946,6 +946,7 @@ class DockerDeployer(Deployer):
             return
 
         # Retrieve self-container info.
+        ## - Get Container name, default to hostname if not set.
         self_container_id = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
         if not self_container_id:
             self_container_id = socket.gethostname()
@@ -961,16 +962,15 @@ class DockerDeployer(Deployer):
             raise OperationError(msg) from e
 
         # Process mirrored deployment options.
+        ## - Container runtime
+        mirrored_runtime: str = self_container.attrs["HostConfig"].get("Runtime", "")
+        ## - Container customized envs
         self_container_envs: dict[str, str] = dict(
             item.split("=", 1) for item in self_container.attrs["Config"].get("Env", [])
-        )
-        self_container_mounts: list[dict[str, Any]] = (
-            self_container.attrs["Mounts"] or []
         )
         self_image_envs: dict[str, str] = dict(
             item.split("=", 1) for item in self_image.attrs["Config"].get("Env", [])
         )
-        mirrored_runtime: str = self_container.attrs["HostConfig"].get("Runtime", "")
         mirrored_envs: dict[str, str] = {
             # Only keep envs that are different from image defaults.
             k: v
@@ -984,18 +984,30 @@ class DockerDeployer(Deployer):
                 for k, v in mirrored_envs.items()
                 if k not in igs
             }
+        ## - Container customized mounts
         mirrored_mounts: list[dict[str, Any]] = [
             # Always filter out Docker Socket mount.
             m
-            for m in self_container_mounts
+            for m in (self_container.attrs["Mounts"] or [])
             if m.get("Destination") == "/var/run/docker.sock"
         ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_mounts = [
                 # Filter out ignored volume mounts.
                 m
-                for m in self_container_mounts
+                for m in mirrored_mounts
                 if m.get("Destination") not in igs
+            ]
+        ## - Container customized devices
+        mirrored_devices: list[dict[str, Any]] = (
+            self_container.attrs["HostConfig"].get("Devices", []) or []
+        )
+        if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
+            mirrored_devices = [
+                # Filter out ignored device mounts.
+                d
+                for d in mirrored_devices
+                if d.get("PathInContainer") not in igs
             ]
 
         # Construct mutation function.
@@ -1004,14 +1016,14 @@ class DockerDeployer(Deployer):
                 create_options["runtime"] = mirrored_runtime
 
             if mirrored_envs:
-                c_envs = create_options.get("environment", {})
+                c_envs: dict[str, str] = create_options.get("environment", {})
                 for k, v in mirrored_envs.items():
                     if k not in c_envs:
                         c_envs[k] = v
                 create_options["environment"] = c_envs
 
             if mirrored_mounts:
-                c_mounts = create_options.get("mounts", [])
+                c_mounts: list[dict[str, Any]] = create_options.get("mounts", [])
                 c_mounts_paths = {m.get("Target") for m in c_mounts}
                 for m in mirrored_mounts:
                     if m.get("Destination") in c_mounts_paths:
@@ -1039,6 +1051,28 @@ class DockerDeployer(Deployer):
                     )
                     c_mounts_paths.add(target)
                 create_options["mounts"] = c_mounts
+
+            if mirrored_devices:
+                c_devices: list[dict[str, Any]] = []
+                for c_device in create_options.get("devices", []):
+                    sp = c_device.split(":")
+                    c_device.append(
+                        {
+                            "PathOnHost": sp[0],
+                            "PathInContainer": sp[1] if len(sp) > 1 else sp[0],
+                            "CgroupPermissions": sp[2] if len(sp) > 2 else "rwm",
+                        },
+                    )
+                c_devices_paths = {d.get("PathInContainer") for d in c_devices}
+                for d in mirrored_devices:
+                    if d.get("PathInContainer") in c_devices_paths:
+                        continue
+                    c_devices.append(d)
+                    c_devices_paths.add(d.get("PathInContainer"))
+                create_options["devices"] = [
+                    f"{d['PathOnHost']}:{d['PathInContainer']}:{d['CgroupPermissions']}"
+                    for d in c_devices
+                ]
 
             return create_options
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from .. import envs
 from . import pyamdgpu, pyamdsmi, pyrocmsmi
@@ -103,8 +105,13 @@ class AMDDetector(Detector):
 
                 dev_gpudev_info = None
                 if dev_card is not None:
-                    with contextlib.suppress(pyamdgpu.AMDGPUError):
-                        _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(dev_card)
+                    with (
+                        contextlib.redirect_stderr(Path(os.devnull).open("w")),
+                        contextlib.suppress(pyamdgpu.AMDGPUError),
+                    ):
+                        _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(
+                            dev_card,
+                        )
                         dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
                         pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
 

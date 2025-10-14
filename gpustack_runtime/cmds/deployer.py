@@ -212,7 +212,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             host_network=True,
             containers=[
                 Container(
-                    image=f"gpustack/runner:HostX.Y-{self.service}{self.version}",
+                    image=f"gpustack/runner:{self.backend if self.backend else 'Host'}X.Y-{self.service}{self.version}",
                     name="default",
                     envs=env,
                     resources=resources,
