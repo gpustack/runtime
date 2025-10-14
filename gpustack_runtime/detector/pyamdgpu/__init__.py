@@ -254,16 +254,12 @@ def amdgpu_device_initialize(card=1):
 
 
 def amdgpu_device_deinitialize(device):
-    _LoadAMDGPULibrary()
-
     fn = _amdgpuGetFunctionPointer("amdgpu_device_deinitialize")
     ret = fn(device)
     _amdgpuCheckReturn(ret)
 
 
 def amdgpu_query_gpu_info(device):
-    _LoadAMDGPULibrary()
-
     c_info = c_amdgpu_gpu_info()
     fn = _amdgpuGetFunctionPointer("amdgpu_query_gpu_info")
     ret = fn(device, byref(c_info))

@@ -324,8 +324,7 @@ ENV ILUVATAR_VISIBLE_DEVICES="0"
 ## - Mount /opt/maca from the host to support device detecting.
 ## - Mount /opt/mxdriver/ from the host to support device detecting.
 ## E.g. docker run --rm -it --privileged -v /opt/mxdriver:/opt/mxdriver -v /opt/maca:/opt/maca gpustack/runtime:main gpustack-runtime detect --format json
-ENV METAX_VISIBLE_DEVICES="0" \
-    LD_LIBRARY_PATH="/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:${LD_LIBRARY_PATH}"
 
 ## Active all MThread devices detection,
 ## works with (default) MThread container runtime and privileged mode.

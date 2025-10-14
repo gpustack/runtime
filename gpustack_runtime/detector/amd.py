@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
 from functools import lru_cache
-from pathlib import Path
 
 from .. import envs
 from . import pyamdgpu, pyamdsmi, pyrocmsmi
@@ -12,7 +10,6 @@ from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
     get_brief_version,
-    get_device_files,
     get_pci_devices,
     get_utilization,
 )
@@ -91,24 +88,21 @@ class AMDDetector(Detector):
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             devs = pyamdsmi.amdsmi_get_processor_handles()
-            dev_files = get_device_files(
-                pattern=r"card(?P<number>\d+)",
-                directory="/dev/dri",
-            )
             for dev_idx, dev in enumerate(devs):
-                dev_card = None
                 dev_index = dev_idx
-                if len(dev_files) >= len(devs):
-                    dev_file = dev_files[dev_idx]
-                    if dev_file.number is not None:
-                        dev_card = dev_file.number
+
+                dev_card = None
+                if hasattr(pyamdsmi, "amdsmi_get_gpu_kfd_info"):
+                    dev_kfd_info = pyamdsmi.amdsmi_get_gpu_kfd_info(dev)
+                    dev_card = dev_kfd_info.get("node_id")
+                else:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        pyrocmsmi.rsmi_init()
+                        dev_card = pyrocmsmi.rsmi_dev_node_id_get(dev_idx)
 
                 dev_gpudev_info = None
                 if dev_card is not None:
-                    with (
-                        contextlib.redirect_stderr(Path(os.devnull).open("w")),
-                        contextlib.suppress(pyamdgpu.AMDGPUError),
-                    ):
+                    with contextlib.suppress(pyamdgpu.AMDGPUError):
                         _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(
                             dev_card,
                         )

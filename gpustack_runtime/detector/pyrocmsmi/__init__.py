@@ -239,3 +239,13 @@ def rsmi_dev_power_get(device=0):
     ret = rocmsmiLib.rsmi_dev_power_get(device, byref(c_power), byref(c_power_type))
     _rocmsmiCheckReturn(ret)
     return c_power.value // 1000000
+
+
+def rsmi_dev_node_id_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
+    c_node_id = c_uint32()
+    ret = rocmsmiLib.rsmi_dev_node_id_get(device, byref(c_node_id))
+    _rocmsmiCheckReturn(ret)
+    return c_node_id.value
