@@ -76,6 +76,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
     backend: str
     device: str
     port: int
+    host_network: bool
     service: str
     version: str
     namespace: str
@@ -194,11 +195,11 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
                 path=self.volume,
             ),
         ]
-        execution = None
+        execution = ContainerExecution(
+            privileged=True,
+        )
         if self.extra_args:
-            execution = ContainerExecution(
-                command=self.extra_args,
-            )
+            execution.command = self.extra_args
         ports = [
             ContainerPort(
                 internal=self.port,
@@ -266,6 +267,7 @@ class CreateWorkloadSubCommand(SubCommand):
     backend: str
     device: str
     port: int
+    host_network: bool
     namespace: str
     name: str
     image: str
@@ -382,11 +384,11 @@ class CreateWorkloadSubCommand(SubCommand):
                 path=self.volume,
             ),
         ]
-        execution = None
+        execution = ContainerExecution(
+            privileged=True,
+        )
         if self.extra_args:
-            execution = ContainerExecution(
-                command=self.extra_args,
-            )
+            execution.command = self.extra_args
         ports = [
             ContainerPort(
                 internal=self.port,
