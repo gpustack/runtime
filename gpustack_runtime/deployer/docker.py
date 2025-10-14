@@ -468,6 +468,7 @@ class DockerDeployer(Deployer):
                 **create_options,
             )
         except docker.errors.APIError as e:
+            logger.exception("_create_pause_container error")
             msg = f"Failed to create container {container_name}"
             raise OperationError(msg) from e
         else:
@@ -532,6 +533,7 @@ class DockerDeployer(Deployer):
                 **create_options,
             )
         except docker.errors.APIError as e:
+            logger.exception("_create_unhealthy_restart_container error")
             msg = f"Failed to create container {container_name}"
             raise OperationError(msg) from e
         else:
@@ -875,6 +877,7 @@ class DockerDeployer(Deployer):
                     **create_options,
                 )
             except docker.errors.APIError as e:
+                logger.exception("_create_containers error")
                 msg = f"Failed to create container {container_name}"
                 raise OperationError(msg) from e
             else:
