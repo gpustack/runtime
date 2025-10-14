@@ -242,9 +242,8 @@ ARG TARGETARCH
 
 ## Install
 
-
 RUN --mount=type=bind,target=/workspace/runtime,rw <<EOF
-   # Install gpustack-runtime
+    # Install gpustack-runtime
     echo "Installing GPUStack runtime in the system Python environment..."
     export UV_SYSTEM_PYTHON=1
     export UV_PRERELEASE=allow
