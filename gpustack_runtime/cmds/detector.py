@@ -80,48 +80,12 @@ def format_devices_table(devs: Devices) -> str:
     if not devs:
         return "No GPUs detected."
 
-    width = 100
-
-    # Header section
-    dev = devs[0]
-    header_content = f"{dev.manufacturer.upper()} "
-    header_content += (
-        f"Driver Version: {dev.driver_version if dev.driver_version else 'N/A'} "
-    )
-    header_content += f"Runtime Version: {dev.runtime_version if dev.runtime_version else 'N/A'}".rjust(
-        width - len(header_content) - 4,
-    )
-
-    header_lines = [
-        "+" + "-" * (width - 2) + "+",
-        f"| {header_content.ljust(width - 4)} |",
-        "|" + "-" * (width - 2) + "|",
-    ]
-
     # Column headers
     col_headers = ["GPU", "Name", "Memory-Usage", "GPU-Util", "Temp", "CC"]
-    col_widths = [5, 31, 20, 10, 6, 6]
-
-    # Adjust column widths to fit total width
-    total_current_width = sum(col_widths) + len(col_widths) * 3 - 1
-    if total_current_width < width - 2:
-        # Distribute extra space to the name column
-        col_widths[1] += width - 2 - total_current_width
-
-    # Create column header line
-    col_header_line = "|"
-    for i, header in enumerate(col_headers):
-        col_header_line += f" {header.center(col_widths[i])} |"
-    header_lines.append(col_header_line)
-
-    # Separator line
-    separator = "|" + "|".join(["-" * (w + 2) for w in col_widths]) + "|"
-    header_lines.append(separator)
-
-    # Device rows
-    device_lines = []
+    # Gather all rows to determine max width for each column
+    rows = []
     for dev in devs:
-        row_data: list[str] = [
+        row = [
             str(dev.index),
             dev.name if dev.name else "N/A",
             f"{dev.memory_used}MiB / {dev.memory}MiB",
@@ -129,14 +93,55 @@ def format_devices_table(devs: Devices) -> str:
             f"{dev.temperature}C" if dev.temperature is not None else "N/A",
             dev.compute_capability if dev.compute_capability else "N/A",
         ]
+        rows.append(row)
 
+    # Calculate max width for each column
+    col_widths = [len(header) for header in col_headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(str(cell)))
+
+    # Add padding
+    col_widths = [w + 2 for w in col_widths]
+
+    # Calculate table width
+    width = sum(col_widths) + len(col_widths) + 1
+
+    # Header section
+    dev = devs[0]
+    header_content = f"{dev.manufacturer.upper()} "
+    header_content += (
+        f"Driver Version: {dev.driver_version if dev.driver_version else 'N/A'} "
+    )
+    runtime_version_str = (
+        f"Runtime Version: {dev.runtime_version if dev.runtime_version else 'N/A'}"
+    )
+    header_lines = [
+        "+" + "-" * (width - 2) + "+",
+        f"| {header_content.ljust(width - 4 - len(runtime_version_str))}{runtime_version_str} |",
+        "|" + "-" * (width - 2) + "|",
+    ]
+
+    # Column header line
+    col_header_line = "|"
+    for i, header in enumerate(col_headers):
+        col_header_line += f" {header.center(col_widths[i] - 2)} |"
+    header_lines.append(col_header_line)
+
+    # Separator line
+    separator = "|" + "|".join(["-" * w for w in col_widths]) + "|"
+    header_lines.append(separator)
+
+    # Device rows
+    device_lines = []
+    for row in rows:
         row_line = "|"
-        for j, data in enumerate(row_data):
-            # Truncate name if too long
-            if j == 1 and len(data) > col_widths[j]:
-                data = data[: col_widths[j] - 3] + "..."  # noqa: PLW2901
-            row_line += f" {data.ljust(col_widths[j])} |"
-
+        for j, data in enumerate(row):
+            cell = str(data)
+            # Truncate if too long
+            if len(cell) > col_widths[j] - 2:
+                cell = cell[: col_widths[j] - 5] + "..."
+            row_line += f" {cell.ljust(col_widths[j] - 2)} |"
         device_lines.append(row_line)
 
     # Footer section

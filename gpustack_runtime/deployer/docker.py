@@ -182,6 +182,9 @@ class DockerWorkloadStatus(WorkloadStatus):
                 return WorkloadStatusStateEnum.UNHEALTHY
             if cr.status != "running" and not _has_restart_policy(cr):
                 return WorkloadStatusStateEnum.PENDING
+            health = cr.attrs["State"].get("Health", {})
+            if health and health.get("Status") != "healthy":
+                return WorkloadStatusStateEnum.UNHEALTHY
 
         return WorkloadStatusStateEnum.RUNNING
 
@@ -444,6 +447,7 @@ class DockerDeployer(Deployer):
         if workload.host_network:
             create_options["network_mode"] = "host"
         else:
+            create_options["hostname"] = workload.name
             port_mapping: dict[str, int] = {
                 # <internal port>/<protocol>: <external port>
                 f"{p.internal}/{p.protocol.lower()}": p.external or p.internal
@@ -731,9 +735,6 @@ class DockerDeployer(Deployer):
                     _LABEL_COMPONENT_INDEX: str(ci),
                 },
             }
-
-            if not workload.host_network:
-                create_options["hostname"] = workload.name
 
             if workload.pid_shared:
                 create_options["pid_mode"] = pause_container_namespace

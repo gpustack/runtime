@@ -50,6 +50,9 @@ class ManufacturerEnum(str, Enum):
     Unknown Manufacturer
     """
 
+    def __str__(self):
+        return self.value
+
 
 _MANUFACTURER_BACKEND_MAPPING: dict[ManufacturerEnum, str] = {
     ManufacturerEnum.AMD: "rocm",

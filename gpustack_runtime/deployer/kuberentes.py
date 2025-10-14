@@ -59,6 +59,9 @@ class KubernetesWorkloadServiceType(str, Enum):
     LoadBalancer: Exposes the service externally using a cloud provider's load balancer.
     """
 
+    def __str__(self):
+        return self.value
+
 
 @dataclass_json
 @dataclass

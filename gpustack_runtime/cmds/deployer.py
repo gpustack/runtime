@@ -112,6 +112,13 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         )
 
         deploy_parser.add_argument(
+            "--host-network",
+            action="store_true",
+            help="use host network (default: False)",
+            default=False,
+        )
+
+        deploy_parser.add_argument(
             "--namespace",
             type=str,
             help="namespace of the runner",
@@ -147,6 +154,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         self.backend = args.backend
         self.device = args.device
         self.port = args.port
+        self.host_network = args.host_network
         self.service = args.service
         self.version = args.version
         self.namespace = args.namespace
@@ -209,7 +217,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         plan = WorkloadPlan(
             name=self.name,
             namespace=self.namespace,
-            host_network=True,
+            host_network=self.host_network,
             containers=[
                 Container(
                     image=f"gpustack/runner:{self.backend if self.backend else 'Host'}X.Y-{self.service}{self.version}",
@@ -229,7 +237,10 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         try:
             while True:
                 st = get_workload(name=self.name, namespace=self.namespace)
-                if st and st.state == WorkloadStatusStateEnum.RUNNING:
+                if st and st.state not in (
+                    WorkloadStatusStateEnum.PENDING,
+                    WorkloadStatusStateEnum.INITIALIZING,
+                ):
                     break
                 time.sleep(1)
 
@@ -290,6 +301,13 @@ class CreateWorkloadSubCommand(SubCommand):
         )
 
         deploy_parser.add_argument(
+            "--host-network",
+            action="store_true",
+            help="use host network (default: False)",
+            default=False,
+        )
+
+        deploy_parser.add_argument(
             "--namespace",
             type=str,
             help="namespace of the workload",
@@ -325,6 +343,7 @@ class CreateWorkloadSubCommand(SubCommand):
         self.backend = args.backend
         self.device = args.device
         self.port = args.port
+        self.host_network = args.host_network
         self.namespace = args.namespace
         self.name = args.name
         self.image = args.image
@@ -386,7 +405,7 @@ class CreateWorkloadSubCommand(SubCommand):
         plan = WorkloadPlan(
             name=self.name,
             namespace=self.namespace,
-            host_network=True,
+            host_network=self.host_network,
             containers=[
                 Container(
                     image=self.image,
@@ -406,7 +425,10 @@ class CreateWorkloadSubCommand(SubCommand):
         try:
             while True:
                 st = get_workload(name=self.name, namespace=self.namespace)
-                if st and st.state == WorkloadStatusStateEnum.RUNNING:
+                if st and st.state not in (
+                    WorkloadStatusStateEnum.PENDING,
+                    WorkloadStatusStateEnum.INITIALIZING,
+                ):
                     break
                 time.sleep(1)
 
@@ -821,20 +843,15 @@ def format_workloads_table(sts: list[WorkloadStatus]) -> str:
     if not sts:
         return "No workloads found."
 
-    width = 100
-
     headers = ["Name", "State", "Created At"]
-    col_widths = [
-        len(str(getattr(st, attr.lower().replace(" ", "_"))))
-        for st in sts
-        for attr in headers
-    ]
-    col_widths = [max(w, len(h)) for w, h in zip(col_widths, headers, strict=False)]
-
-    total_width = sum(col_widths) + len(col_widths) * 3 + 1
-    if total_width > width:
-        scale = (width - len(col_widths) * 3 - 1) / sum(col_widths)
-        col_widths = [int(w * scale) for w in col_widths]
+    # Calculate max width for each column based on header and content
+    col_widths = []
+    for attr in headers:
+        attr_key = attr.lower().replace(" ", "_")
+        max_content_width = max(
+            [len(str(getattr(st, attr_key))) for st in sts] + [len(attr)],
+        )
+        col_widths.append(max_content_width)
 
     lines = []
     header_line = (
@@ -849,9 +866,9 @@ def format_workloads_table(sts: list[WorkloadStatus]) -> str:
 
     for st in sts:
         row = [
-            st.name.ljust(col_widths[0]),
-            st.state.ljust(col_widths[1]),
-            st.created_at.ljust(col_widths[2]),
+            str(st.name).ljust(col_widths[0]),
+            str(st.state).ljust(col_widths[1]),
+            str(st.created_at).ljust(col_widths[2]),
         ]
         line = "| " + " | ".join(row) + " |"
         lines.append(line)

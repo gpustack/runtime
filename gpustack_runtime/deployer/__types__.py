@@ -277,6 +277,9 @@ class ContainerMountModeEnum(str, Enum):
     Read-write many mode.
     """
 
+    def __str__(self):
+        return self.value
+
 
 @dataclass
 class ContainerMount:
@@ -332,6 +335,9 @@ class ContainerPortProtocolEnum(str, Enum):
     """
     SCTP protocol.
     """
+
+    def __str__(self):
+        return self.value
 
 
 @dataclass
@@ -518,6 +524,9 @@ class ContainerProfileEnum(str, Enum):
     Init profile.
     """
 
+    def __str__(self):
+        return self.value
+
 
 class ContainerRestartPolicyEnum(str, Enum):
     """
@@ -536,6 +545,9 @@ class ContainerRestartPolicyEnum(str, Enum):
     """
     Never restart the container.
     """
+
+    def __str__(self):
+        return self.value
 
 
 @dataclass
@@ -909,6 +921,9 @@ class WorkloadStatusStateEnum(str, Enum):
     """
     The workload is inactive.
     """
+
+    def __str__(self):
+        return self.value
 
 
 WorkloadOperationToken = str
