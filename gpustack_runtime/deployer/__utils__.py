@@ -140,13 +140,11 @@ def _get_backend_version_and_variant(backend: str) -> (str, str):
     version = ""
     variant = ""
 
-    manufacturer = backend_to_manufacturer(backend)
-    if not manufacturer:
-        return version, variant
-
     devices = detect_devices(fast=False)
     if not devices:
         return version, variant
+
+    manufacturer = backend_to_manufacturer(backend)
 
     for device in devices:
         if device.manufacturer != manufacturer:

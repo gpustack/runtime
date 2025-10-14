@@ -91,20 +91,20 @@ class AMDDetector(Detector):
             for dev_idx, dev in enumerate(devs):
                 dev_index = dev_idx
 
-                dev_card = None
+                dev_card_id = None
                 if hasattr(pyamdsmi, "amdsmi_get_gpu_kfd_info"):
                     dev_kfd_info = pyamdsmi.amdsmi_get_gpu_kfd_info(dev)
-                    dev_card = dev_kfd_info.get("node_id")
+                    dev_card_id = dev_kfd_info.get("node_id")
                 else:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         pyrocmsmi.rsmi_init()
-                        dev_card = pyrocmsmi.rsmi_dev_node_id_get(dev_idx)
+                        dev_card_id = pyrocmsmi.rsmi_dev_node_id_get(dev_idx)
 
                 dev_gpudev_info = None
-                if dev_card is not None:
+                if dev_card_id is not None:
                     with contextlib.suppress(pyamdgpu.AMDGPUError):
                         _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(
-                            dev_card,
+                            dev_card_id,
                         )
                         dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
                         pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
@@ -122,8 +122,6 @@ class AMDDetector(Detector):
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         pyrocmsmi.rsmi_init()
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
-                if dev_cc:
-                    dev_cc = dev_cc[3:]  # Strip "gfx" prefix
 
                 dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
                 dev_cores = (
@@ -152,6 +150,7 @@ class AMDDetector(Detector):
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_gpudev_info),
                     "vgpu": dev_compute_partition is not None,
+                    "card_id": dev_card_id,
                 }
 
                 ret.append(

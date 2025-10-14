@@ -70,7 +70,7 @@ which should map to the gpustack-runner's backend names.
 """
 
 
-def manufacturer_to_backend(manufacturer: ManufacturerEnum) -> str | None:
+def manufacturer_to_backend(manufacturer: ManufacturerEnum) -> str:
     """
     Convert manufacturer to runtime backend,
     e.g., NVIDIA -> cuda, AMD -> rocm.
@@ -82,13 +82,17 @@ def manufacturer_to_backend(manufacturer: ManufacturerEnum) -> str | None:
         manufacturer: The manufacturer of the device.
 
     Returns:
-        The corresponding runtime backend. None if the manufacturer is unknown.
+        The corresponding runtime backend.
+        Return "unknown" if the manufacturer is unknown.
 
     """
-    return _MANUFACTURER_BACKEND_MAPPING.get(manufacturer)
+    backend = _MANUFACTURER_BACKEND_MAPPING.get(manufacturer)
+    if backend:
+        return backend
+    return ManufacturerEnum.UNKNOWN.value
 
 
-def backend_to_manufacturer(backend: str) -> ManufacturerEnum | None:
+def backend_to_manufacturer(backend: str) -> ManufacturerEnum:
     """
     Convert runtime backend to manufacturer,
     e.g., cuda -> NVIDIA, rocm -> AMD.
@@ -100,13 +104,14 @@ def backend_to_manufacturer(backend: str) -> ManufacturerEnum | None:
         backend: The runtime backend.
 
     Returns:
-        The corresponding manufacturer. None if the backend is unknown.
+        The corresponding manufacturer.
+        Return ManufacturerEnum.Unknown if the backend is unknown.
 
     """
     for manufacturer, mapped_backend in _MANUFACTURER_BACKEND_MAPPING.items():
         if mapped_backend == backend:
             return manufacturer
-    return None
+    return ManufacturerEnum.UNKNOWN
 
 
 def supported_manufacturers() -> list[ManufacturerEnum]:
@@ -241,7 +246,7 @@ class Detector(ABC):
         self.manufacturer = manufacturer
 
     @property
-    def backend(self) -> str | None:
+    def backend(self) -> str:
         """
         The backend name of the detector, e.g., 'cuda', 'rocm'.
         """

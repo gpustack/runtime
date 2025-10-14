@@ -86,8 +86,6 @@ class HygonDetector(Detector):
                 dev_uuid = pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)
                 dev_name = pyrocmsmi.rsmi_dev_name_get(dev_idx)
                 dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
-                if dev_cc:
-                    dev_cc = dev_cc[3:]  # Strip "gfx" prefix
 
                 dev_cores = None
                 dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)

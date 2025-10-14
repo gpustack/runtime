@@ -197,7 +197,12 @@ def rsmi_dev_target_graphics_version_get(device=0):
     _rocmsmiCheckReturn(ret)
     version = str(c_version.value)
     if len(version) == 4:
-        version = hex(c_version.value)[2:]
+        dev_name = rsmi_dev_name_get(device)
+        if "Instinct MI2" in dev_name:
+            hex_part = str(hex(int(version[2:]))).replace("0x", "")
+            version = version[:2] + hex_part
+    else:
+        version = str(c_version.value // 10 + c_version.value % 10)
     return "gfx" + version
 
 
