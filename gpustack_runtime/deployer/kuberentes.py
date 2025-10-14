@@ -1031,9 +1031,13 @@ class KubernetesDeployer(Deployer):
         mirrored_runtime_class_name: str = self_pod.spec.runtime_class_name or ""
         ## - Container envs
         mirrored_envs: list[kubernetes.client.V1EnvVar] = [
+            # Filter out gpustack-internal envs and cross-namespace secret/envref envs.
             e
             for e in self_container.env or []
-            if (not e.value_from or in_same_namespace)
+            if (
+                not e.name.startswith("GPUSTACK_")
+                and (not e.value_from or in_same_namespace)
+            )
         ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS:
             mirrored_envs = [

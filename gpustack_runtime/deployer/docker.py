@@ -973,10 +973,13 @@ class DockerDeployer(Deployer):
             item.split("=", 1) for item in self_image.attrs["Config"].get("Env", [])
         )
         mirrored_envs: dict[str, str] = {
-            # Only keep envs that are different from image defaults.
+            # Filter out gpustack-internal envs and same-as-image envs.
             k: v
             for k, v in self_container_envs.items()
-            if k not in self_image_envs or v != self_image_envs[k]
+            if (
+                not k.startswith("GPUSTACK_")
+                and (k not in self_image_envs or v != self_image_envs[k])
+            )
         }
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS:
             mirrored_envs = {
