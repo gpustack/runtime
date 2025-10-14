@@ -1,0 +1,24 @@
+[
+  {
+    "manufacturer": "nvidia",
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 5090 D",
+    "uuid": "GPU-31b58f27-ac45-ec52-c386-90aaeff2dfac",
+    "driver_version": "570.195.03",
+    "runtime_version": "12.8",
+    "runtime_version_original": "12.8.0",
+    "compute_capability": "12.0",
+    "cores": 170,
+    "cores_utilization": 0,
+    "memory": 32607,
+    "memory_used": 992,
+    "memory_utilization": 64.46,
+    "temperature": 49,
+    "power": 575,
+    "power_used": 21,
+    "appendix": {
+      "arch_family": "Blackwell",
+      "vgpu": false
+    }
+  }
+]
