@@ -990,7 +990,7 @@ class DockerDeployer(Deployer):
             # Always filter out Docker Socket mount.
             m
             for m in (self_container.attrs["Mounts"] or [])
-            if m.get("Destination") == "/var/run/docker.sock"
+            if m.get("Destination") != "/var/run/docker.sock"
         ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_mounts = [
