@@ -1013,6 +1013,10 @@ class DockerDeployer(Deployer):
                 for d in mirrored_devices
                 if d.get("PathInContainer") not in igs
             ]
+        ## - Container customized device requests
+        mirrored_device_requests: list[dict[str, Any]] = (
+            self_container.attrs["HostConfig"].get("DeviceRequests", []) or []
+        )
 
         # Construct mutation function.
         def mutate_create_options(create_options: dict[str, Any]) -> dict[str, Any]:
@@ -1077,6 +1081,36 @@ class DockerDeployer(Deployer):
                     f"{d['PathOnHost']}:{d['PathInContainer']}:{d['CgroupPermissions']}"
                     for d in c_devices
                 ]
+
+            if mirrored_device_requests:
+                c_device_requests: list[dict[str, Any]] = create_options.get(
+                    "device_requests",
+                    [],
+                )
+                c_device_requests_ids = {
+                    f"{r.get('Driver')}:{did}"
+                    for r in c_device_requests
+                    for did in r.get("DeviceIDs", [])
+                }
+                for r in mirrored_device_requests:
+                    dri: str = r.get("Driver")
+                    dids: list[str] = []
+                    for did in r.get("DeviceIDs", []):
+                        if f"{dri}:{did}" in c_device_requests_ids:
+                            continue
+                        dids.append(did)
+                    if not dids:
+                        continue
+                    c_device_requests.append(
+                        docker.types.DeviceRequest(
+                            driver=dri,
+                            count=r.get("Count"),
+                            device_ids=dids,
+                            capabilities=r.get("Capabilities", None),
+                            options=r.get("Options", None),
+                        ),
+                    )
+                create_options["device_requests"] = c_device_requests
 
             return create_options
 
