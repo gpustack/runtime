@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import socket
+import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
 from math import ceil
@@ -15,6 +17,7 @@ import docker.models.images
 import docker.models.volumes
 import docker.types
 from dataclasses_json import dataclass_json
+from docker.utils import parse_repository_tag
 
 from .. import envs
 from .__types__ import (
@@ -397,8 +400,44 @@ class DockerDeployer(Deployer):
         except docker.errors.ImageNotFound:
             logger.info(f"Pulling image {image}")
             try:
-                # TODO(thxCode): display pull progress
-                return self._client.images.pull(image)
+                repo, tag = parse_repository_tag(image)
+                tag = tag or "latest"
+                pull_log = self._client.api.pull(
+                    repo,
+                    tag=tag,
+                    stream=True,
+                )
+
+                layers: dict[str, int] = {}
+                is_tty = sys.stdout.isatty()
+                for line in pull_log:
+                    line_str = (
+                        line.decode("utf-8", errors="replace")
+                        if isinstance(line, bytes)
+                        else line
+                    )
+                    for log_str in line_str.splitlines():
+                        log = json.loads(log_str)
+                        if "id" not in log:
+                            print(log["status"])
+                            continue
+                        log_id = log["id"]
+                        if log_id not in layers:
+                            layers[log_id] = len(layers)
+                        if is_tty:
+                            print("\033[E", end="")
+                            print(f"\033[{layers[log_id] + 1};0H", end="")
+                            print("\033[K", end="")
+                        if "progress" in log:
+                            print(f"{log_id}: {log['progress']}", flush=True)
+                        else:
+                            print(f"{log_id}: {log['status']}", flush=True)
+
+                sep = "@" if tag.startswith("sha256:") else ":"
+                return self._client.images.get(f"{repo}{sep}{tag}")
+            except json.decoder.JSONDecodeError as e:
+                msg = f"Failed to pull image {image}, invalid response"
+                raise OperationError(msg) from e
             except docker.errors.APIError as e:
                 msg = f"Failed to pull image {image}"
                 raise OperationError(msg) from e

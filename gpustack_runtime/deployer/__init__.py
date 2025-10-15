@@ -79,7 +79,7 @@ def create_workload(workload: WorkloadPlan):
         dep.create(workload=workload)
         return
 
-    msg = "No deployer supports"
+    msg = "No deployer supports, please provide container runtime"
     raise UnsupportedError(msg)
 
 
@@ -112,7 +112,7 @@ def get_workload(
 
         return dep.get(name=name, namespace=namespace)
 
-    msg = "No deployer supports"
+    msg = "No deployer supports, please provide container runtime"
     raise UnsupportedError(msg)
 
 
@@ -145,7 +145,7 @@ def delete_workload(
 
         return dep.delete(name=name, namespace=namespace)
 
-    msg = "No deployer supports"
+    msg = "No deployer supports, please provide container runtime"
     raise UnsupportedError(msg)
 
 
@@ -178,7 +178,7 @@ def list_workloads(
 
         return dep.list(namespace=namespace, labels=labels)
 
-    msg = "No deployer supports"
+    msg = "No deployer supports, please provide container runtime"
     raise UnsupportedError(msg)
 
 
@@ -234,7 +234,7 @@ def logs_workload(
             follow=follow,
         )
 
-    msg = "No deployer supports"
+    msg = "No deployer supports, please provide container runtime"
     raise UnsupportedError(msg)
 
 
@@ -287,7 +287,7 @@ def exec_workload(
             args=args,
         )
 
-    msg = "No deployer supports"
+    msg = "No deployer supports, please provide container runtime"
     raise UnsupportedError(msg)
 
 
