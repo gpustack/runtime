@@ -200,7 +200,7 @@ class NVIDIADetector(Detector):
                             cores_utilization=dev_util_rates.gpu,
                             memory=dev_mem,
                             memory_used=dev_mem_used,
-                            memory_utilization=get_utilization(dev_power_used, dev_mem),
+                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
                             temperature=dev_temp,
                             power=dev_power // 1000,
                             power_used=dev_power_used // 1000,
