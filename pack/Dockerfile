@@ -250,19 +250,20 @@ EOF
 
 ## Install
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache \
     --mount=type=bind,target=/workspace/runtime,rw <<EOF
     # Install gpustack-runtime
 
-    cd /workspace/runtime
-
-    make prepare
-
+    export UV_NO_CACHE=0
     export UV_SYSTEM_PYTHON=1
     export UV_PRERELEASE=allow
     export UV_LINK_MODE=copy
-    export UV_NO_CACHE=0
-    uv pip install .
+
+    cd /workspace/runtime \
+        && make prepare
+
+    uv pip install \
+        /workspace/runtime
     uv pip tree
 EOF
 ENV GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT="true" \
