@@ -410,6 +410,7 @@ class DockerDeployer(Deployer):
 
                 layers: dict[str, int] = {}
                 is_tty = sys.stdout.isatty()
+                is_debug = logger.isEnabledFor(logging.DEBUG)
                 for line in pull_log:
                     line_str = (
                         line.decode("utf-8", errors="replace")
@@ -420,6 +421,8 @@ class DockerDeployer(Deployer):
                         log = json.loads(log_str)
                         if "id" not in log:
                             print(log["status"])
+                            continue
+                        if not is_debug:
                             continue
                         log_id = log["id"]
                         if log_id not in layers:
