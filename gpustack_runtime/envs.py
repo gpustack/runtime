@@ -368,7 +368,7 @@ def to_dict(
             key = key.strip()
             val = val.strip()
             if list_sep:
-                val = to_list(value, sep=list_sep)
+                val = to_list(val, sep=list_sep)
         else:
             key = item.strip()
             val = ""
