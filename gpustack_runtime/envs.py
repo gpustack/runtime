@@ -48,7 +48,9 @@ if TYPE_CHECKING:
     it will configure the workload with the same following settings as the deployer:
         - Container Runtime(e.g., nvidia, amd, .etc),
         - Customized environment variables,
-        - Customized volume mounts.
+        - Customized volume mounts,
+        - Customized device or device requests,
+        - Customized capabilities.
     To be noted, without `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME` configured,
     if the deployer failed to retrieve its own settings, it will skip mirrored deployment.
     """

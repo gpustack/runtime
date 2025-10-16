@@ -995,7 +995,23 @@ class DockerDeployer(Deployer):
                 self_container_id,
             )
         try:
-            self_container = self._client.containers.get(self_container_id)
+            if envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
+                # Directly get container by name or ID.
+                self_container = self._client.containers.get(self_container_id)
+            else:
+                # Find containers that matches the hostname.
+                containers = self._client.containers.list()
+                containers = [
+                    c
+                    for c in containers
+                    if c.attrs["Config"].get("Hostname", "") == self_container_id
+                ]
+                if len(containers) != 1:
+                    msg = f"Container with name {self_container_id} not found"
+                    raise docker.errors.NotFound(
+                        msg,
+                    )
+                self_container = containers[0]
             self_image = self_container.image
         except docker.errors.APIError:
             output_log = logger.warning
@@ -1048,7 +1064,7 @@ class DockerDeployer(Deployer):
             ]
         ## - Container customized devices
         mirrored_devices: list[dict[str, Any]] = (
-            self_container.attrs["HostConfig"].get("Devices", []) or []
+            self_container.attrs["HostConfig"].get("Devices") or []
         )
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_devices = [
@@ -1059,7 +1075,17 @@ class DockerDeployer(Deployer):
             ]
         ## - Container customized device requests
         mirrored_device_requests: list[dict[str, Any]] = (
-            self_container.attrs["HostConfig"].get("DeviceRequests", []) or []
+            self_container.attrs["HostConfig"].get("DeviceRequests") or []
+        )
+        ## - Container capabilities
+        mirrored_capabilities: dict[str, list[str]] = {}
+        if cap := self_container.attrs["HostConfig"].get("CapAdd"):
+            mirrored_capabilities["add"] = cap
+        if cap := self_container.attrs["HostConfig"].get("CapDrop"):
+            mirrored_capabilities["drop"] = cap
+        ## - Container group_adds
+        mirrored_group_adds: list[str] = (
+            self_container.attrs["HostConfig"].get("GroupAdd") or []
         )
 
         # Construct mutation function.
@@ -1155,6 +1181,27 @@ class DockerDeployer(Deployer):
                         ),
                     )
                 create_options["device_requests"] = c_device_requests
+
+            if mirrored_capabilities:
+                if "cap_add" in mirrored_capabilities:
+                    c_cap_add: list[str] = create_options.get("cap_add", [])
+                    for c_cap in mirrored_capabilities["add"]:
+                        if c_cap not in c_cap_add:
+                            c_cap_add.append(c_cap)
+                    create_options["cap_add"] = c_cap_add
+                if "cap_drop" in mirrored_capabilities:
+                    c_cap_drop: list[str] = create_options.get("cap_drop", [])
+                    for c_cap in mirrored_capabilities["drop"]:
+                        if c_cap not in c_cap_drop:
+                            c_cap_drop.append(c_cap)
+                    create_options["cap_drop"] = c_cap_drop
+
+            if mirrored_group_adds:
+                c_group_adds: list[str] = create_options.get("group_add", [])
+                for c_ga in mirrored_group_adds:
+                    if c_ga not in c_group_adds:
+                        c_group_adds.append(c_ga)
+                create_options["group_add"] = c_group_adds
 
             return create_options
 
