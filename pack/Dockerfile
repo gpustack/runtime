@@ -240,18 +240,33 @@ ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
+## Update
+RUN <<EOF
+    # Update
+
+    # Update PCI IDs database for better device name detection.
+    curl -o /usr/share/misc/pci.ids https://pci-ids.ucw.cz/v2.2/pci.ids
+EOF
+
 ## Install
 
-RUN --mount=type=bind,target=/workspace/runtime,rw <<EOF
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,target=/workspace/runtime,rw <<EOF
     # Install gpustack-runtime
-    echo "Installing GPUStack runtime in the system Python environment..."
+
+    cd /workspace/runtime
+
+    make prepare
+
     export UV_SYSTEM_PYTHON=1
     export UV_PRERELEASE=allow
-    export UV_NO_CACHE=1
-    uv pip install \
-        /workspace/runtime
+    export UV_LINK_MODE=copy
+    export UV_NO_CACHE=0
+    uv pip install .
     uv pip tree
 EOF
+ENV GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT="true" \
+    GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR="/var/lib/gpustack/cache/gpustack-runtime"
 
 ## Entrypoint
 
@@ -261,20 +276,20 @@ EOF
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /opt/rocm from the host to detect the correct ROCm version.
-## - Mount /usr/share/misc from the host to detect the correct device name.
-## E.g. docker run --privileged --runtime amd gpustack/runtime:main gpustack-runtime detect --format json
+## - Mount /usr/share/misc/pci.ids from the host to detect the correct device name.
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
 RUN --mount=type=bind,from=rocm-base,source=/opt/rocm/share,target=/opt/rocm/share,rw <<EOF
     # Reinstall amd-smi
-    echo "Installing GPUStack runtime in the system Python environment..."
+
     export UV_SYSTEM_PYTHON=1
     export UV_PRERELEASE=allow
-    export UV_NO_CACHE=1
     uv pip install --no-build-isolation \
         /opt/rocm/share/amd_smi
     uv pip tree
 EOF
 ENV AMD_VISIBLE_DEVICES="0" \
-    ROCM_HOME="/opt/rocm"
+    ROCM_HOME="/opt/rocm" \
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/rocm"
 
 ## Active all Ascend devices detection,
 ## works with (default) Ascend container runtime and privileged mode.
@@ -282,10 +297,11 @@ ENV AMD_VISIBLE_DEVICES="0" \
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /usr/local/Ascend/ascend-toolkit to detect the correct CANN version and SoC name.
-## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
 ENV ASCEND_VISIBLE_DEVICES="0" \
     ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/latest" \
-    LD_LIBRARY_PATH="/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/ascend-toolkit/latest/runtime/lib64:${LD_LIBRARY_PATH}"
+    LD_LIBRARY_PATH="/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/ascend-toolkit/latest/runtime/lib64:${LD_LIBRARY_PATH}" \
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/usr/local/Ascend/ascend-toolkit;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"
 
 ## Active all Cambricon devices detection,
 ## works with (default) Cambricon container runtime and privileged mode.
@@ -294,7 +310,7 @@ ENV ASCEND_VISIBLE_DEVICES="0" \
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /usr/bin/cnmon to detect the correct devices. [TODO, TBD] maybe we can mount /usr/local/neuware to detect the correct Neuware version futher.
-## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
 ENV CAMBRICON_VISIBLE_DEVICES="0"
 
 ## Active all Hygon devices detection,
@@ -302,8 +318,9 @@ ENV CAMBRICON_VISIBLE_DEVICES="0"
 ## See https://github.com/Project-HAMi/dcu-dcgm/blob/master/pkg/dcgm/include/rocm_smi.h.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
-ENV HYGON_VISIBLE_DEVICES="0"
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
+ENV HYGON_VISIBLE_DEVICES="0" \
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/dtk;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"
 
 ## Active all Iluvatar devices detection,
 ## works with (default) Iluvatar container runtime and privileged mode.
@@ -312,25 +329,27 @@ ENV HYGON_VISIBLE_DEVICES="0"
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /run/udev from the host to detect the correct devices' udev info.
 ## - Mount /usr/bin/ixsmi to detect the correct devices. [TODO, TBD] maybe we can mount /usr/local/corex to detect the correct CoreX version futher.
-## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
 ENV ILUVATAR_VISIBLE_DEVICES="0"
 
 ## Active all MetaX devices detection,
 ## works with (default) MetaX container runtime and privileged mode.
 ## See https://developer.metax-tech.com/api/client/document/preview/626/k8s/03_component.html#container-runtime.
-## Options:
-## - Mount /sys from the host to detect the correct devices' PCI info.
+## Requireds:
 ## - Mount /opt/maca from the host to support device detecting.
 ## - Mount /opt/mxdriver/ from the host to support device detecting.
-## E.g. docker run --rm -it --privileged -v /opt/mxdriver:/opt/mxdriver -v /opt/maca:/opt/maca gpustack/runtime:main gpustack-runtime detect --format json
-ENV LD_LIBRARY_PATH="/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:${LD_LIBRARY_PATH}"
+## Options:
+## - Mount /sys from the host to detect the correct devices' PCI info.
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /opt/mxdriver:/opt/mxdriver -v /opt/maca:/opt/maca gpustack/runtime:main gpustack-runtime detect --format json
+ENV LD_LIBRARY_PATH="/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:${LD_LIBRARY_PATH}" \
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/maca;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"
 
 ## Active all MThread devices detection,
 ## works with (default) MThread container runtime and privileged mode.
 ## See https://docs.mthreads.com/cloud-native/cloud-native-doc-online/install_guide.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
 ENV MTHREADS_VISIBLE_DEVICES="0" \
     MTHREADS_DRIVER_CAPABILITIES="compute,utility"
 
@@ -339,7 +358,7 @@ ENV MTHREADS_VISIBLE_DEVICES="0" \
 ## See https://docs.nvidia.com/deploy/nvml-api/nvml-api-reference.html#nvml-api-reference.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --rm -it --privileged gpustack/runtime:main gpustack-runtime detect --format json
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
 ENV NVIDIA_DISABLE_REQUIRE="true" \
     NVIDIA_VISIBLE_DEVICES="0" \
     NVIDIA_DRIVER_CAPABILITIES="compute,utility"
