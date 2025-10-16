@@ -987,41 +987,55 @@ class KubernetesDeployer(Deployer):
             return
         self._mutate_create_pod = lambda o: o
         if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
-            logger.debug("Skipping mirrored deployment")
+            logger.debug("Mirrored deployment disabled")
             return
 
         # Retrieve self-pod info.
         core_api = kubernetes.client.CoreV1Api(self._client)
-        ## - Get Pod namespace, default to "default" if not found.
-        self_pod_namespace = "default"
-        self_pod_namespace_f = Path(
-            "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
-        )
-        if self_pod_namespace_f.exists():
-            with self_pod_namespace_f.open("r") as f:
-                self_pod_namespace = f.read().strip()
         ## - Get Pod name, default to hostname if not set.
         self_pod_name = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
         if not self_pod_name:
             self_pod_name = socket.gethostname()
             logger.warning(
-                "Mirrored deployment enabled but no Pod name set, using hostname(%s) instead",
+                "Mirrored deployment enabled, but no Pod name set, using hostname(%s) instead",
                 self_pod_name,
+            )
+        ## - Get Pod namespace, default to "default" if not found.
+        try:
+            self_pod_namespace_f = Path(
+                "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+            )
+            self_pod_namespace = self_pod_namespace_f.read_text(
+                encoding="utf-8",
+            ).strip()
+        except (FileNotFoundError, OSError):
+            self_pod_namespace = "default"
+            logger.warning(
+                "Mirrored deployment enabled, but no Pod namespace found, using 'default' instead",
             )
         try:
             self_pod = core_api.read_namespaced_pod(
                 name=self_pod_name,
                 namespace=self_pod_namespace,
             )
-        except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Mirrored deployment enabled but failed to get self Pod {self_pod_namespace}/{self_pod_name}"
-            raise OperationError(msg) from e
+        except kubernetes.client.exceptions.ApiException:
+            output_log = logger.warning
+            if logger.isEnabledFor(logging.DEBUG):
+                output_log = logger.exception
+            output_log(
+                f"Mirrored deployment enabled, but failed to get self Pod {self_pod_namespace}/{self_pod_name}, skipping",
+            )
+            return
         ## - Get the first Container, or the Container named "default" if exists.
-        self_container = self_pod.spec.containers[0]
         self_container = next(
             (c for c in self_pod.spec.containers if c.name == "default"),
-            self_container,
+            None,
         )
+        if not self_container:
+            self_container = self_pod.spec.containers[0]
+            logger.warning(
+                "Mirrored deployment enabled, but no Container named 'default' found, using the first Container instead",
+            )
 
         # Preprocess mirrored deployment options.
         in_same_namespace = (

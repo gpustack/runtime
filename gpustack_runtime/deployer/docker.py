@@ -982,7 +982,7 @@ class DockerDeployer(Deployer):
             return
         self._mutate_create_options = lambda o: o
         if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
-            logger.debug("Skipping mirrored deployment")
+            logger.debug("Mirrored deployment disabled")
             return
 
         # Retrieve self-container info.
@@ -991,15 +991,20 @@ class DockerDeployer(Deployer):
         if not self_container_id:
             self_container_id = socket.gethostname()
             logger.warning(
-                "Mirrored deployment enabled but no Container name set, using hostname(%s) instead",
+                "Mirrored deployment enabled, but no Container name set, using hostname(%s) instead",
                 self_container_id,
             )
         try:
             self_container = self._client.containers.get(self_container_id)
             self_image = self_container.image
-        except docker.errors.APIError as e:
-            msg = f"Mirrored deployment enabled but failed to get self Container {self_container_id}"
-            raise OperationError(msg) from e
+        except docker.errors.APIError:
+            output_log = logger.warning
+            if logger.isEnabledFor(logging.DEBUG):
+                output_log = logger.exception
+            output_log(
+                f"Mirrored deployment enabled, but failed to get self Container {self_container_id}, skipping",
+            )
+            return
 
         # Process mirrored deployment options.
         ## - Container runtime
