@@ -69,7 +69,7 @@ class NVIDIADetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.NVIDIA)
 
-    def detect(self) -> Devices | None:
+    def detect(self) -> Devices | None:  # noqa: PLR0915
         """
         Detect NVIDIA GPUs using pynvml.
 
@@ -139,13 +139,15 @@ class NVIDIADetector(Detector):
                         pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
                     )
 
-                dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
-                dev_mem = byte_to_mebibyte(  # byte to MiB
-                    dev_mem_info.total,
-                )
-                dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                    dev_mem_info.used,
-                )
+                dev_mem, dev_mem_used = 0, 0
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
+                    dev_mem = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.total,
+                    )
+                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.used,
+                    )
 
                 dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
 
@@ -154,8 +156,11 @@ class NVIDIADetector(Detector):
                     pynvml.NVML_TEMPERATURE_GPU,
                 )
 
-                dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
-                dev_power_used = pynvml.nvmlDeviceGetPowerUsage(dev)
+                dev_power = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
+                    dev_power = dev_power // 1000  # mW to W
+                dev_power_used = pynvml.nvmlDeviceGetPowerUsage(dev) // 1000  # mW to W
 
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
@@ -202,8 +207,8 @@ class NVIDIADetector(Detector):
                             memory_used=dev_mem_used,
                             memory_utilization=get_utilization(dev_mem_used, dev_mem),
                             temperature=dev_temp,
-                            power=dev_power // 1000,
-                            power_used=dev_power_used // 1000,
+                            power=dev_power,
+                            power_used=dev_power_used,
                             appendix=dev_appendix,
                         ),
                     )
@@ -222,20 +227,30 @@ class NVIDIADetector(Detector):
                     mdev_index = mdev_idx
                     mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
 
-                    mdev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(mdev)
-                    mdev_mem = byte_to_mebibyte(  # byte to MiB
-                        mdev_mem_info.total,
-                    )
-                    mdev_mem_used = byte_to_mebibyte(  # byte to MiB
-                        mdev_mem_info.used,
-                    )
+                    mdev_mem, mdev_mem_used = 0, 0
+                    with contextlib.suppress(pynvml.NVMLError):
+                        mdev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(mdev)
+                        mdev_mem = byte_to_mebibyte(  # byte to MiB
+                            mdev_mem_info.total,
+                        )
+                        mdev_mem_used = byte_to_mebibyte(  # byte to MiB
+                            mdev_mem_info.used,
+                        )
 
                     mdev_temp = pynvml.nvmlDeviceGetTemperature(
                         mdev,
                         pynvml.NVML_TEMPERATURE_GPU,
                     )
-                    mdev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(mdev)
-                    mdev_power_used = pynvml.nvmlDeviceGetPowerUsage(mdev)
+
+                    mdev_power = None
+                    with contextlib.suppress(pynvml.NVMLError):
+                        mdev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(
+                            mdev,
+                        )
+                        mdev_power = mdev_power // 1000  # mW to W
+                    mdev_power_used = (
+                        pynvml.nvmlDeviceGetPowerUsage(mdev) // 1000
+                    )  # mW to W
 
                     mdev_appendix = dev_appendix.copy()
 
@@ -332,8 +347,8 @@ class NVIDIADetector(Detector):
                             memory_used=mdev_mem_used,
                             memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
                             temperature=mdev_temp,
-                            power=mdev_power // 1000,
-                            power_used=mdev_power_used // 1000,
+                            power=mdev_power,
+                            power_used=mdev_power_used,
                             appendix=mdev_appendix,
                         ),
                     )
