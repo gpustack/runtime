@@ -1,0 +1,24 @@
+[
+  {
+    "manufacturer": "nvidia",
+    "index": 0,
+    "name": "NVIDIA GB10",
+    "uuid": "GPU-5a7ae44d-3369-abf8-4f1d-bba46fd0ac4f",
+    "driver_version": "580.95.05",
+    "runtime_version": "13.0",
+    "runtime_version_original": "13.0.0",
+    "compute_capability": "12.1",
+    "cores": 48,
+    "cores_utilization": 3,
+    "memory": 0,
+    "memory_used": 0,
+    "memory_utilization": 0.0,
+    "temperature": 53,
+    "power": null,
+    "power_used": 12,
+    "appendix": {
+      "arch_family": "Blackwell",
+      "vgpu": false
+    }
+  }
+]
