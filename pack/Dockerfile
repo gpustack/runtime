@@ -244,14 +244,6 @@ ARG TARGETARCH
 VOLUME /var/lib/gpustack
 ENV GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR="/var/lib/gpustack/cache/gpustack-runtime"
 
-## Update
-RUN <<EOF
-    # Update
-
-    # Update PCI IDs database for better device name detection.
-    curl -o /usr/share/misc/pci.ids https://pci-ids.ucw.cz/v2.2/pci.ids
-EOF
-
 ## Install
 
 RUN --mount=type=cache,target=/root/.cache \
@@ -269,6 +261,9 @@ RUN --mount=type=cache,target=/root/.cache \
     uv pip install \
         /workspace/runtime
     uv pip tree
+
+    # Update PCI IDs
+    update-pciids || true
 EOF
 
 ## Entrypoint
@@ -279,7 +274,6 @@ EOF
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
 ## - Mount /opt/rocm from the host to detect the correct ROCm version.
-## - Mount /usr/share/misc/pci.ids from the host to detect the correct device name.
 ## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
 RUN --mount=type=bind,from=rocm-base,source=/opt/rocm/share,target=/opt/rocm/share,rw <<EOF
     # Reinstall amd-smi
@@ -291,7 +285,6 @@ RUN --mount=type=bind,from=rocm-base,source=/opt/rocm/share,target=/opt/rocm/sha
     uv pip tree
 EOF
 ENV AMD_VISIBLE_DEVICES="0" \
-    ROCM_HOME="/opt/rocm" \
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/rocm"
 
 ## Active all Ascend devices detection,
@@ -321,7 +314,8 @@ ENV CAMBRICON_VISIBLE_DEVICES="0"
 ## See https://github.com/Project-HAMi/dcu-dcgm/blob/master/pkg/dcgm/include/rocm_smi.h.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock gpustack/runtime:main gpustack-runtime detect --format json
+## - Mount /usr/share/hwdata and /usr/share/misc from the host to detect the correct device name.
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /opt/hyhal:/opt/hyhal -v /opt/dtk:/opt/dtk -e ROCM_PATH=/opt/dtk gpustack/runtime:main gpustack-runtime detect --format json
 ENV HYGON_VISIBLE_DEVICES="0" \
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/dtk;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"
 

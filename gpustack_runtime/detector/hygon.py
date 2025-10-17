@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from .. import envs
 from . import pyrocmsmi
@@ -77,7 +78,11 @@ class HygonDetector(Detector):
         try:
             pyrocmsmi.rsmi_init()
 
-            sys_driver_ver = pyrocmsmi.rsmi_driver_version_get()
+            sys_driver_ver = None
+            sys_driver_ver_path = Path("/sys/module/hydcu/version")
+            if sys_driver_ver_path.exists():
+                with sys_driver_ver_path.open(encoding="utf-8") as f:
+                    sys_driver_ver = f.read().strip()
 
             devs_count = pyrocmsmi.rsmi_num_monitor_devices()
             for dev_idx in range(devs_count):

@@ -20,15 +20,31 @@ rocmsmiLib = None
 libLoadLock = threading.Lock()
 
 if rocmsmiLib is None:
-    rocm_path = Path(os.getenv("ROCM_PATH", os.getenv("ROCM_HOME") or "/opt/rocm"))
-
+    # Example ROCM_SMI_LIB_PATH
+    # - /opt/dtk-24.04.3/rocm_smi/lib
+    # - /opt/rocm/rocm_smi/lib
     rocmsmi_lib_path = os.getenv("ROCM_SMI_LIB_PATH")
     if not rocmsmi_lib_path:
-        rocmsmi_lib_path = str(rocm_path / "lib")
+        # Example ROCM_PATH/ROCM_HOME
+        # - /opt/dtk-24.04.3
+        # - /opt/rocm
+        rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
+        rocmsmi_lib_path = str(rocm_path / "rocm_smi" / "lib")
+    else:
+        rocm_path = Path(rocmsmi_lib_path).parent.parent
 
     rocmsmi_lib_loc = Path(rocmsmi_lib_path) / "librocm_smi64.so"
     if rocmsmi_lib_loc.exists():
-        rocmsmi_bindings_path = rocm_path / "libexec" / "rocm_smi"
+        rocmsmi_bindings_paths = [
+            (rocm_path / "rocm_smi" / "bindings"),
+            (rocm_path / "libexec" / "rocm_smi"),
+        ]
+        rocmsmi_bindings_path = None
+        for p in rocmsmi_bindings_paths:
+            if p.exists():
+                rocmsmi_bindings_path = p
+                break
+
         if rocmsmi_bindings_path.exists():
             if str(rocmsmi_bindings_path) not in sys.path:
                 sys.path.append(str(rocmsmi_bindings_path))
@@ -197,18 +213,21 @@ def rsmi_dev_target_graphics_version_get(device=0):
     if not rocmsmiLib:
         raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
 
-    c_version = c_uint64()
-    ret = rocmsmiLib.rsmi_dev_target_graphics_version_get(device, byref(c_version))
-    _rocmsmiCheckReturn(ret)
-    version = str(c_version.value)
-    if len(version) == 4:
-        dev_name = rsmi_dev_name_get(device)
-        if "Instinct MI2" in dev_name:
-            hex_part = str(hex(int(version[2:]))).replace("0x", "")
-            version = version[:2] + hex_part
-    else:
-        version = str(c_version.value // 10 + c_version.value % 10)
-    return "gfx" + version
+    try:
+        c_version = c_uint64()
+        ret = rocmsmiLib.rsmi_dev_target_graphics_version_get(device, byref(c_version))
+        _rocmsmiCheckReturn(ret)
+        version = str(c_version.value)
+        if len(version) == 4:
+            dev_name = rsmi_dev_name_get(device)
+            if "Instinct MI2" in dev_name:
+                hex_part = str(hex(int(version[2:]))).replace("0x", "")
+                version = version[:2] + hex_part
+        else:
+            version = str(c_version.value // 10 + c_version.value % 10)
+        return "gfx" + version
+    except AttributeError:
+        return None
 
 
 def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
@@ -240,15 +259,30 @@ def rsmi_dev_power_cap_get(device=0):
     return c_power_cap.value // 1000000
 
 
+def rsmi_dev_power_ave_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
+    c_device_chip = c_uint32(0)
+    c_power = c_uint64()
+    ret = rocmsmiLib.rsmi_dev_power_ave_get(device, c_device_chip, byref(c_power))
+    _rocmsmiCheckReturn(ret)
+    return c_power.value // 1000000
+
+
 def rsmi_dev_power_get(device=0):
     if not rocmsmiLib:
         raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
 
-    c_power = c_uint64()
-    c_power_type = rsmi_power_type_t()
-    ret = rocmsmiLib.rsmi_dev_power_get(device, byref(c_power), byref(c_power_type))
-    _rocmsmiCheckReturn(ret)
-    return c_power.value // 1000000
+    try:
+        c_power = c_uint64()
+        c_power_type = rsmi_power_type_t()
+        ret = rocmsmiLib.rsmi_dev_power_get(device, byref(c_power), byref(c_power_type))
+        _rocmsmiCheckReturn(ret)
+        return c_power.value // 1000000
+    except NameError:
+        # Fallback for older versions without rsmi_dev_power_get
+        return rsmi_dev_power_ave_get(device)
 
 
 def rsmi_dev_node_id_get(device=0):
