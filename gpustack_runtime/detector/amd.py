@@ -5,7 +5,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
-from . import pyamdgpu, pyamdsmi, pyrocmsmi
+from . import pyamdgpu, pyamdsmi, pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
@@ -84,7 +84,7 @@ class AMDDetector(Detector):
         try:
             pyamdsmi.amdsmi_init()
 
-            sys_runtime_ver_original = pyamdsmi.amdsmi_get_rocm_original_version()
+            sys_runtime_ver_original = pyrocmcore.getROCmVersion()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             devs = pyamdsmi.amdsmi_get_processor_handles()

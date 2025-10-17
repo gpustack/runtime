@@ -5,9 +5,15 @@ from functools import lru_cache
 from pathlib import Path
 
 from .. import envs
-from . import pyrocmsmi
+from . import pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import PCIDevice, byte_to_mebibyte, get_pci_devices, get_utilization
+from .__utils__ import (
+    PCIDevice,
+    byte_to_mebibyte,
+    get_brief_version,
+    get_pci_devices,
+    get_utilization,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +90,9 @@ class HygonDetector(Detector):
                 with sys_driver_ver_path.open(encoding="utf-8") as f:
                     sys_driver_ver = f.read().strip()
 
+            sys_runtime_ver_original = pyrocmcore.getROCmVersion()
+            sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
+
             devs_count = pyrocmsmi.rsmi_num_monitor_devices()
             for dev_idx in range(devs_count):
                 dev_index = dev_idx
@@ -116,6 +125,8 @@ class HygonDetector(Detector):
                         name=dev_name,
                         uuid=dev_uuid,
                         driver_version=sys_driver_ver,
+                        runtime_version=sys_runtime_ver,
+                        runtime_version_original=sys_runtime_ver_original,
                         compute_capability=dev_cc,
                         cores=dev_cores,
                         cores_utilization=dev_cores_util,

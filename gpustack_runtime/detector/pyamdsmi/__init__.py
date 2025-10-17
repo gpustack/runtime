@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-from ctypes import *
 from pathlib import Path
 
 try:
@@ -27,27 +26,3 @@ except (ImportError, KeyError, OSError):
 
     def amdsmi_shut_down():
         pass
-
-
-def amdsmi_get_rocm_original_version() -> str | None:
-    locs = [
-        "librocm-core.so",
-    ]
-    rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
-    if rocm_path.exists():
-        locs.append(str(rocm_path / "lib" / "librocm-core.so"))
-    for loc in locs:
-        try:
-            clib = CDLL(loc)
-            major = c_uint32()
-            minor = c_uint32()
-            patch = c_uint32()
-            ret = clib.getROCmVersion(byref(major), byref(minor), byref(patch))
-        except (OSError, AttributeError):
-            continue
-        else:
-            if ret != 0:
-                return None
-            return f"{major.value}.{minor.value}.{patch.value}"
-
-    return None

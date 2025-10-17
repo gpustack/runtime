@@ -29,7 +29,9 @@ if rocmsmiLib is None:
         # - /opt/dtk-24.04.3
         # - /opt/rocm
         rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
-        rocmsmi_lib_path = str(rocm_path / "rocm_smi" / "lib")
+        rocmsmi_lib_path = str(rocm_path / "lib")
+        if not Path(rocmsmi_lib_path).exists():
+            rocmsmi_lib_path = str(rocm_path / "rocm_smi" / "lib")
     else:
         rocm_path = Path(rocmsmi_lib_path).parent.parent
 
@@ -45,7 +47,7 @@ if rocmsmiLib is None:
                 rocmsmi_bindings_path = p
                 break
 
-        if rocmsmi_bindings_path.exists():
+        if rocmsmi_bindings_path and rocmsmi_bindings_path.exists():
             if str(rocmsmi_bindings_path) not in sys.path:
                 sys.path.append(str(rocmsmi_bindings_path))
 
@@ -55,7 +57,8 @@ if rocmsmiLib is None:
                 # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
                 from rsmiBindings import *
 
-                rocmsmiLib = CDLL(rocmsmi_lib_loc)
+                if not rocmsmiLib:
+                    rocmsmiLib = CDLL(rocmsmi_lib_loc)
             except OSError:
                 pass
             finally:
