@@ -510,6 +510,28 @@ class ContainerCheck:
     """
 
 
+class ContainerImagePullPolicyEnum(str, Enum):
+    """
+    Enum for container image pull policies.
+    """
+
+    ALWAYS = "Always"
+    """
+    Always pull the image.
+    """
+    IF_NOT_PRESENT = "IfNotPresent"
+    """
+    Pull the image if not present.
+    """
+    NEVER = "Never"
+    """
+    Never pull the image.
+    """
+
+    def __str__(self):
+        return self.value
+
+
 class ContainerProfileEnum(str, Enum):
     """
     Enum for container profiles.
@@ -560,6 +582,8 @@ class Container:
             Image of the container.
         name (str):
             Name of the container.
+        image_pull_policy (ContainerImagePullPolicyEnum):
+            Image pull policy of the container.
         profile (ContainerProfileEnum):
             Profile of the container.
         restart_policy (ContainerRestartPolicyEnum | None):
@@ -593,6 +617,12 @@ class Container:
     name: str
     """
     Name of the container.
+    """
+    image_pull_policy: ContainerImagePullPolicyEnum = (
+        ContainerImagePullPolicyEnum.IF_NOT_PRESENT
+    )
+    """
+    Image pull policy of the container.
     """
     profile: ContainerProfileEnum = ContainerProfileEnum.RUN
     """

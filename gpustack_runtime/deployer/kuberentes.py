@@ -727,6 +727,7 @@ class KubernetesDeployer(Deployer):
         for ci, c in enumerate(workload.containers):
             container = kubernetes.client.V1Container(
                 image=c.image,
+                image_pull_policy=c.image_pull_policy,
                 name=c.name,
             )
 

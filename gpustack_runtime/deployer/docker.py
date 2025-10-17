@@ -23,6 +23,7 @@ from .. import envs
 from .__types__ import (
     Container,
     ContainerCheck,
+    ContainerImagePullPolicyEnum,
     ContainerMountModeEnum,
     ContainerProfileEnum,
     ContainerRestartPolicyEnum,
@@ -384,66 +385,111 @@ class DockerDeployer(Deployer):
         return ephemeral_volume_name_mapping
 
     def _pull_image(self, image: str) -> docker.models.images.Image:
+        logger.info(f"Pulling image {image}")
+
+        try:
+            repo, tag = parse_repository_tag(image)
+            tag = tag or "latest"
+            pull_log = self._client.api.pull(
+                repo,
+                tag=tag,
+                stream=True,
+            )
+
+            progress: int = 0
+            layers: dict[str, int] = {}
+            layer_progress: dict[str, int] = {}
+            is_raw = sys.stdout.isatty() and logger.isEnabledFor(logging.DEBUG)
+            for line in pull_log:
+                line_str = (
+                    line.decode("utf-8", errors="replace")
+                    if isinstance(line, bytes)
+                    else line
+                )
+                for log_str in line_str.splitlines():
+                    log = json.loads(log_str)
+                    if "id" not in log:
+                        if is_raw:
+                            print(log["status"], flush=True)
+                        else:
+                            logger.info(log["status"])
+                        continue
+                    log_id = log["id"]
+                    if log_id not in layers:
+                        layers[log_id] = len(layers)
+                        layer_progress[log_id] = 0
+                    if is_raw:
+                        print("\033[E", end="")
+                        print(f"\033[{layers[log_id] + 1};0H", end="")
+                        print("\033[K", end="")
+                    if "progress" in log:
+                        if is_raw:
+                            print(f"{log_id}: {log['progress']}", flush=True)
+                        else:
+                            p_c = log.get("progressDetail", {}).get("current")
+                            p_t = log.get("progressDetail", {}).get("total")
+                            if p_c is not None and p_t is not None:
+                                layer_progress[log_id] = int(p_c * 100 // p_t)
+                            p_diff = (
+                                sum(layer_progress.values())
+                                * 100
+                                // (len(layer_progress) * 100)
+                                - progress
+                            )
+                            if p_diff >= 10:
+                                progress += 10
+                                logger.info(f"Pulling image {image}: {progress}%")
+                    elif is_raw:
+                        print(f"{log_id}: {log['status']}", flush=True)
+
+            sep = "@" if tag.startswith("sha256:") else ":"
+            return self._client.images.get(f"{repo}{sep}{tag}")
+        except json.decoder.JSONDecodeError as e:
+            msg = f"Failed to pull image {image}, invalid response"
+            raise OperationError(msg) from e
+        except docker.errors.APIError as e:
+            msg = f"Failed to pull image {image}"
+            raise OperationError(msg) from e
+
+    def _get_image(
+        self,
+        image: str,
+        policy: ContainerImagePullPolicyEnum | None = None,
+    ) -> docker.models.images.Image:
         """
-        Pull image if not exists locally.
+        Get image.
+
+        Args:
+            image:
+                The image to get.
+            policy:
+                The image pull policy.
+                If not specified, defaults to IF_NOT_PRESENT.
 
         Returns:
             The image object.
 
         Raises:
             OperationError:
-                If the image fails to pull.
+                If the image fails to get.
 
         """
+        if not policy:
+            policy = ContainerImagePullPolicyEnum.IF_NOT_PRESENT
+
+        try:
+            if policy == ContainerImagePullPolicyEnum.ALWAYS:
+                return self._pull_image(image)
+        except docker.errors.APIError as e:
+            msg = f"Failed to get image {image}"
+            raise OperationError(msg) from e
+
         try:
             return self._client.images.get(image)
         except docker.errors.ImageNotFound:
-            logger.info(f"Pulling image {image}")
-            try:
-                repo, tag = parse_repository_tag(image)
-                tag = tag or "latest"
-                pull_log = self._client.api.pull(
-                    repo,
-                    tag=tag,
-                    stream=True,
-                )
-
-                layers: dict[str, int] = {}
-                is_tty = sys.stdout.isatty()
-                is_debug = logger.isEnabledFor(logging.DEBUG)
-                for line in pull_log:
-                    line_str = (
-                        line.decode("utf-8", errors="replace")
-                        if isinstance(line, bytes)
-                        else line
-                    )
-                    for log_str in line_str.splitlines():
-                        log = json.loads(log_str)
-                        if "id" not in log:
-                            print(log["status"])
-                            continue
-                        if not is_debug:
-                            continue
-                        log_id = log["id"]
-                        if log_id not in layers:
-                            layers[log_id] = len(layers)
-                        if is_tty:
-                            print("\033[E", end="")
-                            print(f"\033[{layers[log_id] + 1};0H", end="")
-                            print("\033[K", end="")
-                        if "progress" in log:
-                            print(f"{log_id}: {log['progress']}", flush=True)
-                        else:
-                            print(f"{log_id}: {log['status']}", flush=True)
-
-                sep = "@" if tag.startswith("sha256:") else ":"
-                return self._client.images.get(f"{repo}{sep}{tag}")
-            except json.decoder.JSONDecodeError as e:
-                msg = f"Failed to pull image {image}, invalid response"
-                raise OperationError(msg) from e
-            except docker.errors.APIError as e:
-                msg = f"Failed to pull image {image}"
-                raise OperationError(msg) from e
+            if policy == ContainerImagePullPolicyEnum.NEVER:
+                raise
+            return self._pull_image(image)
         except docker.errors.APIError as e:
             msg = f"Failed to get image {image}"
             raise OperationError(msg) from e
@@ -505,7 +551,7 @@ class DockerDeployer(Deployer):
 
         try:
             d_container = self._client.containers.create(
-                image=self._pull_image(workload.pause_image),
+                image=self._get_image(workload.pause_image),
                 detach=True,
                 **create_options,
             )
@@ -569,7 +615,7 @@ class DockerDeployer(Deployer):
 
         try:
             d_container = self._client.containers.create(
-                image=self._pull_image(workload.unhealthy_restart_image),
+                image=self._get_image(workload.unhealthy_restart_image),
                 detach=True,
                 **create_options,
             )
@@ -912,7 +958,7 @@ class DockerDeployer(Deployer):
                 if c.profile == ContainerProfileEnum.RUN:
                     create_options = self._mutate_create_options(create_options)
                 d_container = self._client.containers.create(
-                    image=self._pull_image(c.image),
+                    image=self._get_image(c.image, c.image_pull_policy),
                     detach=detach,
                     **create_options,
                 )
