@@ -240,6 +240,10 @@ ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
+## Configure data volume
+VOLUME /var/lib/gpustack
+ENV GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR="/var/lib/gpustack/cache/gpustack-runtime"
+
 ## Update
 RUN <<EOF
     # Update
@@ -266,8 +270,6 @@ RUN --mount=type=cache,target=/root/.cache \
         /workspace/runtime
     uv pip tree
 EOF
-ENV GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT="true" \
-    GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR="/var/lib/gpustack/cache/gpustack-runtime"
 
 ## Entrypoint
 
