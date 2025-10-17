@@ -5,6 +5,7 @@
 # https://rocm.docs.amd.com/projects/rocm_smi_lib/en/latest/doxygen/html/rocm__smi_8h.html.
 from __future__ import annotations
 
+import os
 import sys
 import threading
 from ctypes import *
@@ -19,26 +20,30 @@ rocmsmiLib = None
 libLoadLock = threading.Lock()
 
 if rocmsmiLib is None:
-    for p in [
-        "/opt/rocm/libexec/rocm_smi/",
-        "/opt/dtk/rocm_smi/bindings/",
-    ]:
-        if p in sys.path:
-            continue
-        if Path(p).exists():
-            sys.path.append(p)
+    rocm_path = Path(os.getenv("ROCM_PATH", os.getenv("ROCM_HOME") or "/opt/rocm"))
 
-    libLoadLock.acquire()
+    rocmsmi_lib_path = os.getenv("ROCM_SMI_LIB_PATH")
+    if not rocmsmi_lib_path:
+        rocmsmi_lib_path = str(rocm_path / "lib")
 
-    try:
-        # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
-        from rsmiBindings import *
+    rocmsmi_lib_loc = Path(rocmsmi_lib_path) / "librocm_smi64.so"
+    if rocmsmi_lib_loc.exists():
+        rocmsmi_bindings_path = rocm_path / "libexec" / "rocm_smi"
+        if rocmsmi_bindings_path.exists():
+            if str(rocmsmi_bindings_path) not in sys.path:
+                sys.path.append(str(rocmsmi_bindings_path))
 
-        rocmsmiLib = initRsmiBindings()
-    except ImportError:
-        rocmsmiLib = None
-    finally:
-        libLoadLock.release()
+            libLoadLock.acquire()
+
+            try:
+                # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
+                from rsmiBindings import *
+
+                rocmsmiLib = CDLL(rocmsmi_lib_loc)
+            except OSError:
+                pass
+            finally:
+                libLoadLock.release()
 
 
 class ROCMSMIError(Exception):
