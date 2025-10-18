@@ -1,0 +1,170 @@
+[
+  {
+    "manufacturer": "hygon",
+    "index": 0,
+    "name": "K100_AI",
+    "uuid": "GPU-7100f95cee823041",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 51,
+    "power": 400,
+    "power_used": 76,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "hygon",
+    "index": 1,
+    "name": "K100_AI",
+    "uuid": "GPU-715322fd7cac4121",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 53,
+    "power": 400,
+    "power_used": 80,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "hygon",
+    "index": 2,
+    "name": "K100_AI",
+    "uuid": "GPU-7151b6f7e44e2041",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 53,
+    "power": 400,
+    "power_used": 78,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "hygon",
+    "index": 3,
+    "name": "K100_AI",
+    "uuid": "GPU-71010022e8c648a1",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 51,
+    "power": 400,
+    "power_used": 75,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "hygon",
+    "index": 4,
+    "name": "K100_AI",
+    "uuid": "GPU-7151b6f7e45818c1",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 54,
+    "power": 400,
+    "power_used": 80,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "hygon",
+    "index": 5,
+    "name": "K100_AI",
+    "uuid": "GPU-7151be4ceb721101",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 55,
+    "power": 400,
+    "power_used": 81,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "hygon",
+    "index": 6,
+    "name": "K100_AI",
+    "uuid": "GPU-7100f9639dd62881",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 54,
+    "power": 400,
+    "power_used": 81,
+    "appendix": {
+      "vgpu": false
+    }
+  },
+  {
+    "manufacturer": "hygon",
+    "index": 7,
+    "name": "K100_AI",
+    "uuid": "GPU-715322f979f21901",
+    "driver_version": "6.2.31",
+    "runtime_version": "24.04",
+    "runtime_version_original": "24.04.3",
+    "compute_capability": "gfx928",
+    "cores": 120,
+    "cores_utilization": 0,
+    "memory": 65520,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 51,
+    "power": 400,
+    "power_used": 81,
+    "appendix": {
+      "vgpu": false
+    }
+  }
+]
