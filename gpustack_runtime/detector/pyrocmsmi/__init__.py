@@ -89,15 +89,6 @@ def _rocmsmiCheckReturn(ret):
 
 ## string/bytes conversion for ease of use
 def convertStrBytes(func):
-    """
-    In python 3, strings are unicode instead of bytes, and need to be converted for ctypes
-    Args from caller: (1, 'string', <__main__.c_nvmlDevice_t at 0xFFFFFFFF>)
-    Args passed to function: (1, b'string', <__main__.c_nvmlDevice_t at 0xFFFFFFFF)>.
-    ----
-    Returned from function: b'returned string'
-    Returned to caller: 'returned string'
-    """
-
     @wraps(func)
     def wrapper(*args, **kwargs):
         # encoding a str returns bytes in python 2 and 3
