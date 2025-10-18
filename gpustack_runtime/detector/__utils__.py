@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import re
 import shutil
 import subprocess
@@ -66,20 +67,26 @@ def get_pci_devices(
         dev_vendor_file = dev_path / "vendor"
         if not dev_vendor_file.exists():
             continue
-        with dev_vendor_file.open("r") as vf:
+        with contextlib.suppress(OSError), dev_vendor_file.open("r") as vf:
             dev_vendor = vf.read().strip()
             if vendor and dev_vendor not in vendor:
                 continue
+        if not dev_vendor:
+            continue
 
         dev_class_file = dev_path / "class"
         dev_config_file = dev_path / "config"
         if not dev_class_file.exists() or not dev_config_file.exists():
             continue
 
-        with dev_class_file.open("rb") as f:
-            dev_class = f.read().strip()
-        with dev_config_file.open("rb") as f:
-            dev_config = f.read().strip()
+        dev_class, dev_config = None, None
+        with contextlib.suppress(OSError):
+            with dev_class_file.open("rb") as f:
+                dev_class = f.read().strip()
+            with dev_config_file.open("rb") as f:
+                dev_config = f.read().strip()
+        if dev_class is None or dev_config is None:
+            continue
 
         pci_devices.append(
             PCIDevice(
@@ -457,3 +464,76 @@ def get_utilization(used: int | None, total: int | None) -> float:
     except (OverflowError, ZeroDivisionError):
         return 0.0
     return round(result, 2)
+
+
+def get_memory() -> tuple[int, int]:
+    """
+    Get total and used memory in MiB on Linux systems.
+    Refer to https://docs.nvidia.com/dgx/dgx-spark/known-issues.html.
+
+    Returns:
+        A tuple containing total and used memory in MiB.
+        If unable to read /proc/meminfo, returns (0, 0).
+
+    """
+    try:
+        with Path("/proc/meminfo").open() as f:
+            mem_total_kb = -1
+            mem_available_kb = -1
+            swap_total_kb = -1
+            swap_free_kb = -1
+            huge_tlb_total_pages = -1
+            huge_tlb_free_pages = -1
+            huge_tlb_page_size = -1
+
+            for line in f:
+                line = line.strip()  # noqa: PLW2901
+
+                if line.startswith("MemTotal:"):
+                    with contextlib.suppress(ValueError, IndexError):
+                        mem_total_kb = int(line.split()[1])
+                elif line.startswith("MemAvailable:"):
+                    with contextlib.suppress(ValueError, IndexError):
+                        mem_available_kb = int(line.split()[1])
+                elif line.startswith("SwapTotal:"):
+                    with contextlib.suppress(ValueError, IndexError):
+                        swap_total_kb = int(line.split()[1])
+                elif line.startswith("SwapFree:"):
+                    with contextlib.suppress(ValueError, IndexError):
+                        swap_free_kb = int(line.split()[1])
+                elif line.startswith("HugePages_Total:"):
+                    with contextlib.suppress(ValueError, IndexError):
+                        huge_tlb_total_pages = int(line.split()[1])
+                elif line.startswith("HugePages_Free:"):
+                    with contextlib.suppress(ValueError, IndexError):
+                        huge_tlb_free_pages = int(line.split()[1])
+                elif line.startswith("Hugepagesize:"):
+                    with contextlib.suppress(ValueError, IndexError):
+                        huge_tlb_page_size = int(line.split()[1])
+
+                if (
+                    mem_total_kb != -1
+                    and mem_available_kb != -1
+                    and swap_total_kb != -1
+                    and swap_free_kb != -1
+                    and huge_tlb_total_pages != -1
+                    and huge_tlb_free_pages != -1
+                    and huge_tlb_page_size != -1
+                ):
+                    break
+
+            if huge_tlb_total_pages not in (0, -1):
+                mem_available_kb = huge_tlb_free_pages * huge_tlb_page_size
+                swap_free_kb = 0
+
+            mem_total_kb = mem_total_kb + swap_total_kb
+            mem_available_kb = mem_available_kb + swap_free_kb
+            mem_used_kb = mem_total_kb - mem_available_kb
+
+            return (
+                kibibyte_to_mebibyte(mem_total_kb),
+                kibibyte_to_mebibyte(mem_used_kb),
+            )
+
+    except OSError:
+        return 0, 0

@@ -89,8 +89,11 @@ class HygonDetector(Detector):
             sys_driver_ver = None
             sys_driver_ver_path = Path("/sys/module/hydcu/version")
             if sys_driver_ver_path.exists():
-                with sys_driver_ver_path.open(encoding="utf-8") as f:
-                    sys_driver_ver = f.read().strip()
+                try:
+                    with sys_driver_ver_path.open(encoding="utf-8") as f:
+                        sys_driver_ver = f.read().strip()
+                except OSError:
+                    pass
 
             sys_runtime_ver_original = pyrocmcore.getROCmVersion()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)

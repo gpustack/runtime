@@ -15,6 +15,7 @@ from .__utils__ import (
     byte_to_mebibyte,
     get_brief_version,
     get_device_files,
+    get_memory,
     get_pci_devices,
     get_utilization,
 )
@@ -148,6 +149,8 @@ class NVIDIADetector(Detector):
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         dev_mem_info.used,
                     )
+                if dev_mem == 0:
+                    dev_mem, dev_mem_used = get_memory()
 
                 dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
 
