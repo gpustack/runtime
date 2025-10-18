@@ -186,11 +186,13 @@ variables: dict[str, Callable[[], Any]] = {
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS",
         ),
+        sep=";",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES": lambda: to_set(
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES",
         ),
+        sep=";",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE", "1"),

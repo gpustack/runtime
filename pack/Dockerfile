@@ -314,7 +314,6 @@ ENV CAMBRICON_VISIBLE_DEVICES="0"
 ## See https://github.com/Project-HAMi/dcu-dcgm/blob/master/pkg/dcgm/include/rocm_smi.h.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## - Mount /usr/share/hwdata and /usr/share/misc from the host to detect the correct device name.
 ## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /opt/hyhal:/opt/hyhal -v /opt/dtk:/opt/dtk -e ROCM_PATH=/opt/dtk gpustack/runtime:main gpustack-runtime detect --format json
 ENV HYGON_VISIBLE_DEVICES="0" \
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/dtk;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"

@@ -77,9 +77,10 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
     device: str
     port: int
     host_network: bool
+    check: bool
+    namespace: str
     service: str
     version: str
-    namespace: str
     name: str
     volume: str
     extra_args: list[str]
@@ -120,6 +121,13 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         )
 
         deploy_parser.add_argument(
+            "--check",
+            action="store_true",
+            help="enable health check (default: False)",
+            default=False,
+        )
+
+        deploy_parser.add_argument(
             "--namespace",
             type=str,
             help="namespace of the runner",
@@ -156,9 +164,10 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         self.device = args.device
         self.port = args.port
         self.host_network = args.host_network
+        self.check = args.check
+        self.namespace = args.namespace
         self.service = args.service
         self.version = args.version
-        self.namespace = args.namespace
         self.name = f"{args.service}-{args.version}".lower().replace(".", "-")
         self.volume = args.volume
         self.extra_args = args.extra_args
@@ -205,16 +214,18 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
                 internal=self.port,
             ),
         ]
-        checks = [
-            ContainerCheck(
-                delay=30,
-                interval=10,
-                timeout=5,
-                retries=3,
-                tcp=ContainerCheckTCP(port=self.port),
-                teardown=True,
-            ),
-        ]
+        checks = None
+        if self.check:
+            checks = [
+                ContainerCheck(
+                    delay=60,
+                    interval=10,
+                    timeout=5,
+                    retries=6,
+                    tcp=ContainerCheckTCP(port=self.port),
+                    teardown=True,
+                ),
+            ]
         plan = WorkloadPlan(
             name=self.name,
             namespace=self.namespace,
@@ -268,6 +279,7 @@ class CreateWorkloadSubCommand(SubCommand):
     device: str
     port: int
     host_network: bool
+    check: bool
     namespace: str
     name: str
     image: str
@@ -310,6 +322,13 @@ class CreateWorkloadSubCommand(SubCommand):
         )
 
         deploy_parser.add_argument(
+            "--check",
+            action="store_true",
+            help="enable health check (default: False)",
+            default=False,
+        )
+
+        deploy_parser.add_argument(
             "--namespace",
             type=str,
             help="namespace of the workload",
@@ -346,6 +365,7 @@ class CreateWorkloadSubCommand(SubCommand):
         self.device = args.device
         self.port = args.port
         self.host_network = args.host_network
+        self.check = args.check
         self.namespace = args.namespace
         self.name = args.name
         self.image = args.image
@@ -394,16 +414,18 @@ class CreateWorkloadSubCommand(SubCommand):
                 internal=self.port,
             ),
         ]
-        checks = [
-            ContainerCheck(
-                delay=30,
-                interval=10,
-                timeout=5,
-                retries=3,
-                tcp=ContainerCheckTCP(port=self.port),
-                teardown=True,
-            ),
-        ]
+        checks = None
+        if self.check:
+            checks = [
+                ContainerCheck(
+                    delay=60,
+                    interval=10,
+                    timeout=5,
+                    retries=6,
+                    tcp=ContainerCheckTCP(port=self.port),
+                    teardown=True,
+                ),
+            ]
         plan = WorkloadPlan(
             name=self.name,
             namespace=self.namespace,
