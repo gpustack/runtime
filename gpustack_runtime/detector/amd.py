@@ -5,7 +5,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
-from . import pyamdgpu, pyamdsmi, pyrocmcore, pyrocmsmi
+from . import pyamdgpu, pyamdsmi, pyhsa, pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
@@ -82,6 +82,8 @@ class AMDDetector(Detector):
         ret: Devices = []
 
         try:
+            hsa_agents = {hsa_agent.uuid: hsa_agent for hsa_agent in pyhsa.get_agents()}
+
             pyamdsmi.amdsmi_init()
 
             sys_runtime_ver_original = pyrocmcore.getROCmVersion()
@@ -113,20 +115,26 @@ class AMDDetector(Detector):
                 dev_driver_ver = dev_gpu_driver_info.get("driver_version")
 
                 dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
-                dev_uuid = dev_gpu_asic_info.get("asic_serial")
-                dev_name = dev_gpu_asic_info.get("market_name")
-                dev_cc = None
-                if hasattr(dev_gpu_asic_info, "target_graphics_version"):
-                    dev_cc = dev_gpu_asic_info.target_graphics_version
+                dev_uuid = f"GPU-{(dev_gpu_asic_info.get('asic_serial')[2:]).lower()}"
+                dev_hsa_agent = hsa_agents.get(dev_uuid)
+
+                if dev_hsa_agent:
+                    dev_name = dev_hsa_agent.name
+                    dev_cc = dev_hsa_agent.compute_capability
                 else:
+                    dev_name = dev_gpu_asic_info.get("market_name")
+                    dev_cc = None
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         pyrocmsmi.rsmi_init()
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
 
+                dev_cores = None
+                if dev_gpudev_info and hasattr(dev_gpudev_info, "cu_active_number"):
+                    dev_cores = dev_gpudev_info.cu_active_number
+                elif dev_hsa_agent:
+                    dev_cores = dev_hsa_agent.compute_units
+
                 dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
-                dev_cores = (
-                    dev_gpudev_info.cu_active_number if dev_gpudev_info else None
-                )
                 dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)
                 dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
                 dev_mem = dev_gpu_vram_usage.get("vram_total")

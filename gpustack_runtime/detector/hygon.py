@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .. import envs
-from . import pyrocmcore, pyrocmsmi
+from . import pyhsa, pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
@@ -82,6 +82,8 @@ class HygonDetector(Detector):
         ret: Devices = []
 
         try:
+            hsa_agents = {hsa_agent.uuid: hsa_agent for hsa_agent in pyhsa.get_agents()}
+
             pyrocmsmi.rsmi_init()
 
             sys_driver_ver = None
@@ -97,11 +99,18 @@ class HygonDetector(Detector):
             for dev_idx in range(devs_count):
                 dev_index = dev_idx
 
-                dev_uuid = pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)
-                dev_name = pyrocmsmi.rsmi_dev_name_get(dev_idx)
-                dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
+                dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
+                dev_hsa_agent = hsa_agents.get(dev_uuid)
 
-                dev_cores = None
+                if dev_hsa_agent:
+                    dev_name = dev_hsa_agent.name
+                    dev_cc = dev_hsa_agent.compute_capability
+                    dev_cores = dev_hsa_agent.compute_units
+                else:
+                    dev_name = pyrocmsmi.rsmi_dev_name_get(dev_idx)
+                    dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
+                    dev_cores = None
+
                 dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
                 dev_mem = byte_to_mebibyte(  # byte to MiB
                     pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
