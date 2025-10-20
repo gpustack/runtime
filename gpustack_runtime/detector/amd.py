@@ -93,8 +93,14 @@ class AMDDetector(Detector):
             for dev_idx, dev in enumerate(devs):
                 dev_index = dev_idx
 
+                dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
+                dev_uuid = f"GPU-{(dev_gpu_asic_info.get('asic_serial')[2:]).lower()}"
+                dev_hsa_agent = hsa_agents.get(dev_uuid)
+
                 dev_card_id = None
-                if hasattr(pyamdsmi, "amdsmi_get_gpu_kfd_info"):
+                if dev_hsa_agent:
+                    dev_card_id = dev_hsa_agent.driver_node_id
+                elif hasattr(pyamdsmi, "amdsmi_get_gpu_kfd_info"):
                     dev_kfd_info = pyamdsmi.amdsmi_get_gpu_kfd_info(dev)
                     dev_card_id = dev_kfd_info.get("node_id")
                 else:
@@ -114,12 +120,10 @@ class AMDDetector(Detector):
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
                 dev_driver_ver = dev_gpu_driver_info.get("driver_version")
 
-                dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
-                dev_uuid = f"GPU-{(dev_gpu_asic_info.get('asic_serial')[2:]).lower()}"
-                dev_hsa_agent = hsa_agents.get(dev_uuid)
-
                 if dev_hsa_agent:
                     dev_name = dev_hsa_agent.name
+                    if not dev_name:
+                        dev_name = dev_gpu_asic_info.get("market_name")
                     dev_cc = dev_hsa_agent.compute_capability
                 else:
                     dev_name = dev_gpu_asic_info.get("market_name")
@@ -129,10 +133,10 @@ class AMDDetector(Detector):
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
 
                 dev_cores = None
-                if dev_gpudev_info and hasattr(dev_gpudev_info, "cu_active_number"):
-                    dev_cores = dev_gpudev_info.cu_active_number
-                elif dev_hsa_agent:
+                if dev_hsa_agent:
                     dev_cores = dev_hsa_agent.compute_units
+                elif dev_gpudev_info and hasattr(dev_gpudev_info, "cu_active_number"):
+                    dev_cores = dev_gpudev_info.cu_active_number
 
                 dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
                 dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)

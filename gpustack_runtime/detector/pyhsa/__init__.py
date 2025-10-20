@@ -429,6 +429,14 @@ def hsa_agent_get_info_uuid(agent):
     return c_uuid.value
 
 
+def hsa_agent_get_info_driver_node_id(agent):
+    c_driver_node_id = c_uint32()
+    hsa_agent_get_info(
+        agent, HSA_AMD_AGENT_INFO_DRIVER_NODE_ID, byref(c_driver_node_id)
+    )
+    return c_driver_node_id.value
+
+
 @dataclass
 class Agent:
     device_type: int
@@ -437,6 +445,7 @@ class Agent:
     name: str
     compute_capability: str
     compute_units: int
+    driver_node_id: int
 
 
 def get_agents() -> list[Agent]:
@@ -455,6 +464,7 @@ def get_agents() -> list[Agent]:
             agent_name = hsa_agent_get_info_product_name(agent)
             agent_compute_capability = hsa_agent_get_info_name(agent)
             agent_compute_units = hsa_agent_get_info_compute_unit_count(agent)
+            agent_driver_node_id = hsa_agent_get_info_driver_node_id(agent)
 
             agents.append(
                 Agent(
@@ -464,6 +474,7 @@ def get_agents() -> list[Agent]:
                     name=agent_name,
                     compute_capability=agent_compute_capability,
                     compute_units=agent_compute_units,
+                    driver_node_id=agent_driver_node_id,
                 )
             )
 

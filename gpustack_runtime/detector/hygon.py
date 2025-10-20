@@ -107,6 +107,8 @@ class HygonDetector(Detector):
 
                 if dev_hsa_agent:
                     dev_name = dev_hsa_agent.name
+                    if not dev_name:
+                        dev_name = pyrocmsmi.rsmi_dev_name_get(dev_idx)
                     dev_cc = dev_hsa_agent.compute_capability
                     dev_cores = dev_hsa_agent.compute_units
                 else:
