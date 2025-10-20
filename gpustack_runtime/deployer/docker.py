@@ -1150,7 +1150,7 @@ class DockerDeployer(Deployer):
                 create_options["environment"] = c_envs
 
             if mirrored_mounts:
-                c_mounts: list[dict[str, Any]] = create_options.get("mounts", [])
+                c_mounts: list[dict[str, Any]] = create_options.get("mounts") or []
                 c_mounts_paths = {m.get("Target") for m in c_mounts}
                 for m in mirrored_mounts:
                     if m.get("Destination") in c_mounts_paths:
@@ -1181,7 +1181,7 @@ class DockerDeployer(Deployer):
 
             if mirrored_devices:
                 c_devices: list[dict[str, Any]] = []
-                for c_device in create_options.get("devices", []):
+                for c_device in create_options.get("devices") or []:
                     sp = c_device.split(":")
                     c_device.append(
                         {
@@ -1202,19 +1202,18 @@ class DockerDeployer(Deployer):
                 ]
 
             if mirrored_device_requests:
-                c_device_requests: list[dict[str, Any]] = create_options.get(
-                    "device_requests",
-                    [],
+                c_device_requests: list[dict[str, Any]] = (
+                    create_options.get("device_requests") or []
                 )
                 c_device_requests_ids = {
                     f"{r.get('Driver')}:{did}"
                     for r in c_device_requests
-                    for did in r.get("DeviceIDs", [])
+                    for did in r.get("DeviceIDs") or []
                 }
                 for r in mirrored_device_requests:
                     dri: str = r.get("Driver")
                     dids: list[str] = []
-                    for did in r.get("DeviceIDs", []):
+                    for did in r.get("DeviceIDs") or []:
                         if f"{dri}:{did}" in c_device_requests_ids:
                             continue
                         dids.append(did)
