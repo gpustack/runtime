@@ -312,9 +312,13 @@ ENV CAMBRICON_VISIBLE_DEVICES="0"
 ## Active all Hygon devices detection,
 ## works with (default) Hygon container runtime and privileged mode.
 ## See https://github.com/Project-HAMi/dcu-dcgm/blob/master/pkg/dcgm/include/rocm_smi.h.
+## Requireds:
+## - Mount /opt/hyhal from the host to support device detecting.
+## - Mount /opt/dtk from the host to support device detecting.
+## - Configure ROCM_PATH environment variable to point to the mounted ROCm path.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /opt/hyhal:/opt/hyhal -v /opt/dtk:/opt/dtk -e ROCM_PATH=/opt/dtk gpustack/runtime:main gpustack-runtime detect --format json
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /opt/hyhal:/opt/hyhal:ro -v /opt/dtk:/opt/dtk -e ROCM_PATH=/opt/dtk gpustack/runtime:main gpustack-runtime detect --format json
 ENV HYGON_VISIBLE_DEVICES="0" \
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/dtk;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"
 
@@ -332,11 +336,11 @@ ENV ILUVATAR_VISIBLE_DEVICES="0"
 ## works with (default) MetaX container runtime and privileged mode.
 ## See https://developer.metax-tech.com/api/client/document/preview/626/k8s/03_component.html#container-runtime.
 ## Requireds:
+## - Mount /opt/mxdriver from the host to support device detecting.
 ## - Mount /opt/maca from the host to support device detecting.
-## - Mount /opt/mxdriver/ from the host to support device detecting.
 ## Options:
 ## - Mount /sys from the host to detect the correct devices' PCI info.
-## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /opt/mxdriver:/opt/mxdriver -v /opt/maca:/opt/maca gpustack/runtime:main gpustack-runtime detect --format json
+## E.g. docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /opt/mxdriver:/opt/mxdriver:ro -v /opt/maca:/opt/maca gpustack/runtime:main gpustack-runtime detect --format json
 ENV LD_LIBRARY_PATH="/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:${LD_LIBRARY_PATH}" \
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/opt/maca;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"
 
