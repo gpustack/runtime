@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import json
+import platform
 from functools import lru_cache
 from typing import Any
 
@@ -185,10 +186,17 @@ def _get_runner_closest_backend_version(
         If no backend version matched, return the default backend version.
 
     """
+    arch = platform.machine().lower()
+    if arch == "x86_64":
+        arch = "amd64"
+    elif arch == "aarch64":
+        arch = "arm64"
+
     runners = list_backend_runners(
         backend=backend,
         service=service,
         service_version=service_version,
+        platform=f"linux/{arch}",
     )
     if not runners:
         return None
