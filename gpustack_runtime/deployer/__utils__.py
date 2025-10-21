@@ -280,7 +280,7 @@ def safe_yaml(obj: Any, **kwargs) -> str:
 
 
 @lru_cache
-def compare_versions(v1: str, v2: str) -> int:
+def compare_versions(v1: str | None, v2: str | None) -> int:
     """
     Compare two version strings.
 
@@ -294,6 +294,11 @@ def compare_versions(v1: str, v2: str) -> int:
         -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2.
 
     """
+    if v1 is None:
+        v1 = ""
+    if v2 is None:
+        v2 = ""
+
     if v1 == v2:
         return 0
 
@@ -316,7 +321,7 @@ def compare_versions(v1: str, v2: str) -> int:
 
 
 @lru_cache
-def _explode(v: str) -> list[int | list[int]]:
+def _explode(v: str | None) -> list[int | list[int]]:
     """
     Explode a string into a list of integers and lists of codepoints.
 
@@ -328,6 +333,9 @@ def _explode(v: str) -> list[int | list[int]]:
         A list of integers and lists of codepoints.
 
     """
+    if v is None:
+        return []
+
     v = v.replace("-", ".")
     v = v.replace("_", ".")
     v = v.replace("+", ".")
