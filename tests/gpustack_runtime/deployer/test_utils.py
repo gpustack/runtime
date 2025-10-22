@@ -25,6 +25,6 @@ def test_compare_versions(name, kwargs, expected):
 )
 def test_correct_runner_image(name, kwargs, expected):
     actual = correct_runner_image(**kwargs)
-    assert actual == expected, (
+    assert list(actual) == expected, (
         f"case {name} expected {expected}, but got {actual} for kwargs: {kwargs}"
     )

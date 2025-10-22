@@ -4,14 +4,20 @@
     {
       "image": "other/image:tag"
     },
-    "other/image:tag"
+    [
+      "other/image:tag",
+      false
+    ]
   ],
   [
     "adjust backend version",
     {
       "image": "gpustack/runner:cuda11.8-vllm0.10.0"
     },
-    "gpustack/runner:cuda12.8-vllm0.10.0"
+    [
+      "gpustack/runner:cuda12.4-vllm0.10.0",
+      true
+    ]
   ],
   [
     "host detection (fill variant)",
@@ -19,7 +25,10 @@
       "image": "gpustack/runner:HostX.Y-vllm0.10.0",
       "backend": "cann"
     },
-    "gpustack/runner:cann8.2-910b-vllm0.10.0"
+    [
+      "gpustack/runner:cann8.2-910b-vllm0.10.0",
+      true
+    ]
   ],
   [
     "host detection (correct version) ",
@@ -28,7 +37,10 @@
       "backend": "cuda",
       "backend_version": "12.5"
     },
-    "gpustack/runner:cuda12.4-vllm0.10.0"
+    [
+      "gpustack/runner:cuda12.4-vllm0.10.0",
+      true
+    ]
   ],
   [
     "invalid in runner",
@@ -37,6 +49,9 @@
       "backend": "cuda",
       "backend_version": "12.4"
     },
-    "gpustack/runner:cuda12.5-vllm0.10.1"
+    [
+      "gpustack/runner:cuda12.5-vllm0.10.1",
+      false
+    ]
   ]
 ]

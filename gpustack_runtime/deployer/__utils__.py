@@ -18,9 +18,11 @@ def correct_runner_image(
     image: str,
     backend: str = "",
     backend_version: str = "",
-) -> str:
+) -> (str, bool):
     """
     Correct the gpustack-runner image by rendering it with the host.
+    Noted, this function only corrects the backend, backend_version and backend_variant fields of the image.
+    If no correction is applied, the original image will be returned.
 
     Generally, the image is in the format of:
     `[prefix/]gpustack-runner:{backend}{backend_version}[-backend_variant]-{service}{service_version}[-suffix]`
@@ -38,7 +40,7 @@ def correct_runner_image(
       select the closest backend_version available in gpustack-runner,
       and fill in the backend_version and backend_variant fields.
       If failed to detect version of the given backend or no available item matched the given backend version,
-      use the default version in gpustack-runner.
+      use the oldest backend version in gpustack-runner.
 
       E.g. `cuda12.5-vllm0.10.0`, if the host is using NVIDIA CUDA 12.4,
       at the same time, if the gpustack-runner support NVIDIA CUDA 12.4 and vLLM 0.10.0,
@@ -61,19 +63,20 @@ def correct_runner_image(
             which is used fot mocking detected backend_version in testing.
 
     Returns:
-        The corrected gpustack-runner image.
+        The corrected gpustack-runner image,
+        and a boolean indicating whether correction was applied.
 
     """
     docker_image = DockerImage.from_string(image)
     if not docker_image:
-        return image
+        return image, False
 
     # If the image's backend is "Host", detect host's backend.
     if docker_image.backend == "Host":
         if not backend:
             backend = _get_backend()
             if not backend:
-                return image
+                return image, False
         if not backend_version:
             backend_version, _ = _get_backend_version_and_variant(backend)
         docker_image.backend = backend
@@ -102,12 +105,16 @@ def correct_runner_image(
         docker_image.service_version,
         docker_image.backend_version,
     )
-    if backend_version_closest is None:
-        return image
+    if not backend_version_closest:
+        return image, False
     # Update backend_version to the closest one.
     docker_image.backend_version = backend_version_closest
 
-    return str(docker_image)
+    corrected_image = str(docker_image)
+    if corrected_image == image:
+        return image, False
+
+    return corrected_image, True
 
 
 @lru_cache
@@ -183,7 +190,7 @@ def _get_runner_closest_backend_version(
     Returns:
         The closest backend version.
         If not found any backend runners, return None.
-        If no backend version matched, return the default backend version.
+        If no backend version matched, return the oldest backend version.
 
     """
     arch = platform.machine().lower()
@@ -201,7 +208,7 @@ def _get_runner_closest_backend_version(
     if not runners:
         return None
 
-    default_backend_version = runners[0].versions[0].version
+    default_backend_version = runners[0].versions[-1].version
 
     if backend_version:
         for v in runners[0].versions:
