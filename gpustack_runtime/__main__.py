@@ -7,6 +7,7 @@ from ._version import commit_id, version
 from .cmds import (
     CreateRunnerWorkloadSubCommand,
     CreateWorkloadSubCommand,
+    DeleteWorkloadsSubCommand,
     DeleteWorkloadSubCommand,
     DetectDevicesSubCommand,
     ExecWorkloadSubCommand,
@@ -38,6 +39,7 @@ def main():
     CreateRunnerWorkloadSubCommand.register(subcommand_parser)
     CreateWorkloadSubCommand.register(subcommand_parser)
     DeleteWorkloadSubCommand.register(subcommand_parser)
+    DeleteWorkloadsSubCommand.register(subcommand_parser)
     GetWorkloadSubCommand.register(subcommand_parser)
     ListWorkloadsSubCommand.register(subcommand_parser)
     LogsWorkloadSubCommand.register(subcommand_parser)

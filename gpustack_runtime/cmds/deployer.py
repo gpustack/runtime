@@ -248,7 +248,10 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
 
         try:
             while True:
-                st = get_workload(name=self.name, namespace=self.namespace)
+                st = get_workload(
+                    name=self.name,
+                    namespace=self.namespace,
+                )
                 if st and st.state not in (
                     WorkloadStatusStateEnum.PENDING,
                     WorkloadStatusStateEnum.INITIALIZING,
@@ -448,7 +451,10 @@ class CreateWorkloadSubCommand(SubCommand):
 
         try:
             while True:
-                st = get_workload(name=self.name, namespace=self.namespace)
+                st = get_workload(
+                    name=self.name,
+                    namespace=self.namespace,
+                )
                 if st and st.state not in (
                     WorkloadStatusStateEnum.PENDING,
                     WorkloadStatusStateEnum.INITIALIZING,
@@ -508,11 +514,66 @@ class DeleteWorkloadSubCommand(SubCommand):
             raise ValueError(msg)
 
     def run(self):
-        st = delete_workload(self.name)
-        if st:
-            print(f"Deleted workload '{self.name}'.")
-        else:
-            print(f"Workload '{self.name}' not found.")
+        try:
+            st = delete_workload(
+                name=self.name,
+                namespace=self.namespace,
+            )
+            if st:
+                print(f"Deleted workload '{self.name}'.")
+            else:
+                print(f"Workload '{self.name}' not found.")
+        except KeyboardInterrupt:
+            pass
+
+
+class DeleteWorkloadsSubCommand(SubCommand):
+    """
+    Command to delete all workload deployments.
+    """
+
+    @staticmethod
+    def register(parser: _SubParsersAction):
+        delete_parser = parser.add_parser(
+            "delete-all",
+            help="delete all workload deployments",
+        )
+
+        delete_parser.add_argument(
+            "--namespace",
+            type=str,
+            help="namespace of the workload",
+        )
+
+        delete_parser.add_argument(
+            "--labels",
+            type=lambda s: dict(item.split("=") for item in s.split(",")),
+            required=False,
+            help="filter workloads by labels (key=value pairs separated by commas)",
+        )
+
+        delete_parser.set_defaults(func=DeleteWorkloadsSubCommand)
+
+    def __init__(self, args: Namespace):
+        self.namespace = args.namespace
+        self.labels = args.labels
+
+    def run(self):
+        try:
+            sts: list[WorkloadStatus] = list_workloads(
+                namespace=self.namespace,
+                labels=self.labels,
+            )
+            for st in sts:
+                delete_workload(
+                    name=st.name,
+                    namespace=st.namespace,
+                )
+                print(f"Deleted workload '{st.name}'.")
+            if not sts:
+                print("No workloads found.")
+        except KeyboardInterrupt:
+            pass
 
 
 class GetWorkloadSubCommand(SubCommand):
@@ -575,7 +636,7 @@ class GetWorkloadSubCommand(SubCommand):
     def run(self):
         try:
             while True:
-                workload = get_workload(self.name)
+                workload = get_workload(self.name, self.namespace)
                 if not workload:
                     print(f"Workload '{self.name}' not found.")
                     return
