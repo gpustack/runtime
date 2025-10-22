@@ -705,7 +705,7 @@ class KubernetesDeployer(Deployer):
                             ),
                         ),
                     ]
-                    if workload.shm_size
+                    if not workload.host_ipc and workload.shm_size
                     else None
                 ),
                 security_context=kubernetes.client.V1PodSecurityContext(
@@ -886,7 +886,7 @@ class KubernetesDeployer(Deployer):
                     container.readiness_probe = self._parameterize_probe(chk)
 
             # Concat shared memory volume if needed.
-            if workload.shm_size:
+            if not workload.host_ipc and workload.shm_size:
                 if not container.volume_mounts:
                     container.volume_mounts = []
                 container.volume_mounts.append(
