@@ -784,13 +784,17 @@ class KubernetesDeployer(Deployer):
                             resources[r_k] = str(r_v)
                             continue
 
-                        bes = []
                         if r_k in r_k_bem:
                             # Set env if resource key is mapped.
                             bes = r_k_bem[r_k]
                         else:
                             # Otherwise, use the default backend env names.
                             bes = self._backend_visible_devices_env_names
+
+                        privileged = (
+                            container.security_context
+                            and container.security_context.privileged
+                        )
 
                         # Configure device access environment variable.
                         if r_v == "all" and bes:
@@ -810,20 +814,19 @@ class KubernetesDeployer(Deployer):
                                 ),
                             )
                         else:
-                            # Set env to the allocated device IDs.
+                            # Set env to the allocated device IDs if no privileged,
+                            # otherwise, set container backend visible devices env to "0",
+                            # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
+                            # and mount corresponding libs if needed.
                             container.env.append(
                                 kubernetes.client.V1EnvVar(
                                     name=re,
-                                    value=str(r_v),
+                                    value=("all" if privileged else r_v),
                                 ),
                             )
 
                         # Configure runtime device access environment variables.
-                        if (
-                            r_v != "all"
-                            and container.security_context
-                            and container.security_context.privileged
-                        ):
+                        if r_v != "all" and privileged:
                             for be in bes:
                                 container.env.append(
                                     kubernetes.client.V1EnvVar(

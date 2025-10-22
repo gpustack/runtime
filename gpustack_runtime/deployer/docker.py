@@ -912,6 +912,8 @@ class DockerDeployer(Deployer):
                                 # Otherwise, use the default backend env names.
                                 bes = self._backend_visible_devices_env_names
 
+                            privileged = create_options.get("privileged", False)
+
                             # Configure device access environment variable.
                             if r_v == "all" and bes:
                                 # Configure privileged if requested all devices.
@@ -921,11 +923,16 @@ class DockerDeployer(Deployer):
                                 # and mount corresponding libs if needed.
                                 create_options["environment"][re] = "0"
                             else:
-                                # Set env to the allocated device IDs.
-                                create_options["environment"][re] = r_v
+                                # Set env to the allocated device IDs if no privileged,
+                                # otherwise, set container backend visible devices env to "0",
+                                # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
+                                # and mount corresponding libs if needed.
+                                create_options["environment"][re] = (
+                                    "0" if privileged else r_v
+                                )
 
                             # Configure runtime device access environment variables.
-                            if r_v != "all" and create_options.get("privileged", True):
+                            if r_v != "all" and privileged:
                                 for be in bes:
                                     create_options["environment"][be] = r_v
 
