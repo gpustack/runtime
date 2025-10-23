@@ -884,7 +884,12 @@ class WorkloadPlan(WorkloadSecurity):
             elif not c.restart_policy:
                 c.restart_policy = ContainerRestartPolicyEnum.ALWAYS
             if envs.GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE:
-                c.image = correct_runner_image(c.image)
+                c.image, ok = correct_runner_image(c.image)
+                if not ok and ":Host" in c.image:
+                    msg = (
+                        f"Runner image correction failed for Container image {c.image}"
+                    )
+                    raise ValueError(msg)
 
     def to_json(self) -> str:
         """
