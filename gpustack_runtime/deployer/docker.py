@@ -1580,7 +1580,11 @@ class DockerDeployer(Deployer):
             (
                 c
                 for c in d_containers
-                if (c.id == token if token else c.labels.get(_LABEL_COMPONENT) == "run")
+                if (
+                    c.id == token
+                    if token
+                    else c.labels.get(_LABEL_COMPONENT_INDEX) == "0"
+                )
             ),
             None,
         )
