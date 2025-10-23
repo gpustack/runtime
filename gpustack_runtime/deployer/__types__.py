@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import atexit
+import contextlib
 import re
 from abc import ABC, abstractmethod
+from concurrent.futures.thread import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -13,7 +17,7 @@ from ..detector import detect_backend
 from .__utils__ import correct_runner_image, safe_json, safe_yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import AsyncGenerator, Generator
 
 _RE_RFC1123_DNS_SUBDOMAIN_NAME = re.compile(
     r"(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*",
@@ -1076,6 +1080,10 @@ class Deployer(ABC):
     Base class for all deployers.
     """
 
+    _pool: ThreadPoolExecutor | None = None
+    """
+    Thread pool for the deployer.
+    """
     _runtime_visible_devices_env_name: str | None = None
     """
     Recorded backend visible devices env name,
@@ -1108,6 +1116,33 @@ class Deployer(ABC):
             if ben:
                 self._backend_visible_devices_env_names = ben
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def close(self):
+        if self._pool:
+            self._pool.shutdown(cancel_futures=True)
+            self._pool = None
+            if hasattr(atexit, "unregister"):
+                atexit.unregister(self.close)
+
+    @property
+    def pool(self):
+        """
+        Create thread pool on first request
+        avoids instantiating unused threadpool for blocking clients.
+        """
+        if self._pool is None:
+            atexit.register(self.close)
+            pool_threads = envs.GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS
+            if pool_threads and pool_threads < 1:
+                pool_threads = None
+            self._pool = ThreadPoolExecutor(max_workers=pool_threads)
+        return self._pool
+
     @staticmethod
     @abstractmethod
     def is_supported() -> bool:
@@ -1120,8 +1155,63 @@ class Deployer(ABC):
         """
         raise NotImplementedError
 
+    @staticmethod
+    def _default_args(func):
+        def wrapper(self, *args, async_mode=None, **kwargs):
+            if async_mode is None:
+                async_mode = envs.GPUSTACK_RUNTIME_DEPLOY_ASYNC
+            return func(
+                self,
+                *args,
+                async_mode=async_mode,
+                **kwargs,
+            )
+
+        return wrapper
+
+    @_default_args
+    def create(
+        self,
+        workload: WorkloadPlan,
+        async_mode: bool | None = None,
+    ):
+        """
+        Deploy the given workload.
+
+        Args:
+            workload:
+                The workload to deploy.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Raises:
+            TypeError:
+                If the workload type is invalid.
+            ValueError:
+                If the workload fails to validate.
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to deploy.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._create,
+                    workload,
+                )
+                future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous workload creation failed."
+                raise OperationError(msg) from e
+        else:
+            return self._create(workload)
+
     @abstractmethod
-    def create(self, workload: WorkloadPlan):
+    def _create(self, workload: WorkloadPlan):
         """
         Deploy the given workload.
 
@@ -1142,8 +1232,52 @@ class Deployer(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
+    @_default_args
     def get(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+        async_mode: bool | None = None,
+    ) -> WorkloadStatus | None:
+        """
+        Get the status of a workload.
+
+        Args:
+            name:
+                The name of the workload.
+            namespace:
+                The namespace of the workload.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            The status if found, None otherwise.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to get.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._get,
+                    name,
+                    namespace,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous workload get failed."
+                raise OperationError(msg) from e
+        else:
+            return self._get(name, namespace)
+
+    @abstractmethod
+    def _get(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1169,8 +1303,52 @@ class Deployer(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
+    @_default_args
     def delete(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+        async_mode: bool | None = None,
+    ) -> WorkloadStatus | None:
+        """
+        Delete a workload.
+
+        Args:
+            name:
+                The name of the workload.
+            namespace:
+                The namespace of the workload.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Return:
+            The status if found, None otherwise.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to delete.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._delete,
+                    name,
+                    namespace,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous workload delete failed."
+                raise OperationError(msg) from e
+        else:
+            return self._delete(name, namespace)
+
+    @abstractmethod
+    def _delete(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1196,8 +1374,52 @@ class Deployer(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
+    @_default_args
     def list(
+        self,
+        namespace: WorkloadNamespace | None = None,
+        labels: dict[str, str] | None = None,
+        async_mode: bool | None = None,
+    ) -> list[WorkloadStatus]:
+        """
+        List all workloads.
+
+        Args:
+            namespace:
+                The namespace of the workloads.
+            labels:
+                Labels to filter the workloads.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            A list of workload statuses.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workloads fail to list.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._list,
+                    namespace,
+                    labels,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous workload list failed."
+                raise OperationError(msg) from e
+        else:
+            return self._list(namespace, labels)
+
+    @abstractmethod
+    def _list(
         self,
         namespace: WorkloadNamespace | None = None,
         labels: dict[str, str] | None = None,
@@ -1223,8 +1445,141 @@ class Deployer(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
+    async def async_logs(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+        token: WorkloadOperationToken | None = None,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+        async_mode: bool | None = None,
+    ) -> AsyncGenerator[bytes | str, None, None] | bytes | str:
+        """
+        Asynchronously get the logs of a workload.
+
+        Args:
+            name:
+                The name of the workload to get logs.
+            namespace:
+                The namespace of the workload.
+            token:
+                The operation token of the workload.
+                If not specified, get logs from the first executable container.
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to get logs.
+
+        """
+
+        def run_sync_gen(f: bool) -> Generator[bytes | str, None, None] | bytes | str:
+            return self.logs(
+                name=name,
+                namespace=namespace,
+                token=token,
+                timestamps=timestamps,
+                tail=tail,
+                since=since,
+                follow=f,
+                async_mode=async_mode,
+            )
+
+        if not follow:
+            return run_sync_gen(False)
+
+        async def async_gen() -> AsyncGenerator[bytes | str, None, None]:
+            loop = asyncio.get_event_loop()
+            sync_gen = await loop.run_in_executor(self.pool, run_sync_gen, True)
+            with contextlib.closing(sync_gen) as gen:
+                for chunk in gen:
+                    yield chunk
+
+        return async_gen()
+
+    @_default_args
     def logs(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+        token: WorkloadOperationToken | None = None,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+        async_mode: bool | None = None,
+    ) -> Generator[bytes | str, None, None] | bytes | str:
+        """
+        Get the logs of a workload.
+
+        Args:
+            name:
+                The name of the workload to get logs.
+            namespace:
+                The namespace of the workload.
+            token:
+                The operation token of the workload.
+                If not specified, get logs from the first executable container.
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to get logs.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._logs,
+                    name,
+                    namespace,
+                    token,
+                    timestamps,
+                    tail,
+                    since,
+                    follow,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous workload logs failed."
+                raise OperationError(msg) from e
+        else:
+            return self._logs(name, namespace, token, timestamps, tail, since, follow)
+
+    @abstractmethod
+    def _logs(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1266,8 +1621,71 @@ class Deployer(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
+    @_default_args
     def exec(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+        token: WorkloadOperationToken | None = None,
+        detach: bool = True,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+        async_mode: bool | None = None,
+    ) -> WorkloadExecStream | bytes | str:
+        """
+        Execute a command in a workload.
+
+        Args:
+            name:
+                The name of the workload to execute the command in.
+            namespace:
+                The namespace of the workload.
+            token:
+                The operation token of the workload.
+                If not specified, execute in the first executable container.
+            detach:
+                Whether to detach from the command.
+            command:
+                The command to execute.
+                If not specified, use /bin/sh and implicitly attach.
+            args:
+                The arguments to pass to the command.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            If detach is False, return a WorkloadExecStream.
+            otherwise, return the output of the command as a byte string or string.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to execute the command.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._exec,
+                    name,
+                    namespace,
+                    token,
+                    detach,
+                    command,
+                    args,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous workload exec failed."
+                raise OperationError(msg) from e
+        else:
+            return self._exec(name, namespace, token, detach, command, args)
+
+    @abstractmethod
+    def _exec(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,

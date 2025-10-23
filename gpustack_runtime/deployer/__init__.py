@@ -43,7 +43,7 @@ from .kuberentes import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import AsyncGenerator, Generator
 
     from .__types__ import Deployer, WorkloadName
 
@@ -238,6 +238,62 @@ def logs_workload(
     raise UnsupportedError(msg)
 
 
+async def async_logs_workload(
+    name: WorkloadName,
+    namespace: WorkloadNamespace | None = None,
+    token: WorkloadOperationToken | None = None,
+    timestamps: bool = False,
+    tail: int | None = None,
+    since: int | None = None,
+    follow: bool = False,
+) -> AsyncGenerator[bytes | str, None, None] | bytes | str:
+    """
+    Asynchronously get the logs of a workload.
+
+    Args:
+        name:
+            The name of the workload to get logs.
+        namespace:
+            The namespace of the workload.
+        token:
+            The token for operation.
+        timestamps:
+            Whether to include timestamps in the logs.
+        tail:
+            The number of lines from the end of the logs to show.
+        since:
+            Show logs since a given time (in seconds).
+        follow:
+            Whether to follow the logs.
+
+    Returns:
+        The logs as a byte string, a string or a generator yielding byte strings or strings if follow is True.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to get the logs of the workload.
+
+    """
+    for dep in deployers:
+        if not dep.is_supported():
+            continue
+
+        return await dep.async_logs(
+            name=name,
+            namespace=namespace,
+            token=token,
+            timestamps=timestamps,
+            tail=tail,
+            since=since,
+            follow=follow,
+        )
+
+    msg = "No deployer supports, please provide container runtime"
+    raise UnsupportedError(msg)
+
+
 def exec_workload(
     name: WorkloadName,
     namespace: WorkloadNamespace | None = None,
@@ -323,6 +379,7 @@ __all__ = [
     "WorkloadSecuritySysctl",
     "WorkloadStatus",
     "WorkloadStatusStateEnum",
+    "async_logs_workload",
     "create_workload",
     "delete_workload",
     "exec_workload",

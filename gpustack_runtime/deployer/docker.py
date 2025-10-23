@@ -1263,7 +1263,7 @@ class DockerDeployer(Deployer):
         self._mutate_create_options = mutate_create_options
 
     @_supported
-    def create(self, workload: WorkloadPlan):
+    def _create(self, workload: WorkloadPlan):
         """
         Deploy a Docker workload.
 
@@ -1332,7 +1332,7 @@ class DockerDeployer(Deployer):
             raise OperationError(msg) from e
 
     @_supported
-    def get(
+    def _get(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,  # noqa: ARG002
@@ -1383,7 +1383,7 @@ class DockerDeployer(Deployer):
         )
 
     @_supported
-    def delete(
+    def _delete(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1458,7 +1458,7 @@ class DockerDeployer(Deployer):
         return workload
 
     @_supported
-    def list(
+    def _list(
         self,
         namespace: WorkloadNamespace | None = None,  # noqa: ARG002
         labels: dict[str, str] | None = None,
@@ -1530,7 +1530,7 @@ class DockerDeployer(Deployer):
         ]
 
     @_supported
-    def logs(
+    def _logs(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1613,7 +1613,7 @@ class DockerDeployer(Deployer):
             return output
 
     @_supported
-    def exec(
+    def _exec(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,

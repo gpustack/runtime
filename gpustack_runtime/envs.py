@@ -34,12 +34,14 @@ if TYPE_CHECKING:
     """
     Deployer to use (e.g., Auto, Docker, Kubernetes).
     """
-    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME: str | None = None
+    GPUSTACK_RUNTIME_DEPLOY_ASYNC: bool = True
     """
-    The name of the deployer.
-    Works with `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT`.
-    In some senses, the deployer needs to know its own name to execute mirrored deployment,
-    e.g., when the deployer is a Kubernetes Pod, it need to know its own Pod name.
+    Enable asynchronous deployment.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS: int | None = None
+    """
+    The number of threads in the threadpool.
+    If not set, it should be min(32, system cpu cores + 4)
     """
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT: bool = False
     """
@@ -53,6 +55,13 @@ if TYPE_CHECKING:
         - Customized capabilities.
     To be noted, without `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME` configured,
     if the deployer failed to retrieve its own settings, it will skip mirrored deployment.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME: str | None = None
+    """
+    The name of the deployer.
+    Works with `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT`.
+    In some senses, the deployer needs to know its own name to execute mirrored deployment,
+    e.g., when the deployer is a Kubernetes Pod, it need to know its own Pod name.
     """
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS: set[str] | None = (
         None
@@ -176,11 +185,17 @@ variables: dict[str, Callable[[], Any]] = {
         "GPUSTACK_RUNTIME_DEPLOY",
         "Auto",
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME": lambda: getenv(
-        "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME",
+    "GPUSTACK_RUNTIME_DEPLOY_ASYNC": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_ASYNC", "1"),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS": lambda: to_int(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS"),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT", "0"),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME": lambda: getenv(
+        "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_ENVIRONMENTS": lambda: to_set(
         getenv(
@@ -325,18 +340,61 @@ def mkdir_path(path: Path | str | None) -> Path | None:
     return path
 
 
-def to_bool(value: str) -> bool:
+def to_bool(value: str | None) -> bool:
     """
-    Check if a value is considered true.
+    Convert a string to a boolean.
 
     Args:
-        value (str): The value to check.
+        value:
+            The value to check.
 
     Returns:
         bool: True if the value is considered true, False otherwise.
 
     """
-    return value.lower() in ("1", "true", "yes", "on")
+    if value:
+        return value.lower() in ("1", "true", "yes", "on")
+    return False
+
+
+def to_int(value: str | None) -> int | None:
+    """
+    Convert a string to an integer.
+
+    Args:
+        value:
+            The string to convert.
+
+    Returns:
+        The converted integer, or None if the input is None.
+
+    """
+    if value:
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def to_float(value: str | None) -> float | None:
+    """
+    Convert a string to a float.
+
+    Args:
+        value:
+            The string to convert.
+
+    Returns:
+        The converted float, or None if the input is None.
+
+    """
+    if value:
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            pass
+    return None
 
 
 def to_dict(

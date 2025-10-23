@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import contextlib
+import asyncio
 import json
 import os
 import sys
@@ -21,12 +21,12 @@ from ..deployer import (
     WorkloadPlan,
     WorkloadStatus,
     WorkloadStatusStateEnum,
+    async_logs_workload,
     create_workload,
     delete_workload,
     exec_workload,
     get_workload,
     list_workloads,
-    logs_workload,
 )
 from ..detector import supported_backends
 from .__types__ import SubCommand
@@ -260,15 +260,18 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
                 time.sleep(1)
 
             print("\033[2J\033[H", end="")
-            logs_stream = logs_workload(
-                name=self.name,
-                namespace=self.namespace,
-                tail=-1,
-                follow=True,
-            )
-            with contextlib.closing(logs_stream) as logs:
-                for line in logs:
+
+            async def stream_logs():
+                logs_result = await async_logs_workload(
+                    name=self.name,
+                    namespace=self.namespace,
+                    tail=-1,
+                    follow=True,
+                )
+                async for line in logs_result:
                     print(line.decode("utf-8").rstrip())
+
+            asyncio.run(stream_logs())
         except KeyboardInterrupt:
             print("\033[2J\033[H", end="")
 
@@ -463,15 +466,18 @@ class CreateWorkloadSubCommand(SubCommand):
                 time.sleep(1)
 
             print("\033[2J\033[H", end="")
-            logs_stream = logs_workload(
-                name=self.name,
-                namespace=self.namespace,
-                tail=-1,
-                follow=True,
-            )
-            with contextlib.closing(logs_stream) as logs:
-                for line in logs:
+
+            async def stream_logs():
+                logs_result = await async_logs_workload(
+                    name=self.name,
+                    namespace=self.namespace,
+                    tail=-1,
+                    follow=True,
+                )
+                async for line in logs_result:
                     print(line.decode("utf-8").rstrip())
+
+            asyncio.run(stream_logs())
         except KeyboardInterrupt:
             print("\033[2J\033[H", end="")
 
@@ -786,23 +792,23 @@ class LogsWorkloadSubCommand(SubCommand):
     def run(self):
         try:
             print("\033[2J\033[H", end="")
-            logs_result = logs_workload(
-                name=self.name,
-                namespace=self.namespace,
-                tail=self.tail,
-                follow=self.follow,
-            )
-            if self.follow:
-                with contextlib.closing(logs_result) as logs:
-                    for line in logs:
-                        if isinstance(line, str):
-                            print(line.rstrip())
-                        else:
-                            print(line.decode("utf-8").rstrip())
-            elif isinstance(logs_result, str):
-                print(logs_result.rstrip())
-            else:
-                print(logs_result.decode("utf-8").rstrip())
+
+            async def stream_logs():
+                logs_result = await async_logs_workload(
+                    name=self.name,
+                    namespace=self.namespace,
+                    tail=self.tail,
+                    follow=self.follow,
+                )
+                if self.follow:
+                    async for line in logs_result:
+                        print(line.decode("utf-8").rstrip())
+                elif isinstance(logs_result, str):
+                    print(logs_result.rstrip())
+                else:
+                    print(logs_result.decode("utf-8").rstrip())
+
+            asyncio.run(stream_logs())
         except KeyboardInterrupt:
             print("\033[2J\033[H", end="")
 

@@ -1205,7 +1205,7 @@ class KubernetesDeployer(Deployer):
         self._mutate_create_pod = mutate_create_pod
 
     @_supported
-    def create(self, workload: WorkloadPlan):
+    def _create(self, workload: WorkloadPlan):
         """
         Deploy a Kubernetes workload.
 
@@ -1256,7 +1256,7 @@ class KubernetesDeployer(Deployer):
         )
 
     @_supported
-    def get(
+    def _get(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1320,7 +1320,7 @@ class KubernetesDeployer(Deployer):
         )
 
     @_supported
-    def delete(
+    def _delete(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1389,7 +1389,7 @@ class KubernetesDeployer(Deployer):
         return workload
 
     @_supported
-    def list(
+    def _list(
         self,
         namespace: WorkloadNamespace | None = None,
         labels: dict[str, str] | None = None,
@@ -1456,7 +1456,7 @@ class KubernetesDeployer(Deployer):
         ]
 
     @_supported
-    def logs(
+    def _logs(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
@@ -1541,7 +1541,7 @@ class KubernetesDeployer(Deployer):
             return output
 
     @_supported
-    def exec(
+    def _exec(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
