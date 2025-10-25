@@ -254,11 +254,11 @@ variables: dict[str, Callable[[], Any]] = {
     # Deployer
     "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE": lambda: getenv(
         "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE",
-        "rancher/mirrored-pause:3.10",
+        "gpustack/runtime:pause",
     ),
     "GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE": lambda: getenv(
         "GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE",
-        "willfarrell/autoheal:latest",
+        "gpustack/runtime:health",
     ),
     "GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR": lambda: mkdir_path(
         getenv(
