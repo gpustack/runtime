@@ -1010,20 +1010,6 @@ class DockerDeployer(Deployer):
             case "paused":
                 container.unpause()
 
-        if not _has_restart_policy(container):
-            exit_status = container.wait()["StatusCode"]
-            if exit_status != 0:
-                config = container.attrs.get("Config", {})
-                command = config.get("Cmd", [])
-                image = config.get("Image", "")
-                raise docker.errors.ContainerError(
-                    container,
-                    exit_status,
-                    command,
-                    image,
-                    "",
-                )
-
     def __init__(self):
         super().__init__()
         self._client = self._get_client()

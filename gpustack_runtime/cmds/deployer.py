@@ -18,6 +18,7 @@ from ..deployer import (
     ContainerMount,
     ContainerPort,
     ContainerResources,
+    ContainerRestartPolicyEnum,
     WorkloadPlan,
     WorkloadStatus,
     WorkloadStatusStateEnum,
@@ -232,6 +233,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             host_network=self.host_network,
             containers=[
                 Container(
+                    restart_policy=ContainerRestartPolicyEnum.NEVER,
                     image=f"gpustack/runner:{self.backend if self.backend else 'Host'}X.Y-{self.service}{self.version}",
                     name="default",
                     envs=env,
@@ -438,6 +440,7 @@ class CreateWorkloadSubCommand(SubCommand):
             host_network=self.host_network,
             containers=[
                 Container(
+                    restart_policy=ContainerRestartPolicyEnum.NEVER,
                     image=self.image,
                     name="default",
                     envs=env,
