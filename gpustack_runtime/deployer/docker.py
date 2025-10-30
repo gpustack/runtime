@@ -231,6 +231,12 @@ class DockerWorkloadStatus(WorkloadStatus):
         self.state = self.parse_state(d_containers)
 
 
+_NAME = "docker"
+"""
+Name of the Docker deployer.
+"""
+
+
 class DockerDeployer(Deployer):
     """
     Deployer implementation for Docker containers.
@@ -256,7 +262,7 @@ class DockerDeployer(Deployer):
 
         """
         supported = False
-        if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", "docker"):
+        if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", _NAME):
             return supported
 
         client = DockerDeployer._get_client()
@@ -1011,7 +1017,7 @@ class DockerDeployer(Deployer):
                 container.unpause()
 
     def __init__(self):
-        super().__init__()
+        super().__init__(_NAME)
         self._client = self._get_client()
 
     def _prepare_create(self):

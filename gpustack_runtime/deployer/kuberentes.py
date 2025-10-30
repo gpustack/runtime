@@ -233,6 +233,12 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         self.state = self.parse_state(k_pod)
 
 
+_NAME = "kubernetes"
+"""
+Name of the Kubernetes deployer.
+"""
+
+
 class KubernetesDeployer(Deployer):
     """
     Deployer implementation for Kubernetes.
@@ -264,7 +270,7 @@ class KubernetesDeployer(Deployer):
 
         """
         supported = False
-        if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", "kubernetes"):
+        if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", _NAME):
             return supported
 
         client = KubernetesDeployer._get_client()
@@ -961,7 +967,7 @@ class KubernetesDeployer(Deployer):
         return pod
 
     def __init__(self):
-        super().__init__()
+        super().__init__(_NAME)
         self._client = self._get_client()
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
 

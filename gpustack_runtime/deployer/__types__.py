@@ -1080,6 +1080,10 @@ class Deployer(ABC):
     Base class for all deployers.
     """
 
+    _name: str = "unknown"
+    """
+    Name of the deployer.
+    """
     _pool: ThreadPoolExecutor | None = None
     """
     Thread pool for the deployer.
@@ -1097,7 +1101,8 @@ class Deployer(ABC):
     If failed to detect backend, it will be ["UNKNOWN_VISIBLE_DEVICES"].
     """
 
-    def __init__(self):
+    def __init__(self, name: str):
+        self._name = name
         self._runtime_visible_devices_env_name = (
             "UNKNOWN_RUNTIME_BACKEND_VISIBLE_DEVICES"
         )
@@ -1121,6 +1126,10 @@ class Deployer(ABC):
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def close(self):
         if self._pool:

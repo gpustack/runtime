@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import sys
 from argparse import ArgumentParser
+
+from gpustack_runtime import deployer, detector
 
 from ._version import commit_id, version
 from .cmds import (
@@ -31,6 +34,11 @@ def main():
         version=f"%(prog)s {version}({commit_id})",
         help="show the version and exit",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="display available behaviors",
+    )
 
     # Register
     subcommand_parser = parser.add_subparsers(
@@ -48,6 +56,9 @@ def main():
 
     # Parse
     args = parser.parse_args()
+    if getattr(args, "profile", False):
+        profile()
+        sys.exit(0)
     if not hasattr(args, "func"):
         parser.print_help()
         sys.exit(1)
@@ -55,6 +66,23 @@ def main():
     # Run
     service = args.func(args)
     service.run()
+
+
+def profile():
+    print("\033[2J\033[H", end="")
+
+    available_deployers: list[str] = []
+    available_detectors: list[str] = []
+    with contextlib.suppress(Exception):
+        for dep in deployer.deployers:
+            if dep.is_supported():
+                available_deployers.append(dep.name)
+        for det in detector.detectors:
+            if det.is_supported():
+                available_detectors.append(str(det.manufacturer))
+
+    print(f"Available Deployers: [{', '.join(available_deployers)}]")
+    print(f"Available Detectors: [{', '.join(available_detectors)}]")
 
 
 if __name__ == "__main__":
