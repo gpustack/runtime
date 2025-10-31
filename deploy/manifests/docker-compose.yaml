@@ -1,0 +1,45 @@
+services:
+  default:
+
+  # Provide GPU resource request for gpustack-runtime if not using default runtime.
+  #
+  #  deploy:
+  #   resources:
+  #     reservations:
+  #       devices:
+  #         - driver: nvidia
+  #           capabilities: [gpu]
+
+    restart: always
+    image: gpustack/runtime:main
+    pull_policy: always
+    tty: true
+    command:
+      - gpustack-runtime
+      - --profile
+      - --watch=60
+
+  # Provide privileged is used for detect devices.
+  #
+    privileged: true
+
+  # Specify name for enabling mirrored deployment,
+  # must configure the same name in environment GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME.
+  #
+    container_name: gpustack-runtime
+    environment:
+      - GPUSTACK_RUNTIME_DEPLOY=Docker
+      - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT=true
+      - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=gpustack-runtime
+
+  # Mount necessary volume for gpustack-runtime to work properly.
+  # - Mount docker socket for docker runtime.
+  # - Mount gpustack data volume for persistent data storage.
+  # - Mount other source if needed, please refer to pack/Dockerfile.
+  #
+    volumes:
+      - gpustack-runtime-data:/var/lib/gpustack
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   - /opt/...:/opt/...:ro
+volumes:
+  gpustack-runtime-data: { }
