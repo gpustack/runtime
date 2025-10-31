@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import time
 from argparse import ArgumentParser
 
 from gpustack_runtime import deployer, detector
@@ -39,6 +40,13 @@ def main():
         action="store_true",
         help="display available behaviors",
     )
+    parser.add_argument(
+        "--watch",
+        "-w",
+        type=int,
+        help="continuously display available behaviors (used with --profile) in intervals of N seconds",
+        default=0,
+    )
 
     # Register
     subcommand_parser = parser.add_subparsers(
@@ -57,7 +65,7 @@ def main():
     # Parse
     args = parser.parse_args()
     if getattr(args, "profile", False):
-        profile()
+        profile(getattr(args, "watch", 0))
         sys.exit(0)
     if not hasattr(args, "func"):
         parser.print_help()
@@ -68,22 +76,26 @@ def main():
     service.run()
 
 
-def profile():
-    if sys.stdout.isatty():
+def profile(watch: int):
+    try:
+        while True:
+            available_deployers: list[str] = []
+            available_detectors: list[str] = []
+            with contextlib.suppress(Exception):
+                for dep in deployer.deployers:
+                    if dep.is_supported():
+                        available_deployers.append(dep.name)
+                for det in detector.detectors:
+                    if det.is_supported():
+                        available_detectors.append(str(det.manufacturer))
+            print("\033[2J\033[H", end="")
+            print(f"Available Deployers: [{', '.join(available_deployers)}]")
+            print(f"Available Detectors: [{', '.join(available_detectors)}]")
+            if not watch:
+                break
+            time.sleep(watch)
+    except KeyboardInterrupt:
         print("\033[2J\033[H", end="")
-
-    available_deployers: list[str] = []
-    available_detectors: list[str] = []
-    with contextlib.suppress(Exception):
-        for dep in deployer.deployers:
-            if dep.is_supported():
-                available_deployers.append(dep.name)
-        for det in detector.detectors:
-            if det.is_supported():
-                available_detectors.append(str(det.manufacturer))
-
-    print(f"Available Deployers: [{', '.join(available_deployers)}]")
-    print(f"Available Detectors: [{', '.join(available_detectors)}]")
 
 
 if __name__ == "__main__":
