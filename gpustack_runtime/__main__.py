@@ -69,7 +69,8 @@ def main():
 
 
 def profile():
-    print("\033[2J\033[H", end="")
+    if sys.stdout.isatty():
+        print("\033[2J\033[H", end="")
 
     available_deployers: list[str] = []
     available_detectors: list[str] = []
