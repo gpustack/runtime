@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import socket
 import sys
 from dataclasses import dataclass, field
@@ -287,10 +289,15 @@ class DockerDeployer(Deployer):
         client = None
 
         try:
-            if Path("/var/run/docker.sock").exists():
-                client = docker.DockerClient(base_url="unix://var/run/docker.sock")
-            else:
-                client = docker.from_env()
+            with (
+                Path(os.devnull).open("w") as dev_null,
+                contextlib.redirect_stdout(dev_null),
+                contextlib.redirect_stderr(dev_null),
+            ):
+                if Path("/var/run/docker.sock").exists():
+                    client = docker.DockerClient(base_url="unix://var/run/docker.sock")
+                else:
+                    client = docker.from_env()
         except docker.errors.DockerException:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Failed to get Docker client")

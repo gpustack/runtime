@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 try:
-    with contextlib.redirect_stdout(Path(os.devnull).open("w")):
+    with Path(os.devnull).open("w") as dev_null, contextlib.redirect_stdout(dev_null):
         from amdsmi import *
 except (ImportError, KeyError, OSError):
 

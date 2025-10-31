@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import logging
+import os
 import socket
 from dataclasses import dataclass, field
 from enum import Enum
@@ -300,9 +301,14 @@ class KubernetesDeployer(Deployer):
         client = None
 
         try:
-            kubernetes.config.load_kube_config()
-            client = kubernetes.client.ApiClient()
-            client.user_agent = "gpustack/runtime"
+            with (
+                Path(os.devnull).open("w") as dev_null,
+                contextlib.redirect_stdout(dev_null),
+                contextlib.redirect_stderr(dev_null),
+            ):
+                kubernetes.config.load_config()
+                client = kubernetes.client.ApiClient()
+                client.user_agent = "gpustack/runtime"
         except kubernetes.config.config_exception.ConfigException:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Failed to get Kubernetes client")
