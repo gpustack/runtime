@@ -130,6 +130,10 @@ if TYPE_CHECKING:
     """
     Directory for storing ephemeral files for Docker.
     """
+    GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK: bool = True
+    """
+    Mute the original healthcheck of the container.
+    """
     ## Kubernetes
     GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME: str | None = None
     """
@@ -265,6 +269,9 @@ variables: dict[str, Callable[[], Any]] = {
             "GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR",
             expand_path("~/.cache/gpustack-runtime"),
         ),
+    ),
+    "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK", "1"),
     ),
     "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME": lambda: getenv(
         "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME",

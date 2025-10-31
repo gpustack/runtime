@@ -958,6 +958,13 @@ class DockerDeployer(Deployer):
                 ephemeral_volume_name_mapping,
             )
 
+            if envs.GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK:
+                create_options["healthcheck"] = {
+                    "test": [
+                        "NONE",
+                    ],
+                }
+
             # Parameterize health checks.
             # Since Docker only support one complete check,
             # we always pick the first check as target.

@@ -110,8 +110,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         deploy_parser.add_argument(
             "--port",
             type=int,
-            help="port to expose (default: 80)",
-            default=80,
+            help="port to expose",
         )
 
         deploy_parser.add_argument(
@@ -210,13 +209,15 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         )
         if self.extra_args:
             execution.command = self.extra_args
-        ports = [
-            ContainerPort(
-                internal=self.port,
-            ),
-        ]
+        ports = None
+        if self.port:
+            ports = [
+                ContainerPort(
+                    internal=self.port,
+                ),
+            ]
         checks = None
-        if self.check:
+        if self.check and self.port:
             checks = [
                 ContainerCheck(
                     delay=60,
@@ -318,8 +319,7 @@ class CreateWorkloadSubCommand(SubCommand):
         deploy_parser.add_argument(
             "--port",
             type=int,
-            help="port to expose (default: 80)",
-            default=80,
+            help="port to expose",
         )
 
         deploy_parser.add_argument(
@@ -417,13 +417,15 @@ class CreateWorkloadSubCommand(SubCommand):
         )
         if self.extra_args:
             execution.command = self.extra_args
-        ports = [
-            ContainerPort(
-                internal=self.port,
-            ),
-        ]
+        ports = None
+        if self.port:
+            ports = [
+                ContainerPort(
+                    internal=self.port,
+                ),
+            ]
         checks = None
-        if self.check:
+        if self.check and self.port:
             checks = [
                 ContainerCheck(
                     delay=60,
