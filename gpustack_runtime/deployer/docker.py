@@ -273,7 +273,7 @@ class DockerDeployer(Deployer):
                 supported = client.ping()
             except docker.errors.APIError:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.exception("Docker ping failed")
+                    logger.exception("Failed to connect to Docker API server")
 
         return supported
 

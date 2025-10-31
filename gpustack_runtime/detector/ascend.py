@@ -10,6 +10,7 @@ from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import PCIDevice, get_brief_version, get_pci_devices, get_utilization
 
 logger = logging.getLogger(__name__)
+slogger = logger.getChild("internal")
 
 
 class AscendDetector(Detector):
@@ -261,8 +262,8 @@ def _get_device_roce_network_info(
             pydcmi.DCMI_PORT_TYPE_ROCE_PORT,
         )
     except pydcmi.DCMIError:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.exception("Failed to get device roce network info")
+        if slogger.isEnabledFor(logging.DEBUG):
+            slogger.exception("Failed to get device roce network info")
 
     return ip, mask, gateway
 
@@ -288,8 +289,8 @@ def _get_device_virtual_info(
             c_vdev_query_stru,
         )
     except pydcmi.DCMIError:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.exception("Failed to get device virtual info")
+        if slogger.isEnabledFor(logging.DEBUG):
+            slogger.exception("Failed to get device virtual info")
     else:
         return c_vdev_query_stru
 

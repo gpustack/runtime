@@ -27,11 +27,12 @@ def _parse_module_levels(level_str: str) -> dict[str, int]:
     Parse the GPUSTACK_RUNTIME_LOG_LEVEL environment variable to determine module-specific log levels.
 
     Examples:
-        - "DEBUG"                                         # All modules at DEBUG
-        - "runtime.module_a:DEBUG"                        # Only module_a module at DEBUG, other modules at INFO
-        - "module_a:DEBUG"                                # Same as above
-        - "runtime.module_a:DEBUG;runtime.module_b:INFO"  # Multiple modules
-        - "ERROR;runtime.module_a:DEBUG"                  # All modules at ERROR, only module_a module at DEBUG
+        - "DEBUG"                                                           # All modules at DEBUG
+        - "gpustack_runtime.module_a:DEBUG"                                 # Only module_a module at DEBUG, other modules at INFO
+        - "module_a:DEBUG"                                                  # Same as above
+        - "module_a=DEBUG"                                                  # Using '=' instead of ':'
+        - "gpustack_runtime.module_a:DEBUG;gpustack_runtime.module_b:INFO"  # Multiple modules
+        - "ERROR;runtime.module_a:DEBUG"                                    # All modules at ERROR, only module_a module at DEBUG
 
     """
     module_levels: dict[str, int] = {}  # {"module_name": log_level}
@@ -48,14 +49,16 @@ def _parse_module_levels(level_str: str) -> dict[str, int]:
         module = ""
         level = ""
         if ":" in p:
-            module, level = p.split(":")
+            module, level = p.split(":", 1)
+        elif "=" in p:
+            module, level = p.split("=", 1)
 
         level = level.upper()
         if level not in levels:
             continue
 
         module = module.strip()
-        module = module.replace("runtime.", "")
+        module = module.replace(f"{__package__}.", "")
         module = module.replace("/", ".").strip(".")
 
         module_levels[module] = getattr(logging, level)

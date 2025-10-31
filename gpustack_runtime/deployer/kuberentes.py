@@ -280,10 +280,10 @@ class KubernetesDeployer(Deployer):
                 version_api = kubernetes.client.VersionApi(client)
                 version_info = version_api.get_code()
                 supported = version_info is not None
-            except kubernetes.client.exceptions.ApiException:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.exception("Failed to get Kubernetes version")
-            except urllib3.exceptions.MaxRetryError:
+            except (
+                urllib3.exceptions.MaxRetryError,
+                kubernetes.client.exceptions.ApiException,
+            ):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.exception("Failed to connect to Kubernetes API server")
 
