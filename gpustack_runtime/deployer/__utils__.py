@@ -72,6 +72,8 @@ def correct_runner_image(
         return image, False
 
     # If the image's backend is "Host", detect host's backend.
+    # It's worth noting that we only take the first detected backend here,
+    # so, if there are multiple backends in host, the other backends will be ignored.
     if docker_image.backend == "Host":
         if not backend:
             backend = _get_backend()
@@ -120,7 +122,7 @@ def correct_runner_image(
 @lru_cache
 def _get_backend() -> str:
     """
-    Get the detected backend name.
+    Get the first detected backend name.
 
     Returns:
         The name of the backend.

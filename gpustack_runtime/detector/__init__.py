@@ -31,19 +31,18 @@ detectors: list[Detector] = [
 ]
 
 
-def detect_backend(fast: bool = True) -> str | list[str] | None:
+def detect_backend(fast: bool = True) -> str | list[str]:
     """
-    Detect the backend of the available devices.
+    Detect all supported backend.
 
     Args:
-        fast (bool):
+        fast:
             If True, return the first detected backend.
             Otherwise, return a list of all detected backends.
 
     Returns:
         A string of the detected backend if `fast` is True and a backend is found.
         A list of detected backends if `fast` is False.
-        None if no backend is found.
 
     """
     backends: list[str] = []
@@ -55,12 +54,9 @@ def detect_backend(fast: bool = True) -> str | list[str] | None:
         if fast:
             return det.backend
 
-        if backend := det.backend:
-            backends.append(backend)
+        backends.append(det.backend)
 
-    if backends:
-        return backends
-    return None
+    return backends
 
 
 def detect_devices(fast: bool = True) -> Devices:
@@ -68,7 +64,7 @@ def detect_devices(fast: bool = True) -> Devices:
     Detect all available devices.
 
     Args:
-        fast (bool):
+        fast:
             If True, return devices from the first supported detector.
             Otherwise, return devices from all supported detectors.
 

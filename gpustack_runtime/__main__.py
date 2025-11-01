@@ -87,7 +87,7 @@ def profile(watch: int):
                         available_deployers.append(dep.name)
                 for det in detector.detectors:
                     if det.is_supported():
-                        available_detectors.append(str(det.manufacturer))
+                        available_detectors.append(det.name)
             print("\033[2J\033[H", end="")
             print(f"Available Deployers: [{', '.join(available_deployers)}]")
             print(f"Available Detectors: [{', '.join(available_detectors)}]")

@@ -252,6 +252,13 @@ class Detector(ABC):
         """
         return manufacturer_to_backend(self.manufacturer)
 
+    @property
+    def name(self) -> str:
+        """
+        The name of the detector, e.g., 'nvidia', 'amd'.
+        """
+        return str(self.manufacturer)
+
     @abstractmethod
     def detect(self) -> Devices | None:
         """

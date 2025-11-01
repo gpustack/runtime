@@ -3,11 +3,12 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import operator
 import os
 import socket
 import sys
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, reduce
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -887,8 +888,9 @@ class DockerDeployer(Deployer):
 
             # Parameterize resources.
             if c.resources:
-                r_k_rem = workload.resource_key_runtime_env_mapping or {}
-                r_k_bem = workload.resource_key_backend_env_mapping or {}
+                r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
+                r_k_backend_env = workload.resource_key_backend_env_mapping or {}
+                vd_env, vd_values = self.visible_devices_env_values()
                 for r_k, r_v in c.resources.items():
                     match r_k:
                         case "cpu":
@@ -907,46 +909,59 @@ class DockerDeployer(Deployer):
                                 create_options["mem_reservation"] = v
                                 create_options["memswap_limit"] = v
                         case _:
-                            if r_k in r_k_rem:
+                            if r_k in r_k_runtime_env:
                                 # Set env if resource key is mapped.
-                                re = r_k_rem[r_k]
+                                runtime_env = [r_k_runtime_env[r_k]]
                             elif (
                                 r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY
                             ):
                                 # Set env if auto-mapping key is matched.
-                                re = self._runtime_visible_devices_env_name
+                                runtime_env = list(vd_env.keys())
                             else:
                                 continue
 
-                            if r_k in r_k_bem:
+                            if r_k in r_k_backend_env:
                                 # Set env if resource key is mapped.
-                                bes = r_k_bem[r_k]
+                                backend_env = r_k_backend_env[r_k]
                             else:
                                 # Otherwise, use the default backend env names.
-                                bes = self._backend_visible_devices_env_names
+                                backend_env = reduce(
+                                    operator.add,
+                                    list(vd_env.values()),
+                                )
 
                             privileged = create_options.get("privileged", False)
 
                             # Configure device access environment variable.
-                            if r_v == "all" and bes:
+                            if r_v == "all" and backend_env:
                                 # Configure privileged if requested all devices.
                                 create_options["privileged"] = True
-                                # Then, set container backend visible devices env to "0",
+                                # Then, set container backend visible devices env to all devices,
                                 # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
                                 # and mount corresponding libs if needed.
-                                create_options["environment"][re] = "0"
+                                for re in runtime_env:
+                                    # Set to "all" if no specific devices detected,
+                                    # maybe the container backend can handle it.
+                                    create_options["environment"][re] = (
+                                        ",".join(vd_values.get(re, [])) or "all"
+                                    )
                             else:
                                 # Set env to the allocated device IDs if no privileged,
-                                # otherwise, set container backend visible devices env to "0",
+                                # otherwise, set container backend visible devices env to all devices,
                                 # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
                                 # and mount corresponding libs if needed.
-                                create_options["environment"][re] = (
-                                    "0" if privileged else r_v
-                                )
+                                for re in runtime_env:
+                                    # Set to "all" if no specific devices detected,
+                                    # maybe the container backend can handle it.
+                                    create_options["environment"][re] = (
+                                        r_v
+                                        if not privileged
+                                        else (",".join(vd_values.get(re, [])) or "all")
+                                    )
 
                             # Configure runtime device access environment variables.
                             if r_v != "all" and privileged:
-                                for be in bes:
+                                for be in backend_env:
                                     create_options["environment"][be] = r_v
 
             # Parameterize mounts.

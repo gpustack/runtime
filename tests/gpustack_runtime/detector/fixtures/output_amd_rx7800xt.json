@@ -3,7 +3,7 @@
     "manufacturer": "amd",
     "index": 0,
     "name": "Navi 32 [Radeon RX 7700 XT / 7800 XT]",
-    "uuid": "0x5C88007D760374F3",
+    "uuid": "GPU-5c88007d760374f3",
     "driver_version": "6.8.5",
     "runtime_version": "6.2",
     "runtime_version_original": "6.2.4",

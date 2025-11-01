@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     ## Detector
     GPUSTACK_RUNTIME_DETECT: str | None = None
     """
-    Detector to use (e.g., Auto, NVIDIA, AMD, Ascend, .etc).
+    Detector to use (options: Auto, AMD, ASCEND, CAMBRICON, HYGON, ILUVATAR, METAX, MTHREADS, NVIDIA).
     """
     GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY: dict[str, str] | None = None
     """
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     ## Deployer
     GPUSTACK_RUNTIME_DEPLOY: str | None = None
     """
-    Deployer to use (e.g., Auto, Docker, Kubernetes).
+    Deployer to use (options: Auto, Docker, Kubernetes).
     """
     GPUSTACK_RUNTIME_DEPLOY_ASYNC: bool = True
     """
@@ -106,6 +106,10 @@ if TYPE_CHECKING:
     which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container,
     e.g., `{"nvidia.com/devices": ["CUDA_VISIBLE_DEVICES"], "amd.com/devices": ["ROCR_VISIBLE_DEVICES"]}`.
     The key is the resource key, and the value is a list of environment variable names.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_MODE: str | None = None
+    """
+    Mode for valuing runtime visible devices environment variables (options: Index or UUID).
     """
 
     # Detector
@@ -250,6 +254,14 @@ variables: dict[str, Callable[[], Any]] = {
             "nvidia.com/devices=CUDA_VISIBLE_DEVICES;",
         ),
         list_sep=",",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_MODE": lambda: choice(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_MODE",
+            "Index",
+        ),
+        options=["Index", "UUID"],
+        default="Index",
     ),
     # Detector
     "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(

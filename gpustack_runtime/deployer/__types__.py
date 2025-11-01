@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING
 from dataclasses_json import dataclass_json
 
 from .. import envs
-from ..detector import detect_backend
+from ..detector import (
+    Devices,
+    ManufacturerEnum,
+    detect_devices,
+    manufacturer_to_backend,
+)
 from .__utils__ import correct_runner_image, safe_json, safe_yaml
 
 if TYPE_CHECKING:
@@ -1088,69 +1093,28 @@ class Deployer(ABC):
     """
     Thread pool for the deployer.
     """
-    _runtime_visible_devices_env_name: str | None = None
+    _visible_devices_env: dict[str, list[str]] | None = None
     """
-    Recorded backend visible devices env name,
-    such as "NVIDIA_VISIBLE_DEVICES", "AMD_VISIBLE_DEVICES", etc.
-    If failed to detect backend, it will be "UNKNOWN_VISIBLE_DEVICES".
+    Recorded visible devices envs,
+    the key is the runtime visible devices env name,
+    the value is the list of backend visible devices env names.
+    For example:
+    {
+        "NVIDIA_VISIBLE_DEVICES": ["CUDA_VISIBLE_DEVICES"],
+        "AMD_VISIBLE_DEVICES": ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]
+    }.
     """
-    _backend_visible_devices_env_names: list[str] | None = None
+    _visible_devices_values: dict[str, list[str]] | None = None
     """
-    Recorded runtime visible devices env name list,
-    such as ["CUDA_VISIBLE_DEVICES"], ["ROCR_VISIBLE_DEVICES"], etc.
-    If failed to detect backend, it will be ["UNKNOWN_VISIBLE_DEVICES"].
+    Recorded visible devices values,
+    the key is the runtime visible devices env name,
+    the value is the list of device indexes or uuids.
+    For example:
+    {
+        "NVIDIA_VISIBLE_DEVICES": ["0"],
+        "AMD_VISIBLE_DEVICES": ["0", "1"]
+    }.
     """
-
-    def __init__(self, name: str):
-        self._name = name
-        self._runtime_visible_devices_env_name = (
-            "UNKNOWN_RUNTIME_BACKEND_VISIBLE_DEVICES"
-        )
-        self._backend_visible_devices_env_names = []
-
-        if backend := detect_backend():
-            rk = envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
-            ren = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.get(
-                rk,
-            )
-            ben = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES.get(
-                rk,
-            )
-            if ren:
-                self._runtime_visible_devices_env_name = ren
-            if ben:
-                self._backend_visible_devices_env_names = ben
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    def close(self):
-        if self._pool:
-            self._pool.shutdown(cancel_futures=True)
-            self._pool = None
-            if hasattr(atexit, "unregister"):
-                atexit.unregister(self.close)
-
-    @property
-    def pool(self):
-        """
-        Create thread pool on first request
-        avoids instantiating unused threadpool for blocking clients.
-        """
-        if self._pool is None:
-            atexit.register(self.close)
-            pool_threads = envs.GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS
-            if pool_threads and pool_threads < 1:
-                pool_threads = None
-            self._pool = ThreadPoolExecutor(max_workers=pool_threads)
-        return self._pool
 
     @staticmethod
     @abstractmethod
@@ -1177,6 +1141,120 @@ class Deployer(ABC):
             )
 
         return wrapper
+
+    def __init__(self, name: str):
+        self._name = name
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def _fetch_visible_devices_env_values(self):
+        """
+        Fetch the visible devices environment variables and values.
+        """
+        if self._visible_devices_env:
+            return
+
+        self._visible_devices_env = {}
+        self._visible_devices_values = {}
+
+        devices: dict[ManufacturerEnum, Devices] = {}
+        for dev in detect_devices(fast=False):
+            if dev.manufacturer not in devices:
+                devices[dev.manufacturer] = []
+            devices[dev.manufacturer].append(dev)
+
+        if devices:
+            value_with_index = (
+                envs.GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_MODE.lower()
+                == "index"
+            )
+
+            for manu, devs in devices.items():
+                backend = manufacturer_to_backend(manu)
+                rk = envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
+                ren = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.get(
+                    rk,
+                )
+                ben = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES.get(
+                    rk,
+                )
+                if ren and ben:
+                    self._visible_devices_env[ren] = ben
+                    self._visible_devices_values[ren] = [
+                        (str(dev.index) if value_with_index else dev.uuid)
+                        for dev in devs
+                    ]
+
+            if self._visible_devices_env:
+                return
+
+        # Fallback to unknown backend
+        self._visible_devices_env["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = []
+        self._visible_devices_values["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = ["all"]
+
+    def visible_devices_env_values(
+        self,
+    ) -> (dict[str, list[str]], dict[str, list[str]]):
+        """
+        Return the visible devices environment variables and values mappings.
+        For example:
+        (
+            {
+                "NVIDIA_VISIBLE_DEVICES": ["CUDA_VISIBLE_DEVICES"],
+                "AMD_VISIBLE_DEVICES": ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]
+            }.
+            {
+                "NVIDIA_VISIBLE_DEVICES": ["0"],
+                "AMD_VISIBLE_DEVICES": ["0", "1"]
+            }
+        ).
+
+        Returns:
+            A tuple of two dictionaries:
+            - The first dictionary maps runtime visible devices environment variable names
+              to lists of backend visible devices environment variable names.
+            - The second dictionary maps runtime visible devices environment variable names
+              to lists of device indexes or UUIDs.
+
+        """
+        self._fetch_visible_devices_env_values()
+        return self._visible_devices_env, self._visible_devices_values
+
+    @property
+    def name(self) -> str:
+        """
+        Return the name of the deployer.
+
+        Returns:
+            The name of the deployer.
+
+        """
+        return self._name
+
+    def close(self):
+        if self._pool:
+            self._pool.shutdown(cancel_futures=True)
+            self._pool = None
+            if hasattr(atexit, "unregister"):
+                atexit.unregister(self.close)
+
+    @property
+    def pool(self):
+        """
+        Create thread pool on first request
+        avoids instantiating unused threadpool for blocking clients.
+        """
+        if self._pool is None:
+            atexit.register(self.close)
+            pool_threads = envs.GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS
+            if pool_threads and pool_threads < 1:
+                pool_threads = None
+            self._pool = ThreadPoolExecutor(max_workers=pool_threads)
+        return self._pool
 
     @_default_args
     def create(
