@@ -61,6 +61,11 @@ jobs:
             network=host
             env.BUILDKIT_STEP_LOG_MAX_SIZE=-1
             env.BUILDKIT_STEP_LOG_MAX_SPEED=-1
+          buildkitd-flags: |
+            --allow-insecure-entitlement=network.host
+            --allow-insecure-entitlement=security.insecure
+            --oci-worker-net=host
+            --oci-worker-gc-keepstorage=204800
       - name: Setup BuildX Cache
         id: setup-buildx-cache
         uses: actions/cache@v4
@@ -93,6 +98,7 @@ jobs:
             security.insecure
           ulimit: |
             nofile=65536:65536
+          shm-size: "4G"
           provenance: true
           sbom: true
           push: ${{ github.event_name != 'pull_request' }}
