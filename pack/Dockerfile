@@ -262,8 +262,10 @@ RUN --mount=type=cache,target=/root/.cache \
         /workspace/runtime
     uv pip tree
 
-    # Update PCI IDs
-    update-pciids || true
+    # Try to update PCI IDs
+    if ! update-pciids; then
+        curl -o /usr/share/misc/pci.ids https://pci-ids.ucw.cz/v2.2/pci.ids || true
+    fi
 EOF
 
 ## Entrypoint
