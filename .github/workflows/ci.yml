@@ -19,9 +19,9 @@ on:
       - "v*-dev"
     paths-ignore:
       - "!.github/workflows/ci.yml"
-      - "pack/**"
+      - "deploy/**"
       - "docs/**"
-      - "tools/**"
+      - "pack/**"
       - "**.md"
       - "**.mdx"
       - "**.png"
@@ -35,9 +35,9 @@ on:
       - "v*-dev"
     paths-ignore:
       - "!.github/workflows/ci.yml"
-      - "pack/**"
+      - "deploy/**"
       - "docs/**"
-      - "tools/**"
+      - "pack/**"
       - "**.md"
       - "**.mdx"
       - "**.png"

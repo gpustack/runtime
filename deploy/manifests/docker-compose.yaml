@@ -23,8 +23,15 @@ services:
   #
     privileged: true
 
-  # Specify name for enabling mirrored deployment,
-  # must configure the same name in environment GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME.
+  # Specify name for deployment.
+  #
+  # - GPUSTACK_RUNTIME_DEPLOY:
+  #    Indicate the deployment environment is Docker.
+  # - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
+  #    Enable mirrored deployment mode,
+  #    see https://github.com/gpustack/runtime/blob/016531084000df8075d53772a3c33f41d829ba37/gpustack_runtime/envs.py#L48-L55 for details.
+  # - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
+  #    Specify the name of this Container for gpustack-runtime identify itself.
   #
     container_name: gpustack-runtime
     environment:

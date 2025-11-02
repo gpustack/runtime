@@ -95,7 +95,20 @@ spec:
           securityContext:
             privileged: true
 
-    # Specify environment for enabling mirrored deployment,
+    # Specify environment for deployment.
+    #
+    # - GPUSTACK_RUNTIME_DEPLOY:
+    #     Indicate the deployment environment is Kubernetes.
+    # - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
+    #     Enable mirrored deployment mode,
+    #     see https://github.com/gpustack/runtime/blob/016531084000df8075d53772a3c33f41d829ba37/gpustack_runtime/envs.py#L48-L55 for details.
+    # - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
+    #     Specify the name of this Pod for gpustack-runtime identify itself.
+    # - GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE:
+    #     Deploy workloads into this namespace.
+    #     Change this if you want to deploy workloads into another namespace.
+    # - GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME:
+    #     Make sure that deploy workloads on the same node.
     #
           env:
             - name: GPUSTACK_RUNTIME_DEPLOY
