@@ -353,6 +353,7 @@ class DockerDeployer(Deployer):
                 fp = envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.joinpath(fn)
                 with fp.open("w", encoding="utf-8") as f:
                     f.write(fc)
+                    f.flush()
                 fp.chmod(fm)
                 logger.debug("Created local file %s with mode %s", fp, oct(fm))
         except OSError as e:

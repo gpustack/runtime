@@ -98,7 +98,7 @@ jobs:
             security.insecure
           ulimit: |
             nofile=65536:65536
-          shm-size: "4G"
+          shm-size: "16G"
           provenance: true
           sbom: true
           push: ${{ github.event_name != 'pull_request' }}
