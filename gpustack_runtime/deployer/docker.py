@@ -672,17 +672,17 @@ class DockerDeployer(Deployer):
                     path = str(
                         envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.joinpath(fn),
                     )
-                    binding["source"] = path
-                    binding["target"] = f"/{f.path.lstrip('/')}"
+                    binding["Source"] = path
+                    binding["Target"] = f"/{f.path.lstrip('/')}"
                 elif f.path:
                     # Host file, bind directly.
-                    binding["source"] = f.path
-                    binding["target"] = f.path
+                    binding["Source"] = f.path
+                    binding["Target"] = f.path
                 else:
                     continue
 
                 if f.mode < 0o600:
-                    binding["read_only"] = True
+                    binding["ReadOnly"] = True
 
                 mount_binding.append(binding)
 
@@ -696,22 +696,22 @@ class DockerDeployer(Deployer):
 
                 if m.volume:
                     # Ephemeral volume, use the created volume.
-                    binding["source"] = ephemeral_volume_name_mapping.get(
+                    binding["Source"] = ephemeral_volume_name_mapping.get(
                         m.volume,
                         m.volume,
                     )
-                    binding["target"] = f"/{m.path.lstrip('/')}"
+                    binding["Target"] = f"/{m.path.lstrip('/')}"
                     # TODO(thxCode): support subpath.
                 elif m.path:
                     # Host path, bind directly.
-                    binding["type"] = "bind"
-                    binding["source"] = m.path
-                    binding["target"] = m.path
+                    binding["Type"] = "bind"
+                    binding["Source"] = m.path
+                    binding["Target"] = m.path
                 else:
                     continue
 
                 if m.mode == ContainerMountModeEnum.ROX:
-                    binding["read_only"] = True
+                    binding["ReadOnly"] = True
 
                 mount_binding.append(binding)
 
