@@ -328,9 +328,6 @@ ENV ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/latest" \
 ## works with (default) Cambricon container runtime and privileged mode.
 ## See https://github.com/Cambricon/cambricon-k8s-device-plugin/blob/master/device-plugin/pkg/cndev/include/cndev.h,
 ##     https://github.com/Cambricon/cambricon-k8s-device-plugin/blob/master/device-plugin/pkg/cntopo/include/cntopo.h.
-## Options:
-## - Mount /sys from the host to detect the correct devices' PCI info.
-## - Mount /usr/bin/cnmon to detect the correct devices. [TODO, TBD] maybe we can mount /usr/local/neuware to detect the correct Neuware version futher.
 ## Runs:
 ## - With container runtime installed:
 ##   [TODO, TBD]
