@@ -249,6 +249,10 @@ class DockerDeployer(Deployer):
     """
     Client for interacting with the Docker daemon.
     """
+    _container_ephemeral_files_dir: Path | None = None
+    """
+    Directory for ephemeral files inside containers, internal use only.
+    """
     _mutate_create_options: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     """
     Function to handle mirrored deployment, internal use only.
@@ -643,8 +647,8 @@ class DockerDeployer(Deployer):
         else:
             return d_container
 
-    @staticmethod
     def _append_container_mounts(
+        self,
         create_options: dict[str, Any],
         c: Container,
         ci: int,
@@ -670,7 +674,7 @@ class DockerDeployer(Deployer):
                         continue
                     fn = ephemeral_filename_mapping[(ci, f.path)]
                     path = str(
-                        envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.joinpath(fn),
+                        self._container_ephemeral_files_dir.joinpath(fn),
                     )
                     binding["Source"] = path
                     binding["Target"] = f"/{f.path.lstrip('/')}"
@@ -1049,6 +1053,9 @@ class DockerDeployer(Deployer):
     def __init__(self):
         super().__init__(_NAME)
         self._client = self._get_client()
+        self._container_ephemeral_files_dir = (
+            envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR
+        )
 
     def _prepare_create(self):
         """
@@ -1283,6 +1290,22 @@ class DockerDeployer(Deployer):
             return create_options
 
         self._mutate_create_options = mutate_create_options
+
+        # Extract ephemeral files dir mutation if any.
+        container_ephemeral_files_dir_str = str(
+            envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR,
+        )
+        if mirrored_mounts:
+            for m in mirrored_mounts:
+                if m.get("Type", "volume") != "volume":
+                    continue
+                target = f"{m.get('Destination', '///')}/"
+                if not container_ephemeral_files_dir_str.startswith(target):
+                    continue
+                source = m.get("Source")
+                subpath = container_ephemeral_files_dir_str.removeprefix(target)
+                self._container_ephemeral_files_dir = Path(source).joinpath(subpath)
+                break
 
     @_supported
     def _create(self, workload: WorkloadPlan):
