@@ -123,7 +123,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         deploy_parser.add_argument(
             "--check",
             action="store_true",
-            help="enable health check (default: False)",
+            help="enable health check, needs --port (default: False)",
             default=False,
         )
 
@@ -234,7 +234,11 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             host_network=self.host_network,
             containers=[
                 Container(
-                    restart_policy=ContainerRestartPolicyEnum.NEVER,
+                    restart_policy=(
+                        ContainerRestartPolicyEnum.NEVER
+                        if not self.check
+                        else ContainerRestartPolicyEnum.ALWAYS
+                    ),
                     image=f"gpustack/runner:{self.backend if self.backend else 'Host'}X.Y-{self.service}{self.version}",
                     name="default",
                     envs=env,
@@ -332,7 +336,7 @@ class CreateWorkloadSubCommand(SubCommand):
         deploy_parser.add_argument(
             "--check",
             action="store_true",
-            help="enable health check (default: False)",
+            help="enable health check, needs --port (default: False)",
             default=False,
         )
 
@@ -442,7 +446,11 @@ class CreateWorkloadSubCommand(SubCommand):
             host_network=self.host_network,
             containers=[
                 Container(
-                    restart_policy=ContainerRestartPolicyEnum.NEVER,
+                    restart_policy=(
+                        ContainerRestartPolicyEnum.NEVER
+                        if not self.check
+                        else ContainerRestartPolicyEnum.ALWAYS
+                    ),
                     image=self.image,
                     name="default",
                     envs=env,

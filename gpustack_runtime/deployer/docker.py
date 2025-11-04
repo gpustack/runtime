@@ -165,35 +165,55 @@ class DockerWorkloadStatus(WorkloadStatus):
         if not d_run_containers:
             if not d_init_containers:
                 return WorkloadStatusStateEnum.UNKNOWN
-            return WorkloadStatusStateEnum.PENDING
+            return WorkloadStatusStateEnum.INACTIVE
 
+        d_run_state = WorkloadStatusStateEnum.RUNNING
         for cr in d_run_containers:
+            if cr.status == "dead":
+                return WorkloadStatusStateEnum.FAILED
+            if cr.status == "exited":
+                if cr.attrs["State"].get("ExitCode", 1) != 0:
+                    return (
+                        WorkloadStatusStateEnum.FAILED
+                        if not _has_restart_policy(cr)
+                        else WorkloadStatusStateEnum.UNHEALTHY
+                    )
+                return WorkloadStatusStateEnum.INACTIVE
+            if cr.status == "paused":
+                return WorkloadStatusStateEnum.INACTIVE
+            if cr.status in ["restarting", "removing"]:
+                return WorkloadStatusStateEnum.UNHEALTHY
             if cr.status == "created":
-                if not d_init_containers:
-                    return WorkloadStatusStateEnum.PENDING
-                for ci in d_init_containers or []:
-                    if ci.status == "created":
-                        return WorkloadStatusStateEnum.PENDING
-                    if ci.status == "dead" or (
-                        ci.status == "exited" and ci.attrs["State"]["ExitCode"] != 0
-                    ):
-                        return WorkloadStatusStateEnum.FAILED
-                    if ci.status != "exited" and not _has_restart_policy(ci):
-                        return WorkloadStatusStateEnum.INITIALIZING
-                return WorkloadStatusStateEnum.INITIALIZING
-            if cr.status == "dead" or (
-                cr.status == "exited" and cr.attrs["State"]["ExitCode"] != 0
-            ):
-                if not _has_restart_policy(cr):
-                    return WorkloadStatusStateEnum.FAILED
-                return WorkloadStatusStateEnum.UNHEALTHY
-            if cr.status != "running" and not _has_restart_policy(cr):
-                return WorkloadStatusStateEnum.PENDING
-            health = cr.attrs["State"].get("Health", {})
-            if health and health.get("Status") != "healthy":
-                return WorkloadStatusStateEnum.UNHEALTHY
+                d_run_state = WorkloadStatusStateEnum.PENDING
+            else:
+                health = cr.attrs["State"].get("Health", {})
+                if health and health.get("Status", "healthy") != "healthy":
+                    return WorkloadStatusStateEnum.UNHEALTHY
 
-        return WorkloadStatusStateEnum.RUNNING
+        d_init_state = None
+        for ci in d_init_containers or []:
+            if ci.status == "dead":
+                return WorkloadStatusStateEnum.FAILED
+            if ci.status == "exited":
+                if ci.attrs["State"].get("ExitCode", 1) != 0:
+                    return (
+                        WorkloadStatusStateEnum.FAILED
+                        if not _has_restart_policy(ci)
+                        else WorkloadStatusStateEnum.UNHEALTHY
+                    )
+            elif ci.status in ["paused", "removing"]:
+                if _has_restart_policy(ci):
+                    return WorkloadStatusStateEnum.UNHEALTHY
+            elif ci.status == "restarting":
+                if _has_restart_policy(ci):
+                    return WorkloadStatusStateEnum.UNHEALTHY
+                d_init_state = WorkloadStatusStateEnum.INITIALIZING
+            elif ci.status == "created":
+                return WorkloadStatusStateEnum.PENDING
+            elif not _has_restart_policy(ci):
+                d_init_state = WorkloadStatusStateEnum.INITIALIZING
+
+        return d_init_state if d_init_state else d_run_state
 
     def __init__(
         self,
@@ -1024,6 +1044,7 @@ class DockerDeployer(Deployer):
     def _start_containers(
         container: docker.models.containers.Container
         | list[docker.models.containers.Container],
+        force: bool = True,
     ):
         """
         Start or restart the container(s) based on their current status.
@@ -1031,6 +1052,8 @@ class DockerDeployer(Deployer):
         Args:
             container:
                 A Docker container or a list of Docker containers to start or restart.
+            force:
+                To force restart or unpause the container if it's in exited or paused status.
 
         Raises:
             docker.errors.APIError:
@@ -1046,9 +1069,11 @@ class DockerDeployer(Deployer):
             case "created":
                 container.start()
             case "exited" | "dead":
-                container.restart()
+                if force:
+                    container.restart()
             case "paused":
-                container.unpause()
+                if force:
+                    container.unpause()
 
     def __init__(self):
         super().__init__(_NAME)
@@ -1368,7 +1393,7 @@ class DockerDeployer(Deployer):
         # Start containers in order: pause -> init(s) -> run(s) -> unhealthy restart
         try:
             self._start_containers(pause_container)
-            self._start_containers(init_containers)
+            self._start_containers(init_containers, force=False)
             self._start_containers(run_containers)
             if unhealthy_restart_container:
                 self._start_containers(unhealthy_restart_container)
