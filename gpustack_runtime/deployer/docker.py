@@ -1317,20 +1317,23 @@ class DockerDeployer(Deployer):
         self._mutate_create_options = mutate_create_options
 
         # Extract ephemeral files dir mutation if any.
-        container_ephemeral_files_dir_str = str(
-            envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR,
-        )
         if mirrored_mounts:
+            e_target = str(envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR)
+            b_source = ""
+            b_target = ""
             for m in mirrored_mounts:
-                if m.get("Type", "volume") != "volume":
-                    continue
-                target = f"{m.get('Destination', '///')}/"
-                if not container_ephemeral_files_dir_str.startswith(target):
-                    continue
-                source = m.get("Source")
-                subpath = container_ephemeral_files_dir_str.removeprefix(target)
-                self._container_ephemeral_files_dir = Path(source).joinpath(subpath)
-                break
+                c_target = m.get("Destination", "///")
+                if (
+                    e_target == c_target or e_target.startswith(f"{c_target}/")
+                ) and len(c_target) >= len(b_target):
+                    b_source = m.get("Source")
+                    b_target = c_target
+            if b_source:
+                result = Path(b_source)
+                if e_target != b_target:
+                    b_subpath = e_target.removeprefix(b_target)
+                    result = result.joinpath(b_subpath.lstrip("/"))
+                self._container_ephemeral_files_dir = result
 
     @_supported
     def _create(self, workload: WorkloadPlan):
