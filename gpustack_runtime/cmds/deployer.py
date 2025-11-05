@@ -35,7 +35,7 @@ from .__types__ import SubCommand
 if TYPE_CHECKING:
     from argparse import Namespace, _SubParsersAction
 
-_IGNORE_ENVS = (
+_IGNORE_ENVS_PREFIX = (
     "PATH",
     "HOME",
     "LANG",
@@ -66,6 +66,14 @@ _IGNORE_ENVS = (
     "COMMAND_MODE",
     "TMPDIR",
     "GPUSTACK_",
+)
+
+_IGNORE_ENVS_SUFFIX = (
+    "_HOME",
+    "_PATH",
+    "_VISIBLE_DEVICES",
+    "_DISABLE_REQUIRE",
+    "_DRIVER_CAPABILITIES",
 )
 
 
@@ -183,7 +191,8 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
                 value=value,
             )
             for name, value in os.environ.items()
-            if not name.startswith(_IGNORE_ENVS)
+            if not name.startswith(_IGNORE_ENVS_PREFIX)
+            and not name.endswith(_IGNORE_ENVS_SUFFIX)
         ]
         if self.backend:
             resources = ContainerResources(
@@ -395,7 +404,8 @@ class CreateWorkloadSubCommand(SubCommand):
                 value=value,
             )
             for name, value in os.environ.items()
-            if not name.startswith(_IGNORE_ENVS)
+            if not name.startswith(_IGNORE_ENVS_PREFIX)
+            and not name.endswith(_IGNORE_ENVS_SUFFIX)
         ]
         if self.backend:
             resources = ContainerResources(
