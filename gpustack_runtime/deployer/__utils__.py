@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import json
 import platform
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -11,6 +12,35 @@ from gpustack_runner import DockerImage, list_backend_runners
 
 from ..detector import backend_to_manufacturer, detect_backend, detect_devices
 from ..detector.ascend import get_ascend_cann_variant
+
+_RE_RFC1123_DOMAIN_NAME = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
+"""
+Regex for RFC1123 domain name, which must:
+    - contain no more than 63 characters
+    - contain only lowercase alphanumeric characters or '-'
+    - start with an alphanumeric character
+    - end with an alphanumeric character
+"""
+
+_RE_RFC1123_SUBDOMAIN_NAME = re.compile(
+    r"(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*",
+)
+"""
+Regex for RFC1123 subdomain name, which must:
+    - contain no more than 253 characters
+    - contain only lowercase alphanumeric characters, '-' or '.'
+    - start with an alphanumeric character
+    - end with an alphanumeric character
+"""
+
+_RE_RFC1035_DOMAIN_NAME = re.compile(r"(?![0-9-])[a-zA-Z0-9_.-]{1,63}(?<![.-])")
+"""
+Regex for RFC1035 domain name, which must:
+    - contain no more than 63 characters
+    - contain only lowercase alphanumeric characters or '-'
+    - start with an alphabetic character
+    - end with an alphanumeric character
+"""
 
 
 @lru_cache
@@ -363,3 +393,210 @@ def _explode(v: str | None) -> list[int | list[int]]:
         else:
             ret.append([ord(c) for c in x])
     return ret
+
+
+def is_rfc1123_domain_name(name: str) -> bool:
+    """
+    Check if the given name is a valid RFC 1123 domain name.
+
+    Args:
+        name:
+            The domain name to check.
+
+    Returns:
+        True if the name is a valid RFC 1123 domain name, False otherwise.
+
+    """
+    return bool(_RE_RFC1123_DOMAIN_NAME.fullmatch(name))
+
+
+def validate_rfc1123_domain_name(name: str):
+    """
+    Validate that the given name is a valid RFC 1123 domain name.
+
+    Args:
+        name:
+            The domain name to validate.
+
+    Raises:
+        ValueError:
+            If the name is not a valid RFC 1123 domain name.
+
+    """
+    if not is_rfc1123_domain_name(name):
+        msg = (
+            f"Invalid RFC 1123 domain name: '{name}'. "
+            "It must contain no more than 63 characters, "
+            "contain only lowercase alphanumeric characters or '-', "
+            "start with an alphanumeric character, "
+            "and end with an alphanumeric character."
+        )
+        raise ValueError(
+            msg,
+        )
+
+
+def is_rfc1123_subdomain_name(name: str) -> bool:
+    """
+    Check if the given name is a valid RFC 1123 subdomain name.
+
+    Args:
+        name:
+            The subdomain name to check.
+
+    Returns:
+        True if the name is a valid RFC 1123 subdomain name, False otherwise.
+
+    """
+    return bool(_RE_RFC1123_SUBDOMAIN_NAME.fullmatch(name))
+
+
+def validate_rfc1123_subdomain_name(name: str):
+    """
+    Validate that the given name is a valid RFC 1123 subdomain name.
+
+    Args:
+        name:
+            The subdomain name to validate.
+
+    Raises:
+        ValueError:
+            If the name is not a valid RFC 1123 subdomain name.
+
+    """
+    if not is_rfc1123_subdomain_name(name):
+        msg = (
+            f"Invalid RFC 1123 subdomain name: '{name}'. "
+            "It must contain no more than 253 characters, "
+            "contain only lowercase alphanumeric characters, '-' or '.', "
+            "start with an alphanumeric character, "
+            "and end with an alphanumeric character."
+        )
+        raise ValueError(
+            msg,
+        )
+
+
+def is_rfc1035_domain_name(name: str) -> bool:
+    """
+    Check if the given name is a valid RFC 1035 domain name.
+
+    Args:
+        name:
+            The domain name to check.
+
+    Returns:
+        True if the name is a valid RFC 1035 domain name, False otherwise:
+
+    """
+    return bool(_RE_RFC1035_DOMAIN_NAME.fullmatch(name))
+
+
+def validate_rfc1035_domain_name(name: str):
+    """
+    Validate that the given name is a valid RFC 1035 domain name.
+
+    Args:
+        name:
+            The domain name to validate.
+
+    Raises:
+        ValueError:
+            If the name is not a valid RFC 1035 domain name.
+
+    """
+    if not is_rfc1035_domain_name(name):
+        msg = (
+            f"Invalid RFC 1035 domain name: '{name}'. "
+            "It must contain no more than 63 characters, "
+            "contain only alphanumeric characters, '_', '.' or '-', "
+            "start with an alphabetic character, "
+            "and end with an alphanumeric character."
+        )
+        raise ValueError(
+            msg,
+        )
+
+
+def fnv1a_32(data: bytes | str) -> int:
+    """
+    Computes the FNV-1a 32-bit hash for the given bytes or str.
+
+    Args:
+        data:
+            The input bytes or str to hash.
+
+    Returns:
+        The FNV-1a 32-bit hash as an integer.
+
+    """
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+
+    hash_value = 0x811C9DC5
+
+    for byte in data:
+        hash_value ^= byte
+        hash_value *= 0x01000193
+        hash_value &= 0xFFFFFFFF
+
+    return hash_value
+
+
+def fnv1a_32_hex(data: bytes | str) -> str:
+    """
+    Computes the FNV-1a 32-bit hash for the given bytes or str,
+    and returns it as a hexadecimal string.
+
+    Args:
+        data:
+            The input bytes or str to hash.
+
+    Returns:
+        The FNV-1a 32-bit hash as a hexadecimal string.
+
+    """
+    hash_value = fnv1a_32(data)
+    return f"{hash_value:08x}"
+
+
+def fnv1a_64(data: bytes | str) -> int:
+    """
+    Computes the FNV-1a 64-bit hash for the given bytes or str.
+
+    Args:
+        data:
+            The input bytes or str to hash.
+
+    Returns:
+        The FNV-1a 64-bit hash as an integer.
+
+    """
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+
+    hash_value = 0xCBF29CE484222325
+
+    for byte in data:
+        hash_value ^= byte
+        hash_value *= 0x100000001B3
+        hash_value &= 0xFFFFFFFFFFFFFFFF
+
+    return hash_value
+
+
+def fnv1a_64_hex(data: bytes | str) -> str:
+    """
+    Computes the FNV-1a 64-bit hash for the given bytes or str,
+    and returns it as a hexadecimal string.
+
+    Args:
+        data:
+            The input bytes or str to hash.
+
+    Returns:
+        The FNV-1a 64-bit hash as a hexadecimal string.
+
+    """
+    hash_value = fnv1a_64(data)
+    return f"{hash_value:016x}"

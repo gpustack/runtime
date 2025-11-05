@@ -115,6 +115,25 @@ class DockerWorkloadPlan(WorkloadPlan):
     Image used for unhealthy restart container.
     """
 
+    def validate_and_default(self):
+        """
+        Validate and set defaults for the workload plan.
+
+        Raises:
+            ValueError:
+                If the workload plan is invalid.
+
+        """
+        if self.labels is None:
+            self.labels = {}
+        if self.containers is None:
+            self.containers = []
+
+        self.labels[_LABEL_WORKLOAD] = self.name
+
+        # Default and validate in the base class.
+        super().validate_and_default()
+
 
 @dataclass_json
 @dataclass
@@ -1358,13 +1377,12 @@ class DockerDeployer(Deployer):
         if not isinstance(workload, DockerWorkloadPlan | WorkloadPlan):
             msg = f"Invalid workload type: {type(workload)}"
             raise TypeError(msg)
-        if isinstance(workload, WorkloadPlan):
-            workload = DockerWorkloadPlan(**workload.__dict__)
 
         self._prepare_create()
 
+        if isinstance(workload, WorkloadPlan):
+            workload = DockerWorkloadPlan(**workload.__dict__)
         workload.validate_and_default()
-        workload.labels[_LABEL_WORKLOAD] = workload.name
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Creating workload:\n%s", workload.to_yaml())
 

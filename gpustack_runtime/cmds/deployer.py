@@ -249,7 +249,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
                         else ContainerRestartPolicyEnum.ALWAYS
                     ),
                     image=f"gpustack/runner:{self.backend if self.backend else 'Host'}X.Y-{self.service}{self.version}",
-                    name="default",
+                    name=self.name,
                     envs=env,
                     resources=resources,
                     mounts=mounts,
@@ -462,7 +462,7 @@ class CreateWorkloadSubCommand(SubCommand):
                         else ContainerRestartPolicyEnum.ALWAYS
                     ),
                     image=self.image,
-                    name="default",
+                    name=self.name,
                     envs=env,
                     resources=resources,
                     mounts=mounts,

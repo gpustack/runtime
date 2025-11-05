@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import logging
 import operator
 import os
@@ -34,6 +33,10 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
+from .__utils__ import (
+    fnv1a_32_hex,
+    validate_rfc1123_domain_name,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -41,6 +44,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _LABEL_WORKLOAD = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/workload"
+_LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
 
 
 class KubernetesWorkloadServiceType(str, Enum):
@@ -127,6 +131,34 @@ class KubernetesWorkloadPlan(WorkloadPlan):
     Service type for the workload.
     """
 
+    def validate_and_default(self):
+        """
+        Validate and set defaults for the workload plan.
+
+        Raises:
+            ValueError:
+                If the workload plan is invalid.
+
+        """
+        if self.labels is None:
+            self.labels = {}
+        if self.containers is None:
+            self.containers = []
+
+        self.labels[_LABEL_WORKLOAD] = self.name
+
+        # Default and validate in the base class.
+        super().validate_and_default()
+
+        # Validate namespace
+        if not self.namespace:
+            self.namespace = envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
+        try:
+            validate_rfc1123_domain_name(self.namespace)
+        except ValueError as e:
+            msg = f"Invalid namespace '{self.namespace}'"
+            raise ValueError(msg) from e
+
 
 @dataclass_json
 @dataclass
@@ -194,11 +226,6 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         **kwargs,
     ):
         created_at = k_pod.metadata.creation_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        namespace = (
-            k_pod.metadata.namespace
-            if k_pod.metadata.namespace != envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
-            else None
-        )
         labels = {
             k: v
             for k, v in (k_pod.metadata.labels or {}).items()
@@ -208,25 +235,28 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         super().__init__(
             name=name,
             created_at=created_at,
-            namespace=namespace,
+            namespace=k_pod.metadata.namespace,
             labels=labels,
             **kwargs,
         )
 
         self._k_pod = k_pod
 
-        for c in k_pod.spec.init_containers or []:
+        k_pod_annos = k_pod.metadata.annotations or {}
+        for ci, c in enumerate(k_pod.spec.init_containers or []):
+            cn = k_pod_annos.get(f"{_LABEL_COMPONENT}-init-{ci}-name", c.name)
             op = WorkloadStatusOperation(
-                name=c.name,
+                name=cn,
                 token=c.name,
             )
             if c.restart_policy != "Never":
                 self.executable.append(op)
             self.loggable.append(op)
 
-        for c in k_pod.spec.containers:
+        for ci, c in enumerate(k_pod.spec.containers):
+            cn = k_pod_annos.get(f"{_LABEL_COMPONENT}-run-{ci}-name", c.name)
             op = WorkloadStatusOperation(
-                name=c.name,
+                name=cn,
                 token=c.name,
             )
             self.executable.append(op)
@@ -345,23 +375,25 @@ class KubernetesDeployer(Deployer):
                 If creating the ConfigMaps fails.
 
         """
+        config_map_name_prefix = workload.name_rfc1123_guard
+
         ephemeral_filename_mapping: dict[tuple[int, str], str] = {}
         ephemeral_files: list[tuple[str, str, str]] = []
         for ci, c in enumerate(workload.containers):
             for fi, f in enumerate(c.files or []):
                 if f.content is not None:
-                    fn = f"{workload.name}-{ci}-{fi}"
-                    ephemeral_filename_mapping[(ci, f.path)] = fn
-                    ephemeral_files.append((fn, f.path, f.content))
+                    config_map_name = f"{config_map_name_prefix}-{ci}-{fi}"
+                    ephemeral_filename_mapping[(ci, f.path)] = config_map_name
+                    ephemeral_files.append((config_map_name, f.path, f.content))
         if not ephemeral_filename_mapping:
             return ephemeral_filename_mapping
 
         core_api = kubernetes.client.CoreV1Api(self._client)
         try:
-            for fn, fp, content in ephemeral_files:
+            for config_map_name, fp, content in ephemeral_files:
                 config_map = kubernetes.client.V1ConfigMap(
                     metadata=kubernetes.client.V1ObjectMeta(
-                        name=fn,
+                        name=config_map_name,
                         namespace=workload.namespace,
                         labels=workload.labels,
                     ),
@@ -371,7 +403,7 @@ class KubernetesDeployer(Deployer):
                 actual_config_map = None
                 with contextlib.suppress(kubernetes.client.exceptions.ApiException):
                     actual_config_map = core_api.read_namespaced_config_map(
-                        name=fn,
+                        name=config_map_name,
                         namespace=workload.namespace,
                     )
                 if not actual_config_map:
@@ -381,12 +413,12 @@ class KubernetesDeployer(Deployer):
                     )
                     logger.debug(
                         "Created configmap %s in namespace %s",
-                        fn,
+                        config_map_name,
                         workload.namespace,
                     )
                 elif not equal_config_maps(actual_config_map, config_map):
                     core_api.patch_namespaced_config_map(
-                        name=fn,
+                        name=config_map_name,
                         namespace=workload.namespace,
                         body={
                             "data": config_map.data,
@@ -394,11 +426,11 @@ class KubernetesDeployer(Deployer):
                     )
                     logger.debug(
                         "Updated configmap %s in namespace %s",
-                        fn,
+                        config_map_name,
                         workload.namespace,
                     )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to create ephemeral files for workload {workload.name}"
+            msg = f"Failed to create configmap for workload {workload.name}"
             raise OperationError(msg) from e
 
         return ephemeral_filename_mapping
@@ -419,7 +451,7 @@ class KubernetesDeployer(Deployer):
             for _fi, f in enumerate(c.files or []):
                 if f.content is None and f.path:
                     # Host file, bind directly.
-                    fp_hash = hash_string(f.path)
+                    fp_hash = fnv1a_32_hex(f.path)
                     if fp_hash not in file_volumes:
                         file_volumes[fp_hash] = kubernetes.client.V1Volume(
                             name=f"f-{fp_hash}",
@@ -448,7 +480,7 @@ class KubernetesDeployer(Deployer):
             for m in c.mounts or []:
                 if m.volume is None and m.path:
                     # Host directory, bind directly.
-                    mp_hash = hash_string(m.path)
+                    mp_hash = fnv1a_32_hex(m.path)
                     if mp_hash not in mount_volumes:
                         mount_volumes[mp_hash] = kubernetes.client.V1Volume(
                             name=f"m-{mp_hash}",
@@ -491,7 +523,7 @@ class KubernetesDeployer(Deployer):
             for _fi, f in enumerate(files):
                 if f.content is None and f.path:
                     # Host file, mount directly.
-                    fp_hash = hash_string(f.path)
+                    fp_hash = fnv1a_32_hex(f.path)
                     container.volume_mounts.append(
                         kubernetes.client.V1VolumeMount(
                             name=f"f-{fp_hash}",
@@ -515,7 +547,7 @@ class KubernetesDeployer(Deployer):
             for m in mounts:
                 if m.volume is None and m.path:
                     # Host directory, mount directly.
-                    mp_hash = hash_string(m.path)
+                    mp_hash = fnv1a_32_hex(m.path)
                     container.volume_mounts.append(
                         kubernetes.client.V1VolumeMount(
                             name=f"m-{mp_hash}",
@@ -619,9 +651,11 @@ class KubernetesDeployer(Deployer):
         if not ports:
             return None
 
+        service_name = workload.name_rfc1123_guard
+
         service = kubernetes.client.V1Service(
             metadata=kubernetes.client.V1ObjectMeta(
-                name=workload.name,
+                name=service_name,
                 namespace=workload.namespace,
                 labels=workload.labels,
             ),
@@ -645,7 +679,7 @@ class KubernetesDeployer(Deployer):
             actual_service = None
             with contextlib.suppress(kubernetes.client.exceptions.ApiException):
                 actual_service = core_api.read_namespaced_service(
-                    name=workload.name,
+                    name=service_name,
                     namespace=workload.namespace,
                 )
             if not actual_service:
@@ -655,12 +689,12 @@ class KubernetesDeployer(Deployer):
                 )
                 logger.debug(
                     "Created service %s in namespace %s",
-                    workload.name,
+                    service_name,
                     workload.namespace,
                 )
             elif not equal_services(actual_service, service):
                 service = core_api.patch_namespaced_service(
-                    name=workload.name,
+                    name=service_name,
                     namespace=workload.namespace,
                     body={
                         "spec": service.spec,
@@ -668,7 +702,7 @@ class KubernetesDeployer(Deployer):
                 )
                 logger.debug(
                     "Updated service %s in namespace %s",
-                    workload.name,
+                    service_name,
                     workload.namespace,
                 )
         except kubernetes.client.exceptions.ApiException as e:
@@ -695,11 +729,14 @@ class KubernetesDeployer(Deployer):
                 If creating the Pod fails.
 
         """
+        pod_name = workload.name_rfc1123_guard
+
         pod = kubernetes.client.V1Pod(
             metadata=kubernetes.client.V1ObjectMeta(
-                name=workload.name,
+                name=pod_name,
                 namespace=workload.namespace,
                 labels=workload.labels,
+                annotations={},
             ),
             spec=kubernetes.client.V1PodSpec(
                 containers=[],
@@ -737,11 +774,23 @@ class KubernetesDeployer(Deployer):
             ),
         )
 
+        cnt_init, cnt_run = -1, -1
         for ci, c in enumerate(workload.containers):
+            # Annotate container info.
+            if c.profile == ContainerProfileEnum.INIT:
+                cnt_init += 1
+                container_annotate_prefix = f"{_LABEL_COMPONENT}-init-{cnt_init}"
+            else:
+                cnt_run += 1
+                container_annotate_prefix = f"{_LABEL_COMPONENT}-run-{cnt_run}"
+            pod.metadata.annotations[f"{container_annotate_prefix}-name"] = c.name
+
+            container_name = c.name_rfc1123_guard
+
             container = kubernetes.client.V1Container(
+                name=container_name,
                 image=c.image,
                 image_pull_policy=c.image_pull_policy,
-                name=c.name,
             )
 
             if c.profile == ContainerProfileEnum.INIT:
@@ -938,7 +987,7 @@ class KubernetesDeployer(Deployer):
             actual_pod = None
             with contextlib.suppress(kubernetes.client.exceptions.ApiException):
                 actual_pod = core_api.read_namespaced_pod(
-                    name=workload.name,
+                    name=pod_name,
                     namespace=workload.namespace,
                 )
             if not actual_pod:
@@ -948,7 +997,7 @@ class KubernetesDeployer(Deployer):
                 )
                 logger.debug(
                     "Created pod %s in namespace %s",
-                    workload.name,
+                    pod_name,
                     workload.namespace,
                 )
             elif not equal_pods(actual_pod, pod):
@@ -961,13 +1010,13 @@ class KubernetesDeployer(Deployer):
                     namespace=workload.namespace,
                 ) as es:
                     core_api.delete_namespaced_pod(
-                        name=workload.name,
+                        name=pod_name,
                         namespace=workload.namespace,
                     )
                     for e in es:
                         if (
                             e["type"] == "DELETED"
-                            and e["object"].metadata.name == workload.name
+                            and e["object"].metadata.name == pod_name
                         ):
                             break
                 pod = core_api.create_namespaced_pod(
@@ -976,7 +1025,7 @@ class KubernetesDeployer(Deployer):
                 )
                 logger.debug(
                     "Updated pod %s in namespace %s",
-                    workload.name,
+                    pod_name,
                     workload.namespace,
                 )
         except kubernetes.client.exceptions.ApiException as e:
@@ -1252,16 +1301,12 @@ class KubernetesDeployer(Deployer):
         if not isinstance(workload, KubernetesWorkloadPlan | WorkloadPlan):
             msg = f"Invalid workload plan type: {type(workload)}"
             raise TypeError(msg)
-        if isinstance(workload, WorkloadPlan):
-            workload = KubernetesWorkloadPlan(**workload.__dict__)
 
         self._prepare_create()
 
+        if isinstance(workload, WorkloadPlan):
+            workload = KubernetesWorkloadPlan(**workload.__dict__)
         workload.validate_and_default()
-        workload.labels[_LABEL_WORKLOAD] = workload.name
-        workload.namespace = (
-            workload.namespace or envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
-        )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Creating workload:\n%s", workload.to_yaml())
 
@@ -1652,21 +1697,6 @@ class KubernetesDeployer(Deployer):
             if not attach:
                 return result
             return KubernetesWorkloadExecStream(result)
-
-
-def hash_string(s: str) -> str:
-    """
-    Hash a string using MD5 and return the hexadecimal digest.
-
-    Args:
-        s:
-            The string to hash.
-
-    Returns:
-        The hexadecimal digest of the MD5 hash.
-
-    """
-    return hashlib.md5(s.encode("UTF-8")).hexdigest()  # noqa: S324
 
 
 def equal_config_maps(

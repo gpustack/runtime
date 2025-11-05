@@ -19,39 +19,70 @@ from ..detector import (
     detect_devices,
     manufacturer_to_backend,
 )
-from .__utils__ import correct_runner_image, safe_json, safe_yaml
+from .__utils__ import (
+    correct_runner_image,
+    fnv1a_64_hex,
+    is_rfc1123_domain_name,
+    safe_json,
+    safe_yaml,
+    validate_rfc1123_subdomain_name,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
 
-_RE_RFC1123_DNS_SUBDOMAIN_NAME = re.compile(
-    r"(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*",
-)
+_RE_LABEL_VALUE = re.compile(r"^(?!-)[A-Za-z0-9_.-]{0,63}(?<!-)$")
 """
-Regex for RFC 1123 DNS subdomain names, which must:
-    - contain no more than 253 characters
-    - contain only lowercase alphanumeric characters, '-' or '.'
+Regex for label values, which must:
+    - contain no more than 63 characters
+    - contain only alphanumeric characters, '_', '-', or '.'
     - start with an alphanumeric character
     - end with an alphanumeric character
 """
 
-_RE_RFC1123_DNS_LABEL_NAME = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
-"""
-Regex for RFC 1123 DNS label names, which must:
-    - contain no more than 63 characters
-    - contain only lowercase alphanumeric characters or '-'
-    - start with an alphanumeric character
-    - end with an alphanumeric character
-"""
 
-_RE_RFC1035_DNS_LABEL_NAME = re.compile(r"(?![0-9-])[a-zA-Z0-9_.-]{1,63}(?<![.-])")
-"""
-Regex for RFC 1035 DNS label names, which must:
-    - contain no more than 63 characters
-    - contain only lowercase alphanumeric characters or '-'
-    - start with an alphabetic character
-    - end with an alphanumeric character
-"""
+def validate_label_name_segment(segment: str):
+    """
+    Validate a label name segment.
+
+    Args:
+        segment:
+            The label name segment to validate.
+
+    Raises:
+        ValueError:
+            If the label name segment is invalid.
+
+    """
+    try:
+        validate_rfc1123_subdomain_name(segment)
+    except ValueError as e:
+        msg = f"Invalid label name segment'{segment}'. "
+        raise ValueError(msg) from e
+
+
+def validate_label_value(value: str):
+    """
+    Validate a label value.
+
+    Args:
+        value:
+            The label value to validate.
+
+    Raises:
+        ValueError:
+            If the label value is invalid.
+
+    """
+    if not _RE_LABEL_VALUE.match(value):
+        msg = (
+            f"Invalid label value '{value}'. "
+            "It must contain no more than 63 characters, "
+            "contain only alphanumeric characters, '_', '-', or '.', "
+            "start with an alphanumeric character, "
+            "and end with an alphanumeric character."
+        )
+        raise ValueError(msg)
 
 
 class UnsupportedError(Exception):
@@ -675,6 +706,32 @@ class Container:
     Health checks of the container.
     """
 
+    ##
+    ## The below are internal use only fields.
+    ##
+
+    _name_rfc1123_guard: WorkloadName | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        metadata={"dataclasses_json": {"exclude": lambda _: True}},
+    )
+    """
+    Name for the workload,
+    but has been guard by rfc1123 validation for certain deployment environments,
+    internal use only.
+    """
+
+    @property
+    def name_rfc1123_guard(self) -> WorkloadName:
+        if not self._name_rfc1123_guard:
+            self._name_rfc1123_guard = (
+                f"gpustack-{fnv1a_64_hex(self.name)}"
+                if not is_rfc1123_domain_name(self.name)
+                else self.name
+            )
+        return self._name_rfc1123_guard
+
 
 @dataclass
 class WorkloadSecuritySysctl:
@@ -812,7 +869,7 @@ class WorkloadPlan(WorkloadSecurity):
     """
     Namespace for the workload.
     """
-    name: WorkloadName = "default"
+    name: WorkloadName | None = None
     """
     Name for the workload,
     it should be unique in the deployer.
@@ -843,55 +900,81 @@ class WorkloadPlan(WorkloadSecurity):
     It must contain at least one "RUN" profile container.
     """
 
+    ##
+    ## The below are internal use only fields.
+    ##
+
+    _name_rfc1123_guard: WorkloadName | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        metadata={"dataclasses_json": {"exclude": lambda _: True}},
+    )
+    """
+    Name for the workload,
+    but has been guard by rfc1123 validation for certain deployment environments,
+    internal use only.
+    """
+
+    @property
+    def name_rfc1123_guard(self) -> WorkloadName:
+        if not self._name_rfc1123_guard:
+            self._name_rfc1123_guard = (
+                f"gpustack-{fnv1a_64_hex(self.name)}"
+                if not is_rfc1123_domain_name(self.name)
+                else self.name
+            )
+        return self._name_rfc1123_guard
+
     def validate_and_default(self):
         """
-        Validate the workload plan and set defaults.
+        Validate and set defaults for the workload plan.
 
         Raises:
             ValueError:
                 If the workload plan is invalid.
 
         """
-        # Validate
-        if not _RE_RFC1123_DNS_LABEL_NAME.match(self.name):
-            msg = (
-                f'Workload name "{self.name}" is invalid, '
-                "it must match RFC 1123 DNS label format"
-            )
+        # Validate workload name.
+        if not self.name:
+            msg = "Workload name is required."
             raise ValueError(msg)
-        for ln in self.labels or {}:
-            for p in ln.split("/"):
-                if not _RE_RFC1123_DNS_SUBDOMAIN_NAME.match(p):
-                    msg = (
-                        f'Workload label name "{ln}" is invalid, '
-                        "it must match RFC 1123 DNS subdomain format"
-                    )
-                    raise ValueError(msg)
-        names = [c.name for c in self.containers or []]
-        if len(names) != len(set(names)):
-            msg = "Container names must be unique in a workload."
-            raise ValueError(msg)
-        for n in names:
-            if not _RE_RFC1035_DNS_LABEL_NAME.match(n):
-                msg = (
-                    f'Container name "{n}" is invalid, '
-                    "it must match RFC 1035 DNS label format"
-                )
-                raise ValueError(msg)
-        if not any(
-            c.profile == ContainerProfileEnum.RUN for c in self.containers or []
+
+        # Validate at least one RUN profile container.
+        if not self.containers or not any(
+            c.profile == ContainerProfileEnum.RUN for c in self.containers
         ):
             msg = 'Workload must contain at least one "RUN" profile container.'
             raise ValueError(msg)
 
-        # Default
-        self.labels = self.labels or {}
+        # Validate workload labels, including label names and values.
+        for ln, lv in self.labels.items():
+            for s in ln.split("/"):
+                validate_label_name_segment(s)
+            validate_label_value(lv)
+
+        # Validate container names and images.
+        container_names = []
+        for ci, c in enumerate(self.containers):
+            if not c.name or not c.name.strip():
+                msg = f"Container at index {ci} is missing a name."
+                raise ValueError(msg)
+            if not c.image:
+                msg = f"Container '{c.name}' is missing an image."
+                raise ValueError(msg)
+            container_names.append(c.name)
+        if len(container_names) != len(set(container_names)):
+            msg = "Container names must be unique in the same workload."
+            raise ValueError(msg)
+
         for c in self.containers:
+            # Default restart policy.
             if c.profile == ContainerProfileEnum.INIT:
                 if not c.restart_policy:
                     c.restart_policy = ContainerRestartPolicyEnum.NEVER
             elif not c.restart_policy:
                 c.restart_policy = ContainerRestartPolicyEnum.ALWAYS
+            # Correct runner image if needed.
             if envs.GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE:
                 c.image, ok = correct_runner_image(c.image)
                 if not ok and ":Host" in c.image:
@@ -991,6 +1074,32 @@ class WorkloadStatusOperation:
     """
     Token of the operation, e.g, container ID.
     """
+
+    ##
+    ## The below are internal use only fields.
+    ##
+
+    _name_rfc1123_guard: WorkloadName | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        metadata={"dataclasses_json": {"exclude": lambda _: True}},
+    )
+    """
+    Name for the workload,
+    but has been guard by rfc1123 validation for certain deployment environments,
+    internal use only.
+    """
+
+    @property
+    def name_rfc1123_guard(self) -> WorkloadName:
+        if not self._name_rfc1123_guard:
+            self._name_rfc1123_guard = (
+                f"gpustack-{fnv1a_64_hex(self.name)}"
+                if not is_rfc1123_domain_name(self.name)
+                else self.name
+            )
+        return self._name_rfc1123_guard
 
 
 @dataclass_json
