@@ -262,34 +262,31 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         create_workload(plan)
         print(f"Created workload '{self.name}'.")
 
-        try:
-            while True:
-                st = get_workload(
-                    name=self.name,
-                    namespace=self.namespace,
-                )
-                if st and st.state not in (
-                    WorkloadStatusStateEnum.PENDING,
-                    WorkloadStatusStateEnum.INITIALIZING,
-                ):
-                    break
-                time.sleep(1)
+        while True:
+            st = get_workload(
+                name=self.name,
+                namespace=self.namespace,
+            )
+            if st and st.state not in (
+                WorkloadStatusStateEnum.PENDING,
+                WorkloadStatusStateEnum.INITIALIZING,
+            ):
+                break
+            time.sleep(1)
 
-            print("\033[2J\033[H", end="")
+        print("\033[2J\033[H", end="")
 
-            async def stream_logs():
-                logs_result = await async_logs_workload(
-                    name=self.name,
-                    namespace=self.namespace,
-                    tail=-1,
-                    follow=True,
-                )
-                async for line in logs_result:
-                    print(line.decode("utf-8").rstrip())
+        async def stream_logs():
+            logs_result = await async_logs_workload(
+                name=self.name,
+                namespace=self.namespace,
+                tail=-1,
+                follow=True,
+            )
+            async for line in logs_result:
+                print(line.decode("utf-8").rstrip())
 
-            asyncio.run(stream_logs())
-        except KeyboardInterrupt:
-            print("\033[2J\033[H", end="")
+        asyncio.run(stream_logs())
 
 
 class CreateWorkloadSubCommand(SubCommand):
@@ -475,34 +472,31 @@ class CreateWorkloadSubCommand(SubCommand):
         create_workload(plan)
         print(f"Created workload '{self.name}'.")
 
-        try:
-            while True:
-                st = get_workload(
-                    name=self.name,
-                    namespace=self.namespace,
-                )
-                if st and st.state not in (
-                    WorkloadStatusStateEnum.PENDING,
-                    WorkloadStatusStateEnum.INITIALIZING,
-                ):
-                    break
-                time.sleep(1)
+        while True:
+            st = get_workload(
+                name=self.name,
+                namespace=self.namespace,
+            )
+            if st and st.state not in (
+                WorkloadStatusStateEnum.PENDING,
+                WorkloadStatusStateEnum.INITIALIZING,
+            ):
+                break
+            time.sleep(1)
 
-            print("\033[2J\033[H", end="")
+        print("\033[2J\033[H", end="")
 
-            async def stream_logs():
-                logs_result = await async_logs_workload(
-                    name=self.name,
-                    namespace=self.namespace,
-                    tail=-1,
-                    follow=True,
-                )
-                async for line in logs_result:
-                    print(line.decode("utf-8").rstrip())
+        async def stream_logs():
+            logs_result = await async_logs_workload(
+                name=self.name,
+                namespace=self.namespace,
+                tail=-1,
+                follow=True,
+            )
+            async for line in logs_result:
+                print(line.decode("utf-8").rstrip())
 
-            asyncio.run(stream_logs())
-        except KeyboardInterrupt:
-            print("\033[2J\033[H", end="")
+        asyncio.run(stream_logs())
 
 
 class DeleteWorkloadSubCommand(SubCommand):
@@ -543,17 +537,14 @@ class DeleteWorkloadSubCommand(SubCommand):
             raise ValueError(msg)
 
     def run(self):
-        try:
-            st = delete_workload(
-                name=self.name,
-                namespace=self.namespace,
-            )
-            if st:
-                print(f"Deleted workload '{self.name}'.")
-            else:
-                print(f"Workload '{self.name}' not found.")
-        except KeyboardInterrupt:
-            pass
+        st = delete_workload(
+            name=self.name,
+            namespace=self.namespace,
+        )
+        if st:
+            print(f"Deleted workload '{self.name}'.")
+        else:
+            print(f"Workload '{self.name}' not found.")
 
 
 class DeleteWorkloadsSubCommand(SubCommand):
@@ -588,21 +579,18 @@ class DeleteWorkloadsSubCommand(SubCommand):
         self.labels = args.labels
 
     def run(self):
-        try:
-            sts: list[WorkloadStatus] = list_workloads(
-                namespace=self.namespace,
-                labels=self.labels,
+        sts: list[WorkloadStatus] = list_workloads(
+            namespace=self.namespace,
+            labels=self.labels,
+        )
+        for st in sts:
+            delete_workload(
+                name=st.name,
+                namespace=st.namespace,
             )
-            for st in sts:
-                delete_workload(
-                    name=st.name,
-                    namespace=st.namespace,
-                )
-                print(f"Deleted workload '{st.name}'.")
-            if not sts:
-                print("No workloads found.")
-        except KeyboardInterrupt:
-            pass
+            print(f"Deleted workload '{st.name}'.")
+        if not sts:
+            print("No workloads found.")
 
 
 class GetWorkloadSubCommand(SubCommand):
@@ -663,25 +651,22 @@ class GetWorkloadSubCommand(SubCommand):
             raise ValueError(msg)
 
     def run(self):
-        try:
-            while True:
-                workload = get_workload(self.name, self.namespace)
-                if not workload:
-                    print(f"Workload '{self.name}' not found.")
-                    return
+        while True:
+            workload = get_workload(self.name, self.namespace)
+            if not workload:
+                print(f"Workload '{self.name}' not found.")
+                return
 
-                sts: list[WorkloadStatus] = [workload]
-                print("\033[2J\033[H", end="")
-                match self.format.lower():
-                    case "json":
-                        print(format_workloads_json(sts))
-                    case _:
-                        print(format_workloads_table(sts))
-                if not self.watch:
-                    break
-                time.sleep(self.watch)
-        except KeyboardInterrupt:
+            sts: list[WorkloadStatus] = [workload]
             print("\033[2J\033[H", end="")
+            match self.format.lower():
+                case "json":
+                    print(format_workloads_json(sts))
+                case _:
+                    print(format_workloads_table(sts))
+            if not self.watch:
+                break
+            time.sleep(self.watch)
 
 
 class ListWorkloadsSubCommand(SubCommand):
@@ -738,23 +723,20 @@ class ListWorkloadsSubCommand(SubCommand):
         self.watch = args.watch
 
     def run(self):
-        try:
-            while True:
-                sts: list[WorkloadStatus] = list_workloads(
-                    namespace=self.namespace,
-                    labels=self.labels,
-                )
-                print("\033[2J\033[H", end="")
-                match self.format.lower():
-                    case "json":
-                        print(format_workloads_json(sts))
-                    case _:
-                        print(format_workloads_table(sts))
-                if not self.watch:
-                    break
-                time.sleep(self.watch)
-        except KeyboardInterrupt:
+        while True:
+            sts: list[WorkloadStatus] = list_workloads(
+                namespace=self.namespace,
+                labels=self.labels,
+            )
             print("\033[2J\033[H", end="")
+            match self.format.lower():
+                case "json":
+                    print(format_workloads_json(sts))
+                case _:
+                    print(format_workloads_table(sts))
+            if not self.watch:
+                break
+            time.sleep(self.watch)
 
 
 class LogsWorkloadSubCommand(SubCommand):
@@ -813,27 +795,24 @@ class LogsWorkloadSubCommand(SubCommand):
             raise ValueError(msg)
 
     def run(self):
-        try:
-            print("\033[2J\033[H", end="")
+        print("\033[2J\033[H", end="")
 
-            async def stream_logs():
-                logs_result = await async_logs_workload(
-                    name=self.name,
-                    namespace=self.namespace,
-                    tail=self.tail,
-                    follow=self.follow,
-                )
-                if self.follow:
-                    async for line in logs_result:
-                        print(line.decode("utf-8").rstrip())
-                elif isinstance(logs_result, str):
-                    print(logs_result.rstrip())
-                else:
-                    print(logs_result.decode("utf-8").rstrip())
+        async def stream_logs():
+            logs_result = await async_logs_workload(
+                name=self.name,
+                namespace=self.namespace,
+                tail=self.tail,
+                follow=self.follow,
+            )
+            if self.follow:
+                async for line in logs_result:
+                    print(line.decode("utf-8").rstrip())
+            elif isinstance(logs_result, str):
+                print(logs_result.rstrip())
+            else:
+                print(logs_result.decode("utf-8").rstrip())
 
-            asyncio.run(stream_logs())
-        except KeyboardInterrupt:
-            print("\033[2J\033[H", end="")
+        asyncio.run(stream_logs())
 
 
 class ExecWorkloadSubCommand(SubCommand):
@@ -901,52 +880,49 @@ class ExecWorkloadSubCommand(SubCommand):
             )
             sys.exit(1)
 
-        try:
-            print("\033[2J\033[H", end="")
-            exec_result = exec_workload(
-                name=self.name,
-                namespace=self.namespace,
-                detach=not self.interactive,
-                command=self.command,
-            )
+        print("\033[2J\033[H", end="")
+        exec_result = exec_workload(
+            name=self.name,
+            namespace=self.namespace,
+            detach=not self.interactive,
+            command=self.command,
+        )
 
-            # Non-interactive mode: print output and exit with the command's exit code
+        # Non-interactive mode: print output and exit with the command's exit code
 
-            if not self.interactive:
-                if isinstance(exec_result, bytes):
-                    print(exec_result.decode("utf-8").rstrip())
-                else:
-                    print(exec_result)
-                return
+        if not self.interactive:
+            if isinstance(exec_result, bytes):
+                print(exec_result.decode("utf-8").rstrip())
+            else:
+                print(exec_result)
+            return
 
-            # Interactive mode: use dockerpty to attach to the exec session
+        # Interactive mode: use dockerpty to attach to the exec session
 
-            class ExecOperation(pty.Operation):
-                def __init__(self, sock):
-                    self.stdin = sys.stdin
-                    self.stdout = sys.stdout
-                    self.sock = io.Stream(sock)
+        class ExecOperation(pty.Operation):
+            def __init__(self, sock):
+                self.stdin = sys.stdin
+                self.stdout = sys.stdout
+                self.sock = io.Stream(sock)
 
-                def israw(self, **_):
-                    return self.stdout.isatty()
+            def israw(self, **_):
+                return self.stdout.isatty()
 
-                def start(self, **_):
-                    sock = self.sockets()
-                    return [
-                        io.Pump(io.Stream(self.stdin), sock, wait_for_output=False),
-                        io.Pump(sock, io.Stream(self.stdout), propagate_close=False),
-                    ]
+            def start(self, **_):
+                sock = self.sockets()
+                return [
+                    io.Pump(io.Stream(self.stdin), sock, wait_for_output=False),
+                    io.Pump(sock, io.Stream(self.stdout), propagate_close=False),
+                ]
 
-                def resize(self, height, width, **_):
-                    pass
+            def resize(self, height, width, **_):
+                pass
 
-                def sockets(self):
-                    return self.sock
+            def sockets(self):
+                return self.sock
 
-            exec_op = ExecOperation(exec_result)
-            pty.PseudoTerminal(None, exec_op).start()
-        except KeyboardInterrupt:
-            print("\033[2J\033[H", end="")
+        exec_op = ExecOperation(exec_result)
+        pty.PseudoTerminal(None, exec_op).start()
 
 
 def format_workloads_json(sts: list[WorkloadStatus]) -> str:

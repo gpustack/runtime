@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 from __future__ import annotations
 
 import contextlib
@@ -5,8 +6,9 @@ import sys
 import time
 from argparse import ArgumentParser
 
-from gpustack_runtime import deployer, detector
+import argcomplete
 
+from . import deployer, detector
 from ._version import commit_id, version
 from .cmds import (
     CreateRunnerWorkloadSubCommand,
@@ -62,6 +64,9 @@ def main():
     ExecWorkloadSubCommand.register(subcommand_parser)
     DetectDevicesSubCommand.register(subcommand_parser)
 
+    # Autocomplete
+    argcomplete.autocomplete(parser)
+
     # Parse
     args = parser.parse_args()
     if getattr(args, "profile", False):
@@ -73,7 +78,10 @@ def main():
 
     # Run
     service = args.func(args)
-    service.run()
+    try:
+        service.run()
+    except KeyboardInterrupt:
+        print("\033[2J\033[H", end="")
 
 
 def profile(watch: int):
