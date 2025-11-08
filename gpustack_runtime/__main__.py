@@ -11,6 +11,7 @@ import argcomplete
 from . import deployer, detector
 from ._version import commit_id, version
 from .cmds import (
+    CopyImagesSubCommand,
     CreateRunnerWorkloadSubCommand,
     CreateWorkloadSubCommand,
     DeleteWorkloadsSubCommand,
@@ -18,8 +19,10 @@ from .cmds import (
     DetectDevicesSubCommand,
     ExecWorkloadSubCommand,
     GetWorkloadSubCommand,
+    ListImagesSubCommand,
     ListWorkloadsSubCommand,
     LogsWorkloadSubCommand,
+    SaveImagesSubCommand,
 )
 from .logging import setup_logging
 
@@ -63,6 +66,9 @@ def main():
     LogsWorkloadSubCommand.register(subcommand_parser)
     ExecWorkloadSubCommand.register(subcommand_parser)
     DetectDevicesSubCommand.register(subcommand_parser)
+    ListImagesSubCommand.register(subcommand_parser)
+    SaveImagesSubCommand.register(subcommand_parser)
+    CopyImagesSubCommand.register(subcommand_parser)
 
     # Autocomplete
     argcomplete.autocomplete(parser)
