@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from gpustack_runner.cmds.images import (
+from gpustack_runner.cmds import (
     CopyImagesSubCommand,
     ListImagesSubCommand,
     PlatformedImage,
