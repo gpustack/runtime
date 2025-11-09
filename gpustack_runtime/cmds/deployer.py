@@ -98,71 +98,71 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         deploy_parser = parser.add_parser(
             "create-runner",
-            help="create a runner workload deployment",
+            help="Create a runner workload deployment",
         )
 
         deploy_parser.add_argument(
             "--backend",
             type=str,
-            help="backend to use (default: detect from current environment)",
+            help="Backend to use (default: detect from current environment)",
             choices=supported_backends(),
         )
 
         deploy_parser.add_argument(
             "--device",
             type=str,
-            help="device to use, multiple devices join by comma (default: all devices)",
+            help="Device to use, multiple devices join by comma (default: all devices)",
             default="all",
         )
 
         deploy_parser.add_argument(
             "--port",
             type=int,
-            help="port to expose",
+            help="Port to expose",
         )
 
         deploy_parser.add_argument(
             "--host-network",
             action="store_true",
-            help="use host network (default: False)",
+            help="Use host network (default: False)",
             default=False,
         )
 
         deploy_parser.add_argument(
             "--check",
             action="store_true",
-            help="enable health check, needs --port (default: False)",
+            help="Enable health check, needs --port (default: False)",
             default=False,
         )
 
         deploy_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the runner",
+            help="Namespace of the runner",
         )
 
         deploy_parser.add_argument(
             "service",
             type=str,
-            help="service of the runner",
+            help="Service of the runner",
         )
 
         deploy_parser.add_argument(
             "version",
             type=str,
-            help="version of the runner",
+            help="Version of the runner",
         )
 
         deploy_parser.add_argument(
             "volume",
             type=str,
-            help="volume to mount",
+            help="Volume to mount",
         )
 
         deploy_parser.add_argument(
             "extra_args",
             nargs=REMAINDER,
-            help="extra arguments for the runner",
+            help="Extra arguments for the runner",
         )
 
         deploy_parser.set_defaults(func=CreateRunnerWorkloadSubCommand)
@@ -309,71 +309,71 @@ class CreateWorkloadSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         deploy_parser = parser.add_parser(
             "create",
-            help="create a workload deployment",
+            help="Create a workload deployment",
         )
 
         deploy_parser.add_argument(
             "--backend",
             type=str,
-            help="backend to use (default: detect from current environment)",
+            help="Backend to use (default: detect from current environment)",
             choices=supported_backends(),
         )
 
         deploy_parser.add_argument(
             "--device",
             type=str,
-            help="device to use, multiple devices join by comma (default: all devices)",
+            help="Device to use, multiple devices join by comma (default: all devices)",
             default="all",
         )
 
         deploy_parser.add_argument(
             "--port",
             type=int,
-            help="port to expose",
+            help="Port to expose",
         )
 
         deploy_parser.add_argument(
             "--host-network",
             action="store_true",
-            help="use host network (default: False)",
+            help="Use host network (default: False)",
             default=False,
         )
 
         deploy_parser.add_argument(
             "--check",
             action="store_true",
-            help="enable health check, needs --port (default: False)",
+            help="Enable health check, needs --port (default: False)",
             default=False,
         )
 
         deploy_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the workload",
+            help="Namespace of the workload",
         )
 
         deploy_parser.add_argument(
             "name",
             type=str,
-            help="name of the workload",
+            help="Name of the workload",
         )
 
         deploy_parser.add_argument(
             "image",
             type=str,
-            help="image to deploy (should be a valid Docker image)",
+            help="Image to deploy (should be a valid Docker image)",
         )
 
         deploy_parser.add_argument(
             "volume",
             type=str,
-            help="volume to mount",
+            help="Volume to mount",
         )
 
         deploy_parser.add_argument(
             "extra_args",
             nargs=REMAINDER,
-            help="extra arguments for the workload",
+            help="Extra arguments for the workload",
         )
 
         deploy_parser.set_defaults(func=CreateWorkloadSubCommand)
@@ -511,19 +511,19 @@ class DeleteWorkloadSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         delete_parser = parser.add_parser(
             "delete",
-            help="delete a workload deployment",
+            help="Delete a workload deployment",
         )
 
         delete_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the workload",
+            help="Namespace of the workload",
         )
 
         delete_parser.add_argument(
             "name",
             type=str,
-            help="name of the workload",
+            help="Name of the workload",
         )
 
         delete_parser.set_defaults(func=DeleteWorkloadSubCommand)
@@ -556,20 +556,20 @@ class DeleteWorkloadsSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         delete_parser = parser.add_parser(
             "delete-all",
-            help="delete all workload deployments",
+            help="Delete all workload deployments",
         )
 
         delete_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the workload",
+            help="Namespace of the workload",
         )
 
         delete_parser.add_argument(
             "--labels",
             type=lambda s: dict(item.split("=") for item in s.split(",")),
             required=False,
-            help="filter workloads by labels (key=value pairs separated by commas)",
+            help="Filter workloads by labels (key=value pairs separated by commas)",
         )
 
         delete_parser.set_defaults(func=DeleteWorkloadsSubCommand)
@@ -607,7 +607,7 @@ class GetWorkloadSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         get_parser = parser.add_parser(
             "get",
-            help="get the status of a workload deployment",
+            help="Get the status of a workload deployment",
         )
 
         get_parser.add_argument(
@@ -615,27 +615,27 @@ class GetWorkloadSubCommand(SubCommand):
             type=str,
             choices=["table", "json"],
             default="table",
-            help="output format",
+            help="Putput format",
         )
 
         get_parser.add_argument(
             "--watch",
             "-w",
             type=int,
-            help="continuously watch for the workload in intervals of N seconds",
+            help="Continuously watch for the workload in intervals of N seconds",
             default=0,
         )
 
         get_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the workload",
+            help="Namespace of the workload",
         )
 
         get_parser.add_argument(
             "name",
             type=str,
-            help="name of the workload",
+            help="Name of the workload",
         )
 
         get_parser.set_defaults(func=GetWorkloadSubCommand)
@@ -683,20 +683,20 @@ class ListWorkloadsSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         list_parser = parser.add_parser(
             "list",
-            help="list all workload deployments",
+            help="List all workload deployments",
         )
 
         list_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the workloads",
+            help="Namespace of the workloads",
         )
 
         list_parser.add_argument(
             "--labels",
             type=lambda s: dict(item.split("=") for item in s.split(",")),
             required=False,
-            help="filter workloads by labels (key=value pairs separated by commas)",
+            help="Filter workloads by labels (key=value pairs separated by commas)",
         )
 
         list_parser.add_argument(
@@ -704,14 +704,14 @@ class ListWorkloadsSubCommand(SubCommand):
             type=str,
             choices=["table", "json"],
             default="table",
-            help="output format",
+            help="Output format",
         )
 
         list_parser.add_argument(
             "--watch",
             "-w",
             type=int,
-            help="continuously watch for workloads in intervals of N seconds",
+            help="Continuously watch for workloads in intervals of N seconds",
         )
 
         list_parser.set_defaults(func=ListWorkloadsSubCommand)
@@ -753,13 +753,13 @@ class LogsWorkloadSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         logs_parser = parser.add_parser(
             "logs",
-            help="get the logs of a workload deployment",
+            help="Get the logs of a workload deployment",
         )
 
         logs_parser.add_argument(
             "--tail",
             type=int,
-            help="number of lines to show from the end of the logs (default: -1)",
+            help="Number of lines to show from the end of the logs (default: -1)",
             default=-1,
         )
 
@@ -767,19 +767,19 @@ class LogsWorkloadSubCommand(SubCommand):
             "--follow",
             "-f",
             action="store_true",
-            help="follow the logs in real-time",
+            help="Follow the logs in real-time",
         )
 
         logs_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the workload",
+            help="Namespace of the workload",
         )
 
         logs_parser.add_argument(
             "name",
             type=str,
-            help="name of the workload",
+            help="Name of the workload",
         )
 
         logs_parser.set_defaults(func=LogsWorkloadSubCommand)
@@ -829,32 +829,32 @@ class ExecWorkloadSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         exec_parser = parser.add_parser(
             "exec",
-            help="execute a command in a workload deployment",
+            help="Execute a command in a workload deployment",
         )
 
         exec_parser.add_argument(
             "--interactive",
             "-i",
             action="store_true",
-            help="interactive mode",
+            help="Interactive mode",
         )
 
         exec_parser.add_argument(
             "--namespace",
             type=str,
-            help="namespace of the workload",
+            help="Namespace of the workload",
         )
 
         exec_parser.add_argument(
             "name",
             type=str,
-            help="name of the workload",
+            help="Name of the workload",
         )
 
         exec_parser.add_argument(
             "command",
             nargs=REMAINDER,
-            help="command to execute in the workload",
+            help="Command to execute in the workload",
         )
 
         exec_parser.set_defaults(func=ExecWorkloadSubCommand)

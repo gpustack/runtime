@@ -24,7 +24,7 @@ class DetectDevicesSubCommand(SubCommand):
     def register(parser: _SubParsersAction):
         detect_parser = parser.add_parser(
             "detect",
-            help="detect GPUs and their properties",
+            help="Detect GPUs and their properties",
         )
 
         detect_parser.add_argument(
@@ -32,14 +32,14 @@ class DetectDevicesSubCommand(SubCommand):
             type=str,
             choices=["table", "json"],
             default="table",
-            help="output format",
+            help="Output format",
         )
 
         detect_parser.add_argument(
             "--watch",
             "-w",
             type=int,
-            help="continuously watch for GPU in intervals of N seconds",
+            help="Continuously watch for GPU in intervals of N seconds",
         )
 
         detect_parser.set_defaults(func=DetectDevicesSubCommand)

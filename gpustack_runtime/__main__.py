@@ -38,18 +38,18 @@ def main():
         "--version",
         action="version",
         version=f"%(prog)s {version}({commit_id})",
-        help="show the version and exit",
+        help="Show the version and exit",
     )
     parser.add_argument(
         "--profile",
         action="store_true",
-        help="display available behaviors",
+        help="Display available behaviors",
     )
     parser.add_argument(
         "--watch",
         "-w",
         type=int,
-        help="continuously display available behaviors (used with --profile) in intervals of N seconds",
+        help="Continuously display available behaviors (used with --profile) in intervals of N seconds",
         default=0,
     )
 
