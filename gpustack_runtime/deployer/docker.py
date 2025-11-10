@@ -42,6 +42,7 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
+from .__utils__ import _MiB, bytes_to_human_readable
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -454,9 +455,12 @@ class DockerDeployer(Deployer):
                 stream=True,
             )
 
+            progress_threshold = 1
             progress: int = 0
+            progress_current: int = 0
             layers: dict[str, int] = {}
             layer_progress: dict[str, int] = {}
+            layer_progress_current: dict[str, int] = {}
             is_raw = sys.stdout.isatty() and logger.isEnabledFor(logging.DEBUG)
             for line in pull_log:
                 line_str = (
@@ -476,6 +480,7 @@ class DockerDeployer(Deployer):
                     if log_id not in layers:
                         layers[log_id] = len(layers)
                         layer_progress[log_id] = 0
+                        layer_progress_current[log_id] = 0
                     if is_raw:
                         print("\033[E", end="")
                         print(f"\033[{layers[log_id] + 1};0H", end="")
@@ -488,15 +493,29 @@ class DockerDeployer(Deployer):
                             p_t = log.get("progressDetail", {}).get("total")
                             if p_c is not None and p_t is not None:
                                 layer_progress[log_id] = int(p_c * 100 // p_t)
-                            p_diff = (
-                                sum(layer_progress.values())
-                                * 100
-                                // (len(layer_progress) * 100)
-                                - progress
-                            )
-                            if p_diff >= 10:
-                                progress += 10
-                                logger.info(f"Pulling image {image}: {progress}%")
+                                p_diff = (
+                                    sum(layer_progress.values())
+                                    * 100
+                                    // (len(layer_progress) * 100)
+                                    - progress
+                                )
+                                if p_diff >= progress_threshold:
+                                    progress += progress_threshold
+                                    progress_threshold = min(5, progress_threshold + 1)
+                                    logger.info(f"Pulling image {image}: {progress}%")
+                            elif p_c is not None:
+                                layer_progress_current[log_id] = p_c
+                                p_c_total = sum(layer_progress_current.values())
+                                p_diff = p_c_total - progress_current
+                                if p_diff >= progress_threshold * _MiB:
+                                    progress_current = p_c_total
+                                    progress_threshold = min(
+                                        200,
+                                        progress_threshold + 2,
+                                    )
+                                    logger.info(
+                                        f"Pulling image {image}: {bytes_to_human_readable(p_c_total)}",
+                                    )
                     elif is_raw:
                         print(f"{log_id}: {log['status']}", flush=True)
 

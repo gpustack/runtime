@@ -600,3 +600,32 @@ def fnv1a_64_hex(data: bytes | str) -> str:
     """
     hash_value = fnv1a_64(data)
     return f"{hash_value:016x}"
+
+
+_KiB = 1 << 10
+_MiB = 1 << 20
+_GiB = 1 << 30
+_TiB = 1 << 40
+
+
+def bytes_to_human_readable(size_in_bytes: int) -> str:
+    """
+    Convert bytes to a human-readable string.
+
+    Args:
+        size_in_bytes:
+            The size in bytes.
+
+    Returns:
+        The human-readable string.
+
+    """
+    if size_in_bytes >= _TiB:
+        return f"{size_in_bytes / _TiB:.2f} TiB"
+    if size_in_bytes >= _GiB:
+        return f"{size_in_bytes / _GiB:.2f} GiB"
+    if size_in_bytes >= _MiB:
+        return f"{size_in_bytes / _MiB:.2f} MiB"
+    if size_in_bytes >= _KiB:
+        return f"{size_in_bytes / _KiB:.2f} KiB"
+    return f"{size_in_bytes} B"
