@@ -33,7 +33,12 @@ if rocmsmiLib is None:
         if not Path(rocmsmi_lib_path).exists():
             rocmsmi_lib_path = str(rocm_path / "rocm_smi" / "lib")
     else:
-        rocm_path = Path(rocmsmi_lib_path).parent.parent
+        rocm_path = Path(
+            os.getenv(
+                "ROCM_HOME",
+                os.getenv("ROCM_PATH") or str(Path(rocmsmi_lib_path).parent.parent),
+            )
+        )
 
     rocmsmi_lib_loc = Path(rocmsmi_lib_path) / "librocm_smi64.so"
     if rocmsmi_lib_loc.exists():

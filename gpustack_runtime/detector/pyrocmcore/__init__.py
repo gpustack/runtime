@@ -21,7 +21,12 @@ if rocmcoreLib is None:
         rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
         rocmcore_lib_path = str(rocm_path / "lib")
     else:
-        rocm_path = Path(rocmcore_lib_path).parent.parent
+        rocm_path = Path(
+            os.getenv(
+                "ROCM_HOME",
+                os.getenv("ROCM_PATH") or str(Path(rocmcore_lib_path).parent.parent),
+            )
+        )
 
     rocmcore_lib_loc = Path(rocmcore_lib_path) / "librocm-core.so"
     if rocmcore_lib_loc.exists():
