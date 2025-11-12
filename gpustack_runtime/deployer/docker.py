@@ -456,6 +456,7 @@ class DockerDeployer(Deployer):
             )
 
             progress_threshold = 1
+            progress_in_percent = False
             progress: int = 0
             progress_current: int = 0
             layers: dict[str, int] = {}
@@ -492,6 +493,7 @@ class DockerDeployer(Deployer):
                             p_c = log.get("progressDetail", {}).get("current")
                             p_t = log.get("progressDetail", {}).get("total")
                             if p_c is not None and p_t is not None:
+                                progress_in_percent = True
                                 layer_progress[log_id] = int(p_c * 100 // p_t)
                                 p_diff = (
                                     sum(layer_progress.values())
@@ -503,7 +505,7 @@ class DockerDeployer(Deployer):
                                     progress += progress_threshold
                                     progress_threshold = min(5, progress_threshold + 1)
                                     logger.info(f"Pulling image {image}: {progress}%")
-                            elif p_c is not None:
+                            elif not progress_in_percent and p_c is not None:
                                 layer_progress_current[log_id] = p_c
                                 p_c_total = sum(layer_progress_current.values())
                                 p_diff = p_c_total - progress_current
