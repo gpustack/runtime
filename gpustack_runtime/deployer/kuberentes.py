@@ -1121,6 +1121,10 @@ class KubernetesDeployer(Deployer):
         )
         ## - Pod runtime class name
         mirrored_runtime_class_name: str = self_pod.spec.runtime_class_name or ""
+        ## - Pod image pull secrets
+        mirrored_image_pull_secrets: list[kubernetes.client.V1LocalObjectReference] = (
+            self_pod.spec.image_pull_secrets
+        )
         ## - Container envs
         mirrored_envs: list[kubernetes.client.V1EnvVar] = [
             # Filter out gpustack-internal envs and cross-namespace secret/envref envs.
@@ -1212,6 +1216,18 @@ class KubernetesDeployer(Deployer):
             if mirrored_runtime_class_name and not pod.spec.runtime_class_name:
                 pod.spec.runtime_class_name = mirrored_runtime_class_name
 
+            if mirrored_image_pull_secrets:
+                pod.spec.image_pull_secrets = pod.spec.image_pull_secrets or []
+                p_image_pull_secrets_names = {
+                    # Map existing image pull secret names.
+                    ips.name
+                    for ips in pod.spec.image_pull_secrets
+                }
+                for ips in mirrored_image_pull_secrets:
+                    if ips.name not in p_image_pull_secrets_names:
+                        pod.spec.image_pull_secrets.append(ips)
+                        p_image_pull_secrets_names.add(ips.name)
+
             if mirrored_envs:
                 for ci in pod.spec.containers:
                     c_env_names = {ei.name for ei in ci.env or []}
@@ -1221,15 +1237,16 @@ class KubernetesDeployer(Deployer):
 
             if mirrored_volume_mounts or mirrored_volume_devices:
                 for ci in pod.spec.containers:
+                    ci.volume_mounts = ci.volume_mounts or []
                     c_volume_mount_names = {
                         # Map existing volume mount names.
                         mi.name
-                        for mi in ci.volume_mounts or []
+                        for mi in ci.volume_mounts
                     }
                     c_volume_mount_paths = {
                         # Map existing volume mount paths.
                         mi.mount_path
-                        for mi in ci.volume_mounts or []
+                        for mi in ci.volume_mounts
                     }
                     # Append volume mounts if not exists.
                     for mi in mirrored_volume_mounts:
@@ -1237,40 +1254,39 @@ class KubernetesDeployer(Deployer):
                             mi.name not in c_volume_mount_names
                             and mi.mount_path not in c_volume_mount_paths
                         ):
-                            ci.volume_mounts = ci.volume_mounts or []
                             ci.volume_mounts.append(mi)
                             c_volume_mount_names.add(mi.name)
                             c_volume_mount_paths.add(mi.mount_path)
+                    ci.volume_devices = ci.volume_devices or []
                     # Append volume devices if not exists.
                     c_volume_device_names = {
                         # Map existing volume device names.
                         di.name
-                        for di in ci.volume_devices or []
+                        for di in ci.volume_devices
                     }
                     c_volume_device_paths = {
                         # Map existing volume device paths.
                         di.device_path
-                        for di in ci.volume_devices or []
+                        for di in ci.volume_devices
                     }
                     for di in mirrored_volume_devices:
                         if (
                             di.name not in c_volume_device_names
                             and di.device_path not in c_volume_device_paths
                         ):
-                            ci.volume_devices = ci.volume_devices or []
                             ci.volume_devices.append(di)
                             c_volume_device_names.add(di.name)
                             c_volume_device_paths.add(di.device_path)
 
             if mirrored_volumes:
+                pod.spec.volumes = pod.spec.volumes or []
                 p_volume_names = {
                     # Map existing volume names.
                     vi.name
-                    for vi in pod.spec.volumes or []
+                    for vi in pod.spec.volumes
                 }
                 for vi in mirrored_volumes:
                     if vi.name not in p_volume_names:
-                        pod.spec.volumes = pod.spec.volumes or []
                         pod.spec.volumes.append(vi)
                         p_volume_names.add(vi.name)
 
