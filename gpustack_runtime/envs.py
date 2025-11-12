@@ -34,6 +34,12 @@ if TYPE_CHECKING:
     """
     Deployer to use (options: Auto, Docker, Kubernetes).
     """
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY: str | None = None
+    """
+    Default container registry for deployer to pull images from.
+    If not set, it should be "docker.io".
+    If the image name already contains a registry, this setting will be ignored.
+    """
     GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL: bool = True
     """
     Enable detailing the API call error during deployment.
@@ -196,6 +202,9 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY",
         "Auto",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY": lambda: trim_str(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY"),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL", "1"),
@@ -364,6 +373,23 @@ def mkdir_path(path: Path | str | None) -> Path | None:
         path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def trim_str(value: str | None) -> str | None:
+    """
+    Trim leading and trailing whitespace from a string.
+
+    Args:
+        value:
+            The string to trim.
+
+    Returns:
+        The trimmed string, or None if the input is None.
+
+    """
+    if value is not None:
+        return value.strip()
+    return None
 
 
 def to_bool(value: str | None) -> bool:
