@@ -438,7 +438,7 @@ class DockerDeployer(Deployer):
                 )
                 logger.debug("Created volume %s", n)
         except docker.errors.APIError as e:
-            msg = "Failed to create ephemeral volumes"
+            msg = f"Failed to create ephemeral volumes{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         return ephemeral_volume_name_mapping
@@ -525,7 +525,7 @@ class DockerDeployer(Deployer):
             msg = f"Failed to pull image {image}, invalid response"
             raise OperationError(msg) from e
         except docker.errors.APIError as e:
-            msg = f"Failed to pull image {image}"
+            msg = f"Failed to pull image {image}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
     def _get_image(
@@ -558,7 +558,7 @@ class DockerDeployer(Deployer):
             if policy == ContainerImagePullPolicyEnum.ALWAYS:
                 return self._pull_image(image)
         except docker.errors.APIError as e:
-            msg = f"Failed to get image {image}"
+            msg = f"Failed to get image {image}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         try:
@@ -568,7 +568,7 @@ class DockerDeployer(Deployer):
                 raise
             return self._pull_image(image)
         except docker.errors.APIError as e:
-            msg = f"Failed to get image {image}"
+            msg = f"Failed to get image {image}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
     def _create_pause_container(
@@ -592,7 +592,7 @@ class DockerDeployer(Deployer):
         except docker.errors.NotFound:
             pass
         except docker.errors.APIError as e:
-            msg = f"Failed to confirm whether container {container_name} exists"
+            msg = f"Failed to confirm whether container {container_name} exists{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             # TODO(thxCode): check if the container matches the spec
@@ -636,7 +636,7 @@ class DockerDeployer(Deployer):
                 **create_options,
             )
         except docker.errors.APIError as e:
-            msg = f"Failed to create container {container_name}"
+            msg = f"Failed to create container {container_name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             return d_container
@@ -671,7 +671,7 @@ class DockerDeployer(Deployer):
         except docker.errors.NotFound:
             pass
         except docker.errors.APIError as e:
-            msg = f"Failed to confirm whether container {container_name} exists"
+            msg = f"Failed to confirm whether container {container_name} exists{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             # TODO(thxCode): check if the container matches the spec
@@ -700,7 +700,7 @@ class DockerDeployer(Deployer):
                 **create_options,
             )
         except docker.errors.APIError as e:
-            msg = f"Failed to create container {container_name}"
+            msg = f"Failed to create container {container_name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             return d_container
@@ -880,7 +880,7 @@ class DockerDeployer(Deployer):
             except docker.errors.NotFound:
                 pass
             except docker.errors.APIError as e:
-                msg = f"Failed to confirm whether container {container_name} exists"
+                msg = f"Failed to confirm whether container {container_name} exists{_detail_api_call_error(e)}"
                 raise OperationError(msg) from e
             else:
                 # TODO(thxCode): check if the container matches the spec
@@ -1068,7 +1068,7 @@ class DockerDeployer(Deployer):
                     **create_options,
                 )
             except docker.errors.APIError as e:
-                msg = f"Failed to create container {container_name}"
+                msg = f"Failed to create container {container_name}{_detail_api_call_error(e)}"
                 raise OperationError(msg) from e
             else:
                 if c.profile == ContainerProfileEnum.INIT:
@@ -1438,7 +1438,9 @@ class DockerDeployer(Deployer):
             if unhealthy_restart_container:
                 self._start_containers(unhealthy_restart_container)
         except docker.errors.APIError as e:
-            msg = f"Failed to create workload {workload.name}"
+            msg = (
+                f"Failed to create workload {workload.name}{_detail_api_call_error(e)}"
+            )
             raise OperationError(msg) from e
 
     @_supported
@@ -1481,7 +1483,7 @@ class DockerDeployer(Deployer):
                 **list_options,
             )
         except docker.errors.APIError as e:
-            msg = f"Failed to list containers for workload {name}"
+            msg = f"Failed to list containers for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         if not d_containers:
@@ -1530,7 +1532,7 @@ class DockerDeployer(Deployer):
                     force=True,
                 )
         except docker.errors.APIError as e:
-            msg = f"Failed to delete containers for workload {name}"
+            msg = f"Failed to delete containers for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Remove all ephemeral volumes with the workload label.
@@ -1551,7 +1553,7 @@ class DockerDeployer(Deployer):
                     force=True,
                 )
         except docker.errors.APIError as e:
-            msg = f"Failed to delete volumes for workload {name}"
+            msg = f"Failed to delete volumes for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Remove all ephemeral files for the workload.
@@ -1617,7 +1619,7 @@ class DockerDeployer(Deployer):
                 **list_options,
             )
         except docker.errors.APIError as e:
-            msg = "Failed to list workloads' containers"
+            msg = f"Failed to list workloads' containers{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Group containers by workload name,
@@ -1717,7 +1719,7 @@ class DockerDeployer(Deployer):
                 **logs_options,
             )
         except docker.errors.APIError as e:
-            msg = f"Failed to fetch logs for container {container.name} of workload {name}"
+            msg = f"Failed to fetch logs for container {container.name} of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             return output
@@ -1797,7 +1799,7 @@ class DockerDeployer(Deployer):
                 **exec_options,
             )
         except docker.errors.APIError as e:
-            msg = f"Failed to exec command in container {container.name} of workload {name}"
+            msg = f"Failed to exec command in container {container.name} of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             if not attach:
@@ -1845,3 +1847,30 @@ class DockerWorkloadExecStream(WorkloadExecStream):
         if self.closed:
             return
         self._sock.close()
+
+
+def _detail_api_call_error(err: docker.errors.APIError) -> str:
+    """
+    Explain a Docker API error in a concise way,
+    if the envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL is enabled.
+
+    Args:
+        err:
+            The Docker API error.
+
+    Returns:
+        A concise explanation of the error.
+
+    """
+    if not envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL:
+        return ""
+
+    msg = f": Docker {'Client' if err.is_client_error() else 'Server'} Error"
+    if err.explanation:
+        msg += f": {err.explanation}"
+    elif err.response.reason:
+        msg += f": {err.response.reason}"
+    else:
+        msg += f": status code {err.response.status_code}"
+
+    return msg

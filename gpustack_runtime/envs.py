@@ -34,6 +34,10 @@ if TYPE_CHECKING:
     """
     Deployer to use (options: Auto, Docker, Kubernetes).
     """
+    GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL: bool = True
+    """
+    Enable detailing the API call error during deployment.
+    """
     GPUSTACK_RUNTIME_DEPLOY_ASYNC: bool = True
     """
     Enable asynchronous deployment.
@@ -192,6 +196,9 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY",
         "Auto",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL", "1"),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_ASYNC": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_ASYNC", "1"),

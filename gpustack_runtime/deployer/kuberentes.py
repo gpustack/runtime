@@ -430,7 +430,7 @@ class KubernetesDeployer(Deployer):
                         workload.namespace,
                     )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to create configmap for workload {workload.name}"
+            msg = f"Failed to create configmap for workload {workload.name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         return ephemeral_filename_mapping
@@ -706,7 +706,7 @@ class KubernetesDeployer(Deployer):
                     workload.namespace,
                 )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to create service for workload {workload.name}"
+            msg = f"Failed to create service for workload {workload.name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         return service
@@ -1029,7 +1029,7 @@ class KubernetesDeployer(Deployer):
                     workload.namespace,
                 )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to create pod for workload {workload.name}"
+            msg = f"Failed to create pod for workload {workload.name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         return pod
@@ -1051,7 +1051,7 @@ class KubernetesDeployer(Deployer):
             try:
                 nodes = core_api.list_node(limit=1)
             except kubernetes.client.exceptions.ApiException as e:
-                msg = "Failed to get the default node name of the cluster"
+                msg = f"Failed to get the default node name of the cluster{_detail_api_call_error(e)}"
                 raise OperationError(msg) from e
             else:
                 if nodes.items:
@@ -1367,7 +1367,7 @@ class KubernetesDeployer(Deployer):
                 **list_options,
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to get deployment of workload {name}"
+            msg = f"Failed to get deployment of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         if len(k_pods.items) > 1:
@@ -1431,7 +1431,7 @@ class KubernetesDeployer(Deployer):
                 propagation_policy="Foreground",
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to delete pod of workload {name}"
+            msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Remove all Services with the workload label.
@@ -1442,7 +1442,7 @@ class KubernetesDeployer(Deployer):
                 propagation_policy="Foreground",
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to delete service of workload {name}"
+            msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Remove all ConfigMaps with the workload label.
@@ -1453,7 +1453,7 @@ class KubernetesDeployer(Deployer):
                 propagation_policy="Foreground",
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to delete configmap of workload {name}"
+            msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         return workload
@@ -1509,7 +1509,7 @@ class KubernetesDeployer(Deployer):
                 **list_options,
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = "Failed to list workloads' deployments"
+            msg = f"Failed to list workloads' deployments{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         return [
@@ -1605,7 +1605,7 @@ class KubernetesDeployer(Deployer):
                 **logs_options,
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to fetch logs for container {container.name} of workload {name}"
+            msg = f"Failed to fetch logs for container {container.name} of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             return output
@@ -1691,7 +1691,7 @@ class KubernetesDeployer(Deployer):
                 **exec_options,
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to exec command in container {container.name} of workload {name}"
+            msg = f"Failed to exec command in container {container.name} of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             if not attach:
@@ -1906,3 +1906,30 @@ class KubernetesWorkloadExecStream(WorkloadExecStream):
         if not self.closed:
             return
         self._ws.close()
+
+
+def _detail_api_call_error(err: kubernetes.client.exceptions.ApiException) -> str:
+    """
+    Explain a Kubernetes API error in a concise way,
+    if the envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL is enabled.
+
+    Args:
+        err:
+            The Kubernetes API error.
+
+    Returns:
+        A concise explanation of the error.
+
+    """
+    if not envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL:
+        return ""
+
+    msg = ": Kubernetes Error"
+    if err.reason:
+        msg += f": {err.reason}"
+    elif err.body:
+        msg += f": {err.body}"
+    else:
+        msg += f": status code {err.status}"
+
+    return msg
