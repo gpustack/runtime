@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import csv
+import contextlib
 import logging
 from functools import lru_cache
 
 from .. import envs
+from . import pyixml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
-    execute_command,
+    byte_to_mebibyte,
+    get_brief_version,
     get_pci_devices,
     get_utilization,
-    safe_float,
-    safe_int,
     support_command,
 )
 
@@ -77,39 +77,69 @@ class IluvatarDetector(Detector):
         ret: Devices = []
 
         try:
-            output = execute_command(
-                [
-                    "ixsmi",
-                    "--format=csv,noheader",
-                    "--query-gpu=index,name,utilization.gpu,memory.total,memory.used,temperature.gpu,power.default_limit,power.draw",
-                ],
+            pyixml.nvmlInit()
+
+            sys_driver_ver = pyixml.nvmlSystemGetDriverVersion()
+
+            sys_runtime_ver_original = pyixml.nvmlSystemGetCudaDriverVersion()
+            sys_runtime_ver_original = ".".join(
+                map(
+                    str,
+                    [
+                        sys_runtime_ver_original // 1000,
+                        (sys_runtime_ver_original % 1000) // 10,
+                        (sys_runtime_ver_original % 10),
+                    ],
+                ),
             )
-            """
-            Example output:
-            0, Iluvatar MR-V50, 0 %, 16384 MiB, 116 MiB, 30 C, 320.00 W, 9.26 W
-            1, Iluvatar MR-V100, 0 %, 32768 MiB, 27996 MiB, 36 C, 320.00 W, 6.35 W
-            """
+            sys_runtime_ver = get_brief_version(
+                sys_runtime_ver_original,
+            )
 
-            output_csv = csv.reader(output.splitlines())
-            for row in output_csv:
-                if len(row) < 8:
-                    continue
+            dev_count = pyixml.nvmlDeviceGetCount()
+            for dev_idx in range(dev_count):
+                dev = pyixml.nvmlDeviceGetHandleByIndex(dev_idx)
 
-                dev_index = safe_int(row[0])
-                dev_name = row[1].strip()
+                dev_is_vgpu = False
+                dev_index = dev_idx
+                dev_uuid = pyixml.nvmlDeviceGetUUID(dev)
+                dev_name = pyixml.nvmlDeviceGetName(dev)
 
-                dev_cores_util = safe_float(row[2].split()[0])
+                dev_cores = pyixml.nvmlDeviceGetNumGpuCores(dev)
 
-                dev_mem = safe_int(row[3].split()[0])
-                dev_mem_used = safe_int(row[4].split()[0])
+                dev_mem, dev_mem_used = 0, 0
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_mem_info = pyixml.nvmlDeviceGetMemoryInfo(dev)
+                    dev_mem = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.total,
+                    )
+                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.used,
+                    )
 
-                dev_temp = safe_float(row[5].split()[0])
+                dev_util_rates = pyixml.nvmlDeviceGetUtilizationRates(dev)
 
-                dev_power = safe_float(row[6].split()[0])
-                dev_power_used = safe_float(row[7].split()[0])
+                dev_temp = pyixml.nvmlDeviceGetTemperature(
+                    dev,
+                    pyixml.NVML_TEMPERATURE_GPU,
+                )
+
+                dev_power, dev_power_used = None, None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_power = pyixml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
+                    dev_power = dev_power // 1000  # mW to W
+                    dev_power_used = (
+                        pyixml.nvmlDeviceGetPowerUsage(dev) // 1000
+                    )  # mW to W
+
+                dev_cc = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_cc_t = pyixml.nvmlDeviceGetCudaComputeCapability(dev)
+                    if dev_cc_t:
+                        dev_cc = ".".join(map(str, dev_cc_t))
 
                 dev_appendix = {
-                    "vgpu": False,
+                    "vgpu": dev_is_vgpu,
                 }
 
                 ret.append(
@@ -117,7 +147,13 @@ class IluvatarDetector(Detector):
                         manufacturer=self.manufacturer,
                         index=dev_index,
                         name=dev_name,
-                        cores_utilization=dev_cores_util,
+                        uuid=dev_uuid,
+                        driver_version=sys_driver_ver,
+                        runtime_version=sys_runtime_ver,
+                        runtime_version_original=sys_runtime_ver_original,
+                        compute_capability=dev_cc,
+                        cores=dev_cores,
+                        cores_utilization=dev_util_rates.gpu,
                         memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),

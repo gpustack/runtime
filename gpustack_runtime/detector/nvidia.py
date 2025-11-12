@@ -159,11 +159,13 @@ class NVIDIADetector(Detector):
                     pynvml.NVML_TEMPERATURE_GPU,
                 )
 
-                dev_power = None
+                dev_power, dev_power_used = None, None
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
                     dev_power = dev_power // 1000  # mW to W
-                dev_power_used = pynvml.nvmlDeviceGetPowerUsage(dev) // 1000  # mW to W
+                    dev_power_used = (
+                        pynvml.nvmlDeviceGetPowerUsage(dev) // 1000
+                    )  # mW to W
 
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
