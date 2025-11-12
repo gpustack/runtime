@@ -625,8 +625,7 @@ class DockerDeployer(Deployer):
 
         if workload.host_ipc:
             create_options["ipc_mode"] = "host"
-
-        if not workload.host_ipc and workload.shm_size:
+        elif workload.shm_size:
             create_options["shm_size"] = workload.shm_size
 
         try:
@@ -903,6 +902,9 @@ class DockerDeployer(Deployer):
                     _LABEL_COMPONENT_INDEX: str(ci),
                 },
             }
+
+            if not workload.host_ipc and workload.shm_size:
+                create_options["shm_size"] = workload.shm_size
 
             if workload.pid_shared:
                 create_options["pid_mode"] = pause_container_namespace
