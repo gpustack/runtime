@@ -15,7 +15,7 @@
 # - PYTHON_VERSION: Version of Python to use.
 # - GPUSTACK_RUNTIME_BASE_IMAGE: Base image for the gpustack-runtime stage.
 # - GPUSTACK_RUNTIME_ROCM_VERSION: Version of ROCm to vendor libraries from, update this if project dependencies has changed.
-# - GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS: Line-separated list of labels to filter mirrored images when deploying mirrored deployment.
+# - GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS: Semicolon-separated list of labels to filter mirrored images when deploying mirrored deployment.
 ARG PYTHON_VERSION=3.11
 ARG GPUSTACK_RUNTIME_BASE_IMAGE=runtime
 ARG GPUSTACK_RUNTIME_ROCM_VERSION=6.2.4
@@ -473,9 +473,14 @@ ENV NVIDIA_DISABLE_REQUIRE="true" \
     NVIDIA_VISIBLE_DEVICES="all" \
     NVIDIA_DRIVER_CAPABILITIES="compute,utility"
 
+## Active GPUStack runtime mirrored deployment mode,
+## if getting an error like, "Found multiple Containers with the same hostname ...",
+## please use `--env GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=...` to specify the exact container name.
+##
 ARG GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS
 
 ENV GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT="true" \
     GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS="${GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS}"
+
 WORKDIR /
 ENTRYPOINT [ "tini", "--" ]

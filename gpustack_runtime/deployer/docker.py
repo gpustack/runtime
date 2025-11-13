@@ -1162,13 +1162,19 @@ class DockerDeployer(Deployer):
             )
         try:
             self_container = self._find_self_container(self_container_id)
+            logger.info(
+                "Mirrored deployment enabled, using self Container %s for options mirroring",
+                self_container.id,
+            )
             self_image = self_container.image
         except docker.errors.APIError as e:
             output_log = logger.warning
             if logger.isEnabledFor(logging.DEBUG):
                 output_log = logger.exception
             output_log(
-                f"Mirrored deployment enabled, but failed to get self Container {self_container_id}, skipping: {e}",
+                "Mirrored deployment enabled, but failed to get self Container %s, skipping: %s",
+                self_container_id,
+                e,
             )
             return
 
