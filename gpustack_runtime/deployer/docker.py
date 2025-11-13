@@ -600,11 +600,25 @@ class DockerDeployer(Deployer):
             # TODO(thxCode): check if the container matches the spec
             return container
 
+        security_opt = [
+            "no-new-privileges",
+        ]
+        privileged = any(
+            c.execution.privileged
+            for c in workload.containers
+            if c.profile == ContainerProfileEnum.RUN and c.execution
+        )
+        if privileged:
+            security_opt.append("label=disable")
+
         create_options: dict[str, Any] = {
             "name": container_name,
-            "restart_policy": {"Name": "always"},
+            "restart_policy": {"Name": "no"},
             "network_mode": "bridge",
             "ipc_mode": "shareable",
+            "oom_score_adj": -998,
+            "privileged": privileged,
+            "security_opt": security_opt,
             "labels": {
                 **workload.labels,
                 _LABEL_COMPONENT: "pause",
@@ -1242,6 +1256,9 @@ class DockerDeployer(Deployer):
 
         # Construct mutation function.
         def mutate_create_options(create_options: dict[str, Any]) -> dict[str, Any]:
+            if create_options.get("name", "").endswith("-pause"):
+                return create_options
+
             if mirrored_runtime and "runtime" not in create_options:
                 create_options["runtime"] = mirrored_runtime
 
