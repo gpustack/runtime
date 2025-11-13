@@ -132,6 +132,12 @@ if TYPE_CHECKING:
     # Deployer
 
     ## Docker
+    GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS: dict[str, str] | None = None
+    """
+    Filter labels for selecting the mirrored deployer container in Docker.
+    Only works when `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME` is not set.
+    Normally, it should be injected automatically via CI without any manual configuration.
+    """
     GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE: str | None = None
     """
     Docker image used for the pause container.
@@ -284,6 +290,12 @@ variables: dict[str, Callable[[], Any]] = {
         getenv("GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", "1"),
     ),
     # Deployer
+    "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS": lambda: to_dict(
+        getenv(
+            "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS",
+        ),
+        sep=";",
+    ),
     "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE": lambda: getenv(
         "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE",
         "gpustack/runtime:pause",

@@ -94,6 +94,7 @@ package:
 			--buildkitd-flags "--allow-insecure-entitlement=security.insecure --allow-insecure-entitlement=network.host --oci-worker-net=host --oci-worker-gc-keepstorage=204800" \
 			--bootstrap; \
 	fi
+	LABELS=("org.opencontainers.image.source=https://github.com/gpustack/runtime" "org.opencontainers.image.version=main" "org.opencontainers.image.revision=$(GIT_COMMIT)" "org.opencontainers.image.created=$$(date +"%Y-%m-%dT%H:%M:%S.%s")"); \
 	TAG=$(PACKAGE_NAMESPACE)/$(PACKAGE_REPOSITORY):$(PACKAGE_TAG); \
 	EXTRA_ARGS=(); \
 	if [[ "$(PACKAGE_WITH_CACHE)" == "true" ]]; then \
@@ -116,6 +117,7 @@ package:
 		--ulimit nofile=65536:65536 \
 		--shm-size 16G \
 		--progress plain \
+		--build-arg "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS=$$(printf "%s;" "$${LABELS[@]}")" \
 		$${EXTRA_ARGS[@]} \
 		$(SRCDIR); \
 	set +x

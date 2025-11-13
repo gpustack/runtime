@@ -1161,30 +1161,14 @@ class DockerDeployer(Deployer):
                 self_container_id,
             )
         try:
-            if envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
-                # Directly get container by name or ID.
-                self_container = self._client.containers.get(self_container_id)
-            else:
-                # Find containers that matches the hostname.
-                containers = self._client.containers.list()
-                containers = [
-                    c
-                    for c in containers
-                    if c.attrs["Config"].get("Hostname", "") == self_container_id
-                ]
-                if len(containers) != 1:
-                    msg = f"Container with name {self_container_id} not found"
-                    raise docker.errors.NotFound(
-                        msg,
-                    )
-                self_container = containers[0]
+            self_container = self._find_self_container(self_container_id)
             self_image = self_container.image
-        except docker.errors.APIError:
+        except docker.errors.APIError as e:
             output_log = logger.warning
             if logger.isEnabledFor(logging.DEBUG):
                 output_log = logger.exception
             output_log(
-                f"Mirrored deployment enabled, but failed to get self Container {self_container_id}, skipping",
+                f"Mirrored deployment enabled, but failed to get self Container {self_container_id}, skipping: {e}",
             )
             return
 
@@ -1393,6 +1377,55 @@ class DockerDeployer(Deployer):
                     b_subpath = e_target.removeprefix(b_target)
                     result = result.joinpath(b_subpath.lstrip("/"))
                 self._container_ephemeral_files_dir = result
+
+    def _find_self_container(
+        self,
+        self_container_id: str,
+    ) -> docker.models.containers.Container:
+        """
+        Find the current container if running inside a Docker container.
+
+        Args:
+            self_container_id:
+                The container name or ID to find.
+
+        Returns:
+            The Docker container if found, None otherwise.
+
+        Raises:
+            If failed to find itself.
+
+        """
+        if envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
+            # Directly get container by name or ID.
+            return self._client.containers.get(self_container_id)
+
+        # Find containers that matches the hostname.
+        containers: list[docker.models.containers.Container] = []
+        for c in self._client.containers.list():
+            # Ignore workload containers with host network enabled.
+            if _LABEL_WORKLOAD in c.labels:
+                continue
+            # Ignore containers that do not match the hostname.
+            if c.attrs["Config"].get("Hostname", "") != self_container_id:
+                continue
+            # Ignore containers that do not match the filter labels.
+            if envs.GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS and any(
+                c.labels.get(k) != v
+                for k, v in envs.GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS.items()
+            ):
+                continue
+            containers.append(c)
+
+        # Validate found containers.
+        if len(containers) != 1:
+            msg = (
+                f"Found multiple Containers with the same hostname {self_container_id}, "
+                "please use `--env GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=...` to specify the exact container name"
+            )
+            raise docker.errors.NotFound(msg)
+
+        return containers[0]
 
     @_supported
     def _create(self, workload: WorkloadPlan):
