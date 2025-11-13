@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from argparse import REMAINDER
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .. import envs
@@ -84,6 +85,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
 
     backend: str
     device: str
+    entrypoint: str
     port: int
     host_network: bool
     check: bool
@@ -113,6 +115,12 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             type=str,
             help="Device to use, multiple devices join by comma (default: all devices)",
             default="all",
+        )
+
+        deploy_parser.add_argument(
+            "--entrypoint-file",
+            type=str,
+            help="Path of entrypoint for the workload",
         )
 
         deploy_parser.add_argument(
@@ -184,6 +192,13 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             msg = "The name and volume arguments are required."
             raise ValueError(msg)
 
+        if args.entrypoint_file:
+            entrypoint_file = Path(args.entrypoint_file)
+            if not entrypoint_file.is_file():
+                msg = f"The entrypoint file '{entrypoint_file}' does not exist."
+                raise ValueError(msg)
+            self.entrypoint = entrypoint_file.read_text(encoding="utf-8").strip()
+
     def run(self):
         env = [
             ContainerEnv(
@@ -215,19 +230,20 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         ]
         execution = ContainerExecution(
             privileged=True,
+            entrypoint=self.entrypoint,
+            args=self.extra_args,
         )
-        if self.extra_args:
-            execution.command = self.extra_args
-        ports = None
-        if self.port:
-            ports = [
+        ports = (
+            [
                 ContainerPort(
                     internal=self.port,
                 ),
             ]
-        checks = None
-        if self.check and self.port:
-            checks = [
+            if self.port
+            else None
+        )
+        checks = (
+            [
                 ContainerCheck(
                     delay=60,
                     interval=10,
@@ -237,6 +253,9 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
                     teardown=True,
                 ),
             ]
+            if self.check and self.port
+            else None
+        )
         plan = WorkloadPlan(
             name=self.name,
             namespace=self.namespace,
@@ -296,6 +315,7 @@ class CreateWorkloadSubCommand(SubCommand):
 
     backend: str
     device: str
+    entrypoint: str
     port: int
     host_network: bool
     check: bool
@@ -324,6 +344,12 @@ class CreateWorkloadSubCommand(SubCommand):
             type=str,
             help="Device to use, multiple devices join by comma (default: all devices)",
             default="all",
+        )
+
+        deploy_parser.add_argument(
+            "--entrypoint-file",
+            type=str,
+            help="Path of entrypoint for the workload",
         )
 
         deploy_parser.add_argument(
@@ -394,6 +420,13 @@ class CreateWorkloadSubCommand(SubCommand):
             msg = "The name, image, and volume arguments are required."
             raise ValueError(msg)
 
+        if args.entrypoint_file:
+            entrypoint_file = Path(args.entrypoint_file)
+            if not entrypoint_file.is_file():
+                msg = f"The entrypoint file '{entrypoint_file}' does not exist."
+                raise ValueError(msg)
+            self.entrypoint = entrypoint_file.read_text(encoding="utf-8").strip()
+
     def run(self):
         env = [
             ContainerEnv(
@@ -425,19 +458,20 @@ class CreateWorkloadSubCommand(SubCommand):
         ]
         execution = ContainerExecution(
             privileged=True,
+            entrypoint=self.entrypoint,
+            args=self.extra_args,
         )
-        if self.extra_args:
-            execution.command = self.extra_args
-        ports = None
-        if self.port:
-            ports = [
+        ports = (
+            [
                 ContainerPort(
                     internal=self.port,
                 ),
             ]
-        checks = None
-        if self.check and self.port:
-            checks = [
+            if self.port
+            else None
+        )
+        checks = (
+            [
                 ContainerCheck(
                     delay=60,
                     interval=10,
@@ -447,6 +481,9 @@ class CreateWorkloadSubCommand(SubCommand):
                     teardown=True,
                 ),
             ]
+            if self.check and self.port
+            else None
+        )
         plan = WorkloadPlan(
             name=self.name,
             namespace=self.namespace,

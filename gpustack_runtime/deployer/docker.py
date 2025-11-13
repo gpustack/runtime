@@ -600,16 +600,14 @@ class DockerDeployer(Deployer):
             # TODO(thxCode): check if the container matches the spec
             return container
 
-        security_opt = [
-            "no-new-privileges",
-        ]
         privileged = any(
             c.execution.privileged
             for c in workload.containers
             if c.profile == ContainerProfileEnum.RUN and c.execution
         )
-        if privileged:
-            security_opt.append("label=disable")
+        security_opt = [
+            "no-new-privileges",
+        ]
 
         create_options: dict[str, Any] = {
             "name": container_name,

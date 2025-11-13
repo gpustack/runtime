@@ -21,6 +21,7 @@ from ..detector import (
 )
 from .__utils__ import (
     correct_runner_image,
+    fnv1a_32_hex,
     fnv1a_64_hex,
     is_rfc1123_domain_name,
     safe_json,
@@ -169,6 +170,18 @@ class ContainerExecution(ContainerSecurity):
     Attributes:
         working_dir (str | None):
             Working directory for the container.
+        entrypoint (str | None):
+            Entrypoint content for the container,
+            only work if `readonly_rootfs` is False.
+            When it is set, it will override the `command` field.
+            For example,
+
+            ```
+                #!/bin/sh
+
+                echo "Hello, World!"
+                exec /path/to/bin "$@"
+            ```
         command (list[str] | None):
             Command to run in the container.
         args (list[str] | None):
@@ -190,6 +203,20 @@ class ContainerExecution(ContainerSecurity):
     working_dir: str | None = None
     """
     Working directory for the container.
+    """
+    entrypoint: str | None = None
+    """
+    Entrypoint content for the container,
+    only work if `readonly_rootfs` is False.
+    When it is set, it will override the `command` field.
+    For example,
+
+    ```
+        #!/bin/sh
+
+        echo "Hello, World!"
+        exec /path/to/bin "$@"
+    ```
     """
     command: list[str] | None = None
     """
@@ -974,6 +1001,22 @@ class WorkloadPlan(WorkloadSecurity):
                     c.restart_policy = ContainerRestartPolicyEnum.NEVER
             elif not c.restart_policy:
                 c.restart_policy = ContainerRestartPolicyEnum.ALWAYS
+            # Mutate container entrypoint.
+            if c.execution and c.execution.entrypoint:
+                if c.execution.readonly_rootfs:
+                    msg = f"Readonly rootfs Container '{c.name}' cannot have an entrypoint."
+                    raise ValueError(msg)
+                entrypoint_script_name = f"/gpustack-entrypoint-{fnv1a_32_hex(c.name)}"
+                entrypoint_file = ContainerFile(
+                    path=entrypoint_script_name,
+                    mode=0o755,
+                    content=c.execution.entrypoint,
+                )
+                if not c.files:
+                    c.files = []
+                c.files.append(entrypoint_file)
+                c.execution.command = [entrypoint_script_name]  # Override command.
+                c.execution.entrypoint = None
             # Add default registry if needed.
             if (
                 envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY
