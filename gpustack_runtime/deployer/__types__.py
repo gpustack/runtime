@@ -170,8 +170,10 @@ class ContainerExecution(ContainerSecurity):
     Attributes:
         working_dir (str | None):
             Working directory for the container.
-        entrypoint (str | None):
-            Entrypoint content for the container,
+        command (list[str] | None):
+            Command to run in the container.
+        command_script (str | None):
+            Command(in form of script) for the container,
             only work if `readonly_rootfs` is False.
             When it is set, it will override the `command` field.
             For example,
@@ -182,8 +184,6 @@ class ContainerExecution(ContainerSecurity):
                 echo "Hello, World!"
                 exec /path/to/bin "$@"
             ```
-        command (list[str] | None):
-            Command to run in the container.
         args (list[str] | None):
             Arguments to pass to the command.
         run_as_user (int | None):
@@ -204,9 +204,13 @@ class ContainerExecution(ContainerSecurity):
     """
     Working directory for the container.
     """
-    entrypoint: str | None = None
+    command: list[str] | None = None
     """
-    Entrypoint content for the container,
+    Command to run in the container.
+    """
+    command_script: str | None = None
+    """
+    Command(in form of script) for the container,
     only work if `readonly_rootfs` is False.
     When it is set, it will override the `command` field.
     For example,
@@ -217,10 +221,6 @@ class ContainerExecution(ContainerSecurity):
         echo "Hello, World!"
         exec /path/to/bin "$@"
     ```
-    """
-    command: list[str] | None = None
-    """
-    Command to run in the container.
     """
     args: list[str] | None = None
     """
@@ -1001,22 +1001,22 @@ class WorkloadPlan(WorkloadSecurity):
                     c.restart_policy = ContainerRestartPolicyEnum.NEVER
             elif not c.restart_policy:
                 c.restart_policy = ContainerRestartPolicyEnum.ALWAYS
-            # Mutate container entrypoint.
-            if c.execution and c.execution.entrypoint:
+            # Mutate container command.
+            if c.execution and c.execution.command_script:
                 if c.execution.readonly_rootfs:
-                    msg = f"Readonly rootfs Container '{c.name}' cannot have an entrypoint."
+                    msg = f"Readonly rootfs Container '{c.name}' cannot configure `command_script`."
                     raise ValueError(msg)
-                entrypoint_script_name = f"/gpustack-entrypoint-{fnv1a_32_hex(c.name)}"
-                entrypoint_file = ContainerFile(
-                    path=entrypoint_script_name,
+                command_script_name = f"/gpustack-command-{fnv1a_32_hex(c.name)}"
+                command_script = ContainerFile(
+                    path=command_script_name,
                     mode=0o755,
-                    content=c.execution.entrypoint,
+                    content=c.execution.command_script,
                 )
                 if not c.files:
                     c.files = []
-                c.files.append(entrypoint_file)
-                c.execution.command = [entrypoint_script_name]  # Override command.
-                c.execution.entrypoint = None
+                c.files.append(command_script)
+                c.execution.command = [command_script_name]  # Override command.
+                c.execution.command_script = None
             # Add default registry if needed.
             if (
                 envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY

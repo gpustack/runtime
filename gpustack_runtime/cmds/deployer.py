@@ -85,7 +85,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
 
     backend: str
     device: str
-    entrypoint: str
+    command_script: str
     port: int
     host_network: bool
     check: bool
@@ -118,9 +118,9 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         )
 
         deploy_parser.add_argument(
-            "--entrypoint-file",
+            "--command-script-file",
             type=str,
-            help="Path of entrypoint for the workload",
+            help="Path of command script for the workload",
         )
 
         deploy_parser.add_argument(
@@ -192,12 +192,14 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             msg = "The name and volume arguments are required."
             raise ValueError(msg)
 
-        if args.entrypoint_file:
-            entrypoint_file = Path(args.entrypoint_file)
-            if not entrypoint_file.is_file():
-                msg = f"The entrypoint file '{entrypoint_file}' does not exist."
+        if args.command_script_file:
+            command_script_file = Path(args.command_script_file)
+            if not command_script_file.is_file():
+                msg = f"The command script file '{command_script_file}' does not exist."
                 raise ValueError(msg)
-            self.entrypoint = entrypoint_file.read_text(encoding="utf-8").strip()
+            self.command_script = command_script_file.read_text(
+                encoding="utf-8",
+            ).strip()
 
     def run(self):
         env = [
@@ -230,7 +232,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
         ]
         execution = ContainerExecution(
             privileged=True,
-            entrypoint=self.entrypoint,
+            command_script=self.command_script,
             args=self.extra_args,
         )
         ports = (
@@ -315,7 +317,7 @@ class CreateWorkloadSubCommand(SubCommand):
 
     backend: str
     device: str
-    entrypoint: str
+    command_script: str
     port: int
     host_network: bool
     check: bool
@@ -347,9 +349,9 @@ class CreateWorkloadSubCommand(SubCommand):
         )
 
         deploy_parser.add_argument(
-            "--entrypoint-file",
+            "--command-script-file",
             type=str,
-            help="Path of entrypoint for the workload",
+            help="Path of command script for the workload",
         )
 
         deploy_parser.add_argument(
@@ -420,12 +422,14 @@ class CreateWorkloadSubCommand(SubCommand):
             msg = "The name, image, and volume arguments are required."
             raise ValueError(msg)
 
-        if args.entrypoint_file:
-            entrypoint_file = Path(args.entrypoint_file)
-            if not entrypoint_file.is_file():
-                msg = f"The entrypoint file '{entrypoint_file}' does not exist."
+        if args.command_script_file:
+            command_script_file = Path(args.command_script_file)
+            if not command_script_file.is_file():
+                msg = f"The command script file '{command_script_file}' does not exist."
                 raise ValueError(msg)
-            self.entrypoint = entrypoint_file.read_text(encoding="utf-8").strip()
+            self.command_script = command_script_file.read_text(
+                encoding="utf-8",
+            ).strip()
 
     def run(self):
         env = [
@@ -458,7 +462,7 @@ class CreateWorkloadSubCommand(SubCommand):
         ]
         execution = ContainerExecution(
             privileged=True,
-            entrypoint=self.entrypoint,
+            command_script=self.command_script,
             args=self.extra_args,
         )
         ports = (
