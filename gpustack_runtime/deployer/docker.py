@@ -1430,6 +1430,8 @@ class DockerDeployer(Deployer):
         if len(containers) != 1:
             msg = (
                 f"Found multiple Containers with the same hostname {self_container_id}, "
+                if len(containers) > 1
+                else f"Not found Container with hostname {self_container_id}, "
                 "please use `--env GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=...` to specify the exact container name"
             )
             raise docker.errors.NotFound(msg)

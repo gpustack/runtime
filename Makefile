@@ -103,6 +103,9 @@ package:
 	if [[ "$(PACKAGE_PUSH)" == "true" ]]; then \
 		EXTRA_ARGS+=("--push"); \
 	fi; \
+	for label in "$${LABELS[@]}"; do \
+		EXTRA_ARGS+=("--label" "$${label}"); \
+	done; \
 	echo "[INFO] Building '$${TAG}' platform 'linux/$(PACKAGE_ARCH)'"; \
 	set -x; \
 	docker buildx build \

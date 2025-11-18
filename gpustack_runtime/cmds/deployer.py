@@ -232,7 +232,6 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
             ),
         ]
         execution = ContainerExecution(
-            privileged=True,
             command_script=self.command_script,
             args=self.extra_args,
         )
@@ -463,7 +462,6 @@ class CreateWorkloadSubCommand(SubCommand):
             ),
         ]
         execution = ContainerExecution(
-            privileged=True,
             command_script=self.command_script,
             args=self.extra_args,
         )
