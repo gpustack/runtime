@@ -1033,7 +1033,7 @@ class DockerDeployer(Deployer):
                                     # Set to "all" if no specific devices detected,
                                     # maybe the container backend can handle it.
                                     create_options["environment"][re] = (
-                                        r_v
+                                        str(r_v)
                                         if not privileged
                                         else (",".join(vd_values.get(re, [])) or "all")
                                     )
@@ -1041,7 +1041,12 @@ class DockerDeployer(Deployer):
                             # Configure runtime device access environment variables.
                             if r_v != "all" and privileged:
                                 for be in backend_env:
-                                    create_options["environment"][be] = r_v
+                                    create_options["environment"][be] = (
+                                        self.align_backend_visible_devices_env_values(
+                                            be,
+                                            str(r_v),
+                                        )
+                                    )
 
             # Parameterize mounts.
             self._append_container_mounts(

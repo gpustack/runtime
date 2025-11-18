@@ -117,9 +117,17 @@ if TYPE_CHECKING:
     e.g., `{"nvidia.com/devices": ["CUDA_VISIBLE_DEVICES"], "amd.com/devices": ["ROCR_VISIBLE_DEVICES"]}`.
     The key is the resource key, and the value is a list of environment variable names.
     """
-    GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_MODE: str | None = None
+    GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID: set[str] | None = None
     """
-    Mode for valuing runtime visible devices environment variables (options: Index or UUID).
+    Use UUIDs for the given runtime visible devices environment variables.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT: set[str] | None = (
+        None
+    )
+    """
+    Enable value alignment for the given backend visible devices environment variables.
+    When detected devices are considered to be partially mapped (starting from a non-zero value or not contiguous),
+    alignment is performed to ensure they are correctly identified.
     """
 
     # Detector
@@ -277,13 +285,18 @@ variables: dict[str, Callable[[], Any]] = {
         ),
         list_sep=",",
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_MODE": lambda: choice(
+    "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID": lambda: to_set(
         getenv(
-            "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_MODE",
-            "Index",
+            "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID",
         ),
-        options=["Index", "UUID"],
-        default="Index",
+        sep=",",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT": lambda: to_set(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT",
+            "ASCEND_RT_VISIBLE_DEVICES,NPU_VISIBLE_DEVICES",
+        ),
+        sep=",",
     ),
     # Detector
     "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(

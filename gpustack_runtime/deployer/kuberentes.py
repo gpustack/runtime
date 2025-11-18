@@ -890,7 +890,7 @@ class KubernetesDeployer(Deployer):
                                     kubernetes.client.V1EnvVar(
                                         name=re,
                                         value=(
-                                            r_v
+                                            str(r_v)
                                             if not privileged
                                             else (
                                                 ",".join(vd_values.get(re, [])) or "all"
@@ -905,7 +905,10 @@ class KubernetesDeployer(Deployer):
                                 container.env.append(
                                     kubernetes.client.V1EnvVar(
                                         name=be,
-                                        value=str(r_v),
+                                        value=self.align_backend_visible_devices_env_values(
+                                            be,
+                                            str(r_v),
+                                        ),
                                     ),
                                 )
 
