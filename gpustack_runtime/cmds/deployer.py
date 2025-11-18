@@ -85,7 +85,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
 
     backend: str
     device: str
-    command_script: str
+    command_script: str | None
     port: int
     host_network: bool
     check: bool
@@ -178,6 +178,7 @@ class CreateRunnerWorkloadSubCommand(SubCommand):
     def __init__(self, args: Namespace):
         self.backend = args.backend
         self.device = args.device
+        self.command_script = None
         self.port = args.port
         self.host_network = args.host_network
         self.check = args.check
@@ -317,7 +318,7 @@ class CreateWorkloadSubCommand(SubCommand):
 
     backend: str
     device: str
-    command_script: str
+    command_script: str | None
     port: int
     host_network: bool
     check: bool
@@ -409,6 +410,7 @@ class CreateWorkloadSubCommand(SubCommand):
     def __init__(self, args: Namespace):
         self.backend = args.backend
         self.device = args.device
+        self.command_script = None
         self.port = args.port
         self.host_network = args.host_network
         self.check = args.check
