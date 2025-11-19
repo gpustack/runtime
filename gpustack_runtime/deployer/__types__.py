@@ -1280,15 +1280,15 @@ class Deployer(ABC):
         "AMD_VISIBLE_DEVICES": ["0", "1"]
     }.
     """
-    _visible_devices_values_alignment: dict[str, dict[str, str]] | None = None
+    _backend_visible_devices_values_alignment: dict[str, dict[str, str]] | None = None
     """
-    Recorded visible devices values alignment,
+    Recorded backend visible devices values alignment,
     the key is the runtime visible devices env name,
     the value is the mapping from backend device index to aligned index.
     For example:
     {
-        "NVIDIA_VISIBLE_DEVICES": {"0": "0"},
-        "AMD_VISIBLE_DEVICES": {"0": "0", "1": "1"}
+        "CUDA_VISIBLE_DEVICES": {"0": "0"},
+        "HIP_VISIBLE_DEVICES": {"0": "0", "1": "1"}
     }.
     """
 
@@ -1336,7 +1336,7 @@ class Deployer(ABC):
 
         self._visible_devices_env = {}
         self._visible_devices_values = {}
-        self._visible_devices_values_alignment = {}
+        self._backend_visible_devices_values_alignment = {}
 
         devices: dict[ManufacturerEnum, Devices] = {}
         for dev in detect_devices(fast=False):
@@ -1370,7 +1370,14 @@ class Deployer(ABC):
                         in envs.GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID
                         else dev_indexes
                     )
-                    self._visible_devices_values_alignment[ren] = dev_indexes_alignment
+                    for ben_item in ben:
+                        if (
+                            ben_item
+                            in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
+                        ):
+                            self._backend_visible_devices_values_alignment[ben_item] = (
+                                dev_indexes_alignment
+                            )
 
             if self._visible_devices_env:
                 return
@@ -1378,7 +1385,6 @@ class Deployer(ABC):
         # Fallback to unknown backend
         self._visible_devices_env["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = []
         self._visible_devices_values["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = ["all"]
-        self._visible_devices_values_alignment["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = {}
 
     def visible_devices_env_values(
         self,
@@ -1436,14 +1442,13 @@ class Deployer(ABC):
         ):
             return resource_key_values
         self._fetch_visible_devices_env_values()
+        alignments = self._backend_visible_devices_values_alignment.get(
+            backend_visible_devices_env,
+        )
+        if not alignments:
+            return resource_key_values
         return ",".join(
-            [
-                self._visible_devices_values_alignment[backend_visible_devices_env].get(
-                    v,
-                    v,
-                )
-                for v in resource_key_values.split(",")
-            ],
+            [alignments.get(v, v) for v in resource_key_values.split(",")],
         )
 
     @property
