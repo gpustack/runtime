@@ -18,6 +18,10 @@ if TYPE_CHECKING:
     """
     Log to file instead of stdout.
     """
+    GPUSTACK_RUNTIME_LOG_EXCEPTION: bool = True
+    """
+    Enable logging exceptions.
+    """
 
     ## Detector
     GPUSTACK_RUNTIME_DETECT: str | None = None
@@ -191,10 +195,13 @@ variables: dict[str, Callable[[], Any]] = {
     # Global
     "GPUSTACK_RUNTIME_LOG_LEVEL": lambda: getenv(
         "GPUSTACK_RUNTIME_LOG_LEVEL",
-        "",
+        "INFO",
     ),
     "GPUSTACK_RUNTIME_LOG_TO_FILE": lambda: mkdir_path(
         getenv("GPUSTACK_RUNTIME_LOG_TO_FILE", None),
+    ),
+    "GPUSTACK_RUNTIME_LOG_EXCEPTION": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_LOG_EXCEPTION", "1"),
     ),
     "GPUSTACK_RUNTIME_DETECT": lambda: getenv(
         "GPUSTACK_RUNTIME_DETECT",

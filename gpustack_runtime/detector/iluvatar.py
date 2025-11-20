@@ -165,7 +165,10 @@ class IluvatarDetector(Detector):
                 )
 
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to process devices fetching")
             raise
 

@@ -96,7 +96,10 @@ def detect_devices(fast: bool = True) -> Devices:
             detect_target = envs.GPUSTACK_RUNTIME_DETECT.lower()
             if detect_target == det.name:
                 raise
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to detect devices for %s", det.name)
 
     return devices

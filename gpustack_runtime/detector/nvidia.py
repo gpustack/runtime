@@ -53,7 +53,10 @@ class NVIDIADetector(Detector):
             pynvml.nvmlShutdown()
             supported = True
         except pynvml.NVMLError:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to initialize NVML")
 
         return supported
@@ -358,11 +361,17 @@ class NVIDIADetector(Detector):
                         ),
                     )
         except pynvml.NVMLError:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to fetch devices")
             raise
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to process devices fetching")
             raise
         finally:

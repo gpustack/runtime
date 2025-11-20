@@ -47,7 +47,10 @@ class HygonDetector(Detector):
             pyrocmsmi.rsmi_init()
             supported = True
         except pyrocmsmi.ROCMSMIError:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to initialize ROCM SMI")
 
         return supported
@@ -154,11 +157,17 @@ class HygonDetector(Detector):
                     ),
                 )
         except pyrocmsmi.ROCMSMIError:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to fetch devices")
             raise
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to process devices fetching")
             raise
 

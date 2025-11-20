@@ -41,7 +41,10 @@ class MThreadsDetector(Detector):
             pymtml.mtmlLibraryShutDown()
             supported = True
         except pymtml.MTMLError:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to initialize MTML")
 
         return supported
@@ -152,11 +155,17 @@ class MThreadsDetector(Detector):
                 )
 
         except pymtml.MTMLError:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to fetch devices")
             raise
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
+            if (
+                logger.isEnabledFor(logging.DEBUG)
+                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
+            ):
                 logger.exception("Failed to process devices fetching")
             raise
         finally:
