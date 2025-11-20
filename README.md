@@ -1,4 +1,4 @@
-# GPUStack Runtime (WIP)
+# GPUStack Runtime
 
 GPUStack Runtime provides a unified interface to detect GPU resources and manages GPU workloads.
 
