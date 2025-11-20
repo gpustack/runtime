@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+
+from .. import envs
 from .__types__ import (
     Detector,
     Device,
@@ -18,6 +21,8 @@ from .iluvatar import IluvatarDetector
 from .metax import MetaXDetector
 from .mthreads import MThreadsDetector
 from .nvidia import NVIDIADetector
+
+logger = logging.getLogger(__package__)
 
 detectors: list[Detector] = [
     AMDDetector(),
@@ -72,6 +77,9 @@ def detect_devices(fast: bool = True) -> Devices:
         A list of detected devices.
         Empty list if no devices are found.
 
+    Raises:
+        If detection fails for the target detector specified by the `GPUSTACK_RUNTIME_DETECT` environment variable.
+
     """
     devices: Devices = []
 
@@ -79,11 +87,17 @@ def detect_devices(fast: bool = True) -> Devices:
         if not det.is_supported():
             continue
 
-        if fast:
-            return det.detect()
-
-        if devs := det.detect():
-            devices.extend(devs)
+        try:
+            if devs := det.detect():
+                devices.extend(devs)
+            if fast and devices:
+                return devices
+        except Exception:
+            detect_target = envs.GPUSTACK_RUNTIME_DETECT.lower()
+            if detect_target == det.name:
+                raise
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.exception("Failed to detect devices for %s", det.name)
 
     return devices
 
