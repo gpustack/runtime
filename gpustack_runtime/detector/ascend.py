@@ -227,7 +227,9 @@ def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
                 dev_device_id,
             )
             dev_mem = dev_memory_info.memory_size
-            dev_mem_used = dev_memory_info.utiliza
+            dev_mem_used = (
+                dev_memory_info.memory_size - dev_memory_info.memory_available
+            )
     except pydcmi.DCMIError as e:
         if e.value in [
             pydcmi.DCMI_ERROR_FUNCTION_NOT_FOUND,
@@ -239,7 +241,9 @@ def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
                 dev_device_id,
             )
             dev_mem = dev_memory_info.memory_size
-            dev_mem_used = dev_memory_info.utiliza
+            dev_mem_used = (
+                dev_memory_info.memory_size - dev_memory_info.memory_available
+            )
         else:
             raise
 
