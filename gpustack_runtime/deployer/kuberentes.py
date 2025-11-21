@@ -384,26 +384,26 @@ class KubernetesDeployer(Deployer):
         config_map_name_prefix = workload.name_rfc1123_guard
 
         ephemeral_filename_mapping: dict[tuple[int, str], str] = {}
-        ephemeral_files: list[tuple[str, str, str]] = []
+        ephemeral_files: list[tuple[str, str]] = []
         for ci, c in enumerate(workload.containers):
             for fi, f in enumerate(c.files or []):
                 if f.content is not None:
                     config_map_name = f"{config_map_name_prefix}-{ci}-{fi}"
                     ephemeral_filename_mapping[(ci, f.path)] = config_map_name
-                    ephemeral_files.append((config_map_name, f.path, f.content))
+                    ephemeral_files.append((config_map_name, f.content))
         if not ephemeral_filename_mapping:
             return ephemeral_filename_mapping
 
         core_api = kubernetes.client.CoreV1Api(self._client)
         try:
-            for config_map_name, fp, content in ephemeral_files:
+            for config_map_name, content in ephemeral_files:
                 config_map = kubernetes.client.V1ConfigMap(
                     metadata=kubernetes.client.V1ObjectMeta(
                         name=config_map_name,
                         namespace=workload.namespace,
                         labels=workload.labels,
                     ),
-                    data={fp: content},
+                    data={"content": content},
                 )
 
                 actual_config_map = None
@@ -476,8 +476,8 @@ class KubernetesDeployer(Deployer):
                                 name=fn,
                                 items=[
                                     kubernetes.client.V1KeyToPath(
-                                        key=f.path,
-                                        path=f.path.lstrip("/"),
+                                        key="content",
+                                        path=Path(f.path).name,
                                         mode=f.mode,
                                     ),
                                 ],
@@ -545,6 +545,7 @@ class KubernetesDeployer(Deployer):
                             name=f"f-{fn}",
                             mount_path=f.path,
                             read_only=(True if f.mode < 0o600 else None),
+                            sub_path=Path(f.path).name,
                         ),
                     )
 
