@@ -844,7 +844,7 @@ class KubernetesDeployer(Deployer):
                     else:
                         if r_k in r_k_runtime_env:
                             # Set env if resource key is mapped.
-                            runtime_env = r_k_runtime_env[r_k]
+                            runtime_env = [r_k_runtime_env[r_k]]
                         elif r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY:
                             # Set env if auto-mapping key is matched.
                             runtime_env = list(vd_env.keys())
