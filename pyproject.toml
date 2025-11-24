@@ -21,7 +21,7 @@ dependencies = [
     "docker",
     "kubernetes",
     "pyyaml",
-    "gpustack-runner>=0.1.20.post1",
+    "gpustack-runner>=0.1.21",
     "nvidia-ml-py>=13.580.65",
     "argcomplete>=3.6.3",
 ]
