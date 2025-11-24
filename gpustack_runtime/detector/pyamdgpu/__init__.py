@@ -221,6 +221,7 @@ def _LoadAMDGPULibrary():
                 # Linux path
                 locs = [
                     "libdrm_amdgpu.so.1.0.0",
+                    "libdrm_amdgpu.so.1",
                     "libdrm_amdgpu.so",
                 ]
                 for loc in locs:

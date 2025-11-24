@@ -9,6 +9,7 @@ from . import pyamdgpu, pyamdsmi, pyhsa, pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
+    byte_to_mebibyte,
     get_brief_version,
     get_pci_devices,
     get_utilization,
@@ -141,20 +142,48 @@ class AMDDetector(Detector):
                 elif dev_gpudev_info and hasattr(dev_gpudev_info, "cu_active_number"):
                     dev_cores = dev_gpudev_info.cu_active_number
 
-                dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
-                dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)
-                dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
-                dev_mem = dev_gpu_vram_usage.get("vram_total")
-                dev_mem_used = dev_gpu_vram_usage.get("vram_used")
-                dev_temp = dev_gpu_metrics_info.get("temperature_hotspot", 0)
+                dev_cores_util, dev_temp = None, None
+                try:
+                    dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
+                    dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)
+                    dev_temp = dev_gpu_metrics_info.get("temperature_hotspot", 0)
+                except pyamdsmi.AmdSmiException:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        pyrocmsmi.rsmi_init()
+                        dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
+                        dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
 
-                dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
-                dev_power = dev_power_info.get("power_limit", 0) // 1000000  # uW to W
-                dev_power_used = (
-                    dev_power_info.get("current_socket_power")
-                    if dev_power_info.get("current_socket_power", "N/A") != "N/A"
-                    else dev_power_info.get("average_socket_power", 0)
-                )
+                dev_mem, dev_mem_used = None, None
+                try:
+                    dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
+                    dev_mem = dev_gpu_vram_usage.get("vram_total")
+                    dev_mem_used = dev_gpu_vram_usage.get("vram_used")
+                except pyamdsmi.AmdSmiException:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        pyrocmsmi.rsmi_init()
+                        dev_mem = byte_to_mebibyte(  # byte to MiB
+                            pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
+                        )
+                        dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                            pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
+                        )
+
+                dev_power, dev_power_used = None, None
+                try:
+                    dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
+                    dev_power = (
+                        dev_power_info.get("power_limit", 0) // 1000000
+                    )  # uW to W
+                    dev_power_used = (
+                        dev_power_info.get("current_socket_power")
+                        if dev_power_info.get("current_socket_power", "N/A") != "N/A"
+                        else dev_power_info.get("average_socket_power", 0)
+                    )
+                except pyamdsmi.AmdSmiException:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        pyrocmsmi.rsmi_init()
+                        dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
+                        dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
                 dev_compute_partition = None
                 with contextlib.suppress(pyamdsmi.AmdSmiException):
