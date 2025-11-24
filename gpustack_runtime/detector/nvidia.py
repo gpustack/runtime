@@ -157,10 +157,12 @@ class NVIDIADetector(Detector):
 
                 dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
 
-                dev_temp = pynvml.nvmlDeviceGetTemperature(
-                    dev,
-                    pynvml.NVML_TEMPERATURE_GPU,
-                )
+                dev_temp = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_temp = pynvml.nvmlDeviceGetTemperature(
+                        dev,
+                        pynvml.NVML_TEMPERATURE_GPU,
+                    )
 
                 dev_power, dev_power_used = None, None
                 with contextlib.suppress(pynvml.NVMLError):
