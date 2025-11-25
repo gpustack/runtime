@@ -33,7 +33,7 @@ class MThreadsDetector(Detector):
             return supported
 
         pci_devs = MThreadsDetector.detect_pci_devices()
-        if not pci_devs:
+        if not pci_devs and not envs.GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK:
             logger.debug("No MThreads PCI devices found")
             return supported
 
@@ -48,11 +48,11 @@ class MThreadsDetector(Detector):
 
     @staticmethod
     @lru_cache
-    def detect_pci_devices() -> dict[str, PCIDevice] | None:
+    def detect_pci_devices() -> dict[str, PCIDevice]:
         # See https://pcisig.com/membership/member-companies?combine=Moore+Threads.
         pci_devs = get_pci_devices(vendor="0x1ed5")
         if not pci_devs:
-            return None
+            return {}
         return {dev.address: dev for dev in pci_devs}
 
     def __init__(self):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import os
 from functools import lru_cache
 from os import getenv
 from pathlib import Path
@@ -31,6 +33,11 @@ if TYPE_CHECKING:
     GPUSTACK_RUNTIME_DETECT: str | None = None
     """
     Detector to use (options: Auto, AMD, ASCEND, CAMBRICON, HYGON, ILUVATAR, METAX, MTHREADS, NVIDIA).
+    """
+    GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK: bool = False
+    """
+    Enable no PCI check during detection.
+    Useful for WSL environments, where PCI information may not be available.
     """
     GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY: dict[str, str] | None = None
     """
@@ -213,6 +220,11 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DETECT": lambda: getenv(
         "GPUSTACK_RUNTIME_DETECT",
         "Auto",
+    ),
+    "GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK": lambda: ternary(
+        lambda: getenv("GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK") is not None,
+        lambda: to_bool(getenv("GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK")),
+        lambda: any(x in get_os_release() for x in ("microsoft", "wsl")),
     ),
     "GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY": lambda: to_dict(
         getenv(
@@ -585,3 +597,41 @@ def choice(value: str, options: list[str], default: str = "") -> str:
     if value in options:
         return value
     return default
+
+
+def ternary(
+    condition: callable,
+    true_callback: callable,
+    false_callback: callable,
+) -> Any:
+    """
+    A ternary function that evaluates a condition and returns the result of one of two callbacks.
+
+    Args:
+        condition (callable): A callable that returns a boolean value.
+        true_callback (callable): A callable to be executed if the condition is True.
+        false_callback (callable): A callable to be executed if the condition is False.
+
+    Returns:
+        The result of true_callback if condition is True, otherwise the result of false_callback.
+
+    """
+    if condition():
+        return true_callback()
+    return false_callback()
+
+
+def get_os_release() -> str:
+    """
+    Get the operating system release information.
+
+    Returns:
+        The OS release string if available, otherwise "unknown".
+
+    """
+    release = "unknown"
+    with contextlib.suppress(Exception):
+        r = os.uname()
+        if hasattr(r, "release"):
+            release = r.release.lower()
+    return release
