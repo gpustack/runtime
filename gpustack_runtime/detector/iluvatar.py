@@ -5,6 +5,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
+from ..logging import debug_log_exception, debug_log_warning
 from . import pyixml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
@@ -105,9 +106,12 @@ class IluvatarDetector(Detector):
                 dev_uuid = pyixml.nvmlDeviceGetUUID(dev)
                 dev_name = pyixml.nvmlDeviceGetName(dev)
 
-                dev_cores = pyixml.nvmlDeviceGetNumGpuCores(dev)
+                dev_cores = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_cores = pyixml.nvmlDeviceGetNumGpuCores(dev)
 
-                dev_mem, dev_mem_used = 0, 0
+                dev_mem = 0
+                dev_mem_used = 0
                 with contextlib.suppress(pyixml.NVMLError):
                     dev_mem_info = pyixml.nvmlDeviceGetMemoryInfo(dev)
                     dev_mem = byte_to_mebibyte(  # byte to MiB
@@ -117,14 +121,27 @@ class IluvatarDetector(Detector):
                         dev_mem_info.used,
                     )
 
-                dev_util_rates = pyixml.nvmlDeviceGetUtilizationRates(dev)
+                dev_cores_util = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_util_rates = pyixml.nvmlDeviceGetUtilizationRates(dev)
+                    dev_cores_util = dev_util_rates.gpu
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
+                    )
+                    dev_cores_util = 0
 
-                dev_temp = pyixml.nvmlDeviceGetTemperature(
-                    dev,
-                    pyixml.NVML_TEMPERATURE_GPU,
-                )
+                dev_temp = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_temp = pyixml.nvmlDeviceGetTemperature(
+                        dev,
+                        pyixml.NVML_TEMPERATURE_GPU,
+                    )
 
-                dev_power, dev_power_used = None, None
+                dev_power = None
+                dev_power_used = None
                 with contextlib.suppress(pyixml.NVMLError):
                     dev_power = pyixml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
                     dev_power = dev_power // 1000  # mW to W
@@ -153,7 +170,7 @@ class IluvatarDetector(Detector):
                         runtime_version_original=sys_runtime_ver_original,
                         compute_capability=dev_cc,
                         cores=dev_cores,
-                        cores_utilization=dev_util_rates.gpu,
+                        cores_utilization=dev_cores_util,
                         memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),
@@ -165,11 +182,7 @@ class IluvatarDetector(Detector):
                 )
 
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices fetching")
             raise
 
         return ret

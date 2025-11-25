@@ -4,6 +4,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
+from ..logging import debug_log_exception, debug_log_warning
 from . import pymxsml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
@@ -46,11 +47,7 @@ class MetaXDetector(Detector):
             pymxsml.mxSmlInit()
             supported = True
         except pymxsml.MXSMLError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to initialize MXSML")
+            debug_log_exception(logger, "Failed to initialize MXSML")
 
         return supported
 
@@ -109,6 +106,13 @@ class MetaXDetector(Detector):
                     dev_idx,
                     pymxsml.MXSML_USAGE_XCORE,
                 )
+                if dev_core_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
+                    )
+                    dev_core_util = 0
 
                 dev_mem_info = pymxsml.mxSmlGetMemoryInfo(dev_idx)
                 dev_mem = kibibyte_to_mebibyte(  # KiB to MiB
@@ -162,18 +166,10 @@ class MetaXDetector(Detector):
                 )
 
         except pymxsml.MXSMLError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices")
             raise
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failted to process devices fetching")
             raise
 
         return ret

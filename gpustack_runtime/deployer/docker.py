@@ -23,6 +23,7 @@ from dataclasses_json import dataclass_json
 from docker.utils import parse_repository_tag
 
 from .. import envs
+from ..logging import debug_log_exception
 from .__types__ import (
     Container,
     ContainerCheck,
@@ -317,11 +318,7 @@ class DockerDeployer(Deployer):
             try:
                 supported = client.ping()
             except docker.errors.APIError:
-                if (
-                    logger.isEnabledFor(logging.DEBUG)
-                    and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-                ):
-                    logger.exception("Failed to connect to Docker API server")
+                debug_log_exception(logger, "Failed to connect to Docker API server")
 
         return supported
 
@@ -347,11 +344,7 @@ class DockerDeployer(Deployer):
                 else:
                     client = docker.from_env()
         except docker.errors.DockerException:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to get Docker client")
+            debug_log_exception(logger, "Failed to get Docker client")
 
         return client
 
@@ -1182,13 +1175,7 @@ class DockerDeployer(Deployer):
             )
             self_image = self_container.image
         except docker.errors.APIError:
-            output_logger = logger.warning
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                output_logger = logger.exception
-            output_logger(
+            logger.exception(
                 "Mirrored deployment enabled, but failed to get self Container %s, skipping",
                 self_container_id,
             )

@@ -18,9 +18,13 @@ if TYPE_CHECKING:
     """
     Log to file instead of stdout.
     """
+    GPUSTACK_RUNTIME_LOG_WARNING: bool = False
+    """
+    Enable logging warnings when GPUSTACK_RUNTIME_LOG_LEVEL=DEBUG.
+    """
     GPUSTACK_RUNTIME_LOG_EXCEPTION: bool = True
     """
-    Enable logging exceptions.
+    Enable logging exceptions when GPUSTACK_RUNTIME_LOG_LEVEL=DEBUG.
     """
 
     ## Detector
@@ -199,6 +203,9 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_LOG_TO_FILE": lambda: mkdir_path(
         getenv("GPUSTACK_RUNTIME_LOG_TO_FILE", None),
+    ),
+    "GPUSTACK_RUNTIME_LOG_WARNING": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_LOG_WARNING", "0"),
     ),
     "GPUSTACK_RUNTIME_LOG_EXCEPTION": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_LOG_EXCEPTION", "1"),

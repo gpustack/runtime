@@ -4,6 +4,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
+from ..logging import debug_log_exception, debug_log_warning
 from . import pymtml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import PCIDevice, byte_to_mebibyte, get_pci_devices, get_utilization
@@ -41,11 +42,7 @@ class MThreadsDetector(Detector):
             pymtml.mtmlLibraryShutDown()
             supported = True
         except pymtml.MTMLError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to initialize MTML")
+            debug_log_exception(logger, "Failed to initialize MTML")
 
         return supported
 
@@ -123,7 +120,7 @@ class MThreadsDetector(Detector):
                 finally:
                     pymtml.mtmlDeviceFreeMemory(devmem)
 
-                dev_cores_util = 0
+                dev_cores_util = None
                 dev_temp = None
                 devgpu = pymtml.mtmlDeviceInitGpu(dev)
                 try:
@@ -131,6 +128,13 @@ class MThreadsDetector(Detector):
                     dev_temp = pymtml.mtmlGpuGetTemperature(devgpu)
                 finally:
                     pymtml.mtmlDeviceFreeGpu(devgpu)
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
+                    )
+                    dev_cores_util = 0
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
@@ -155,18 +159,10 @@ class MThreadsDetector(Detector):
                 )
 
         except pymtml.MTMLError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices")
             raise
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices fetching")
             raise
         finally:
             pymtml.mtmlLibraryShutDown()

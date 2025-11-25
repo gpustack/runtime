@@ -5,6 +5,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
+from ..logging import debug_log_exception, debug_log_warning
 from . import pyacl, pydcmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import PCIDevice, get_brief_version, get_pci_devices, get_utilization
@@ -42,11 +43,7 @@ class AscendDetector(Detector):
             pydcmi.dcmi_init()
             supported = True
         except pydcmi.DCMIError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to initialize DCMI")
+            debug_log_exception(logger, "Failed to initialize DCMI")
 
         return supported
 
@@ -132,15 +129,25 @@ class AscendDetector(Detector):
                         dev_device_id,
                         pydcmi.DCMI_DIE_TYPE_VDIE,
                     )
+
                     dev_util_aicore = pydcmi.dcmi_get_device_utilization_rate(
                         dev_card_id,
                         dev_device_id,
                         pydcmi.DCMI_INPUT_TYPE_AICORE,
                     )
+                    if dev_util_aicore is None:
+                        debug_log_warning(
+                            logger,
+                            "Failed to get device %d cores utilization, setting to 0",
+                            dev_index,
+                        )
+                        dev_util_aicore = 0
+
                     dev_temp = pydcmi.dcmi_get_device_temperature(
                         dev_card_id,
                         dev_device_id,
                     )
+
                     dev_power_used = None
                     with contextlib.suppress(pydcmi.DCMIError):
                         dev_power_used = pydcmi.dcmi_get_device_power_info(
@@ -149,6 +156,7 @@ class AscendDetector(Detector):
                         )
                     if dev_power_used:
                         dev_power_used = dev_power_used / 10  # 0.1W to W
+
                     dev_appendix = {
                         "arch_family": (
                             pyacl.aclrtGetSocName()
@@ -158,6 +166,7 @@ class AscendDetector(Detector):
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
                     }
+
                     dev_roce_ip, dev_roce_mask, dev_roce_gateway = (
                         _get_device_roce_network_info(
                             dev_card_id,
@@ -191,18 +200,10 @@ class AscendDetector(Detector):
                         ),
                     )
         except pydcmi.DCMIError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices")
             raise
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices fetching")
             raise
 
         return ret
@@ -275,8 +276,7 @@ def _get_device_roce_network_info(
             pydcmi.DCMI_PORT_TYPE_ROCE_PORT,
         )
     except pydcmi.DCMIError:
-        if slogger.isEnabledFor(logging.DEBUG) and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION:
-            slogger.exception("Failed to get device roce network info")
+        debug_log_exception(logger, "Failed to get device roce network info")
 
     return ip, mask, gateway
 
@@ -302,8 +302,7 @@ def _get_device_virtual_info(
             c_vdev_query_stru,
         )
     except pydcmi.DCMIError:
-        if slogger.isEnabledFor(logging.DEBUG) and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION:
-            slogger.exception("Failed to get device virtual info")
+        debug_log_exception(logger, "Failed to get device virtual info")
     else:
         return c_vdev_query_stru
 

@@ -8,6 +8,7 @@ from math import ceil
 import pynvml
 
 from .. import envs
+from ..logging import debug_log_exception, debug_log_warning
 from . import pycuda
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
@@ -53,11 +54,7 @@ class NVIDIADetector(Detector):
             pynvml.nvmlShutdown()
             supported = True
         except pynvml.NVMLError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to initialize NVML")
+            debug_log_exception(logger, "Failed to initialize NVML")
 
         return supported
 
@@ -143,7 +140,8 @@ class NVIDIADetector(Detector):
                         pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
                     )
 
-                dev_mem, dev_mem_used = 0, 0
+                dev_mem = 0
+                dev_mem_used = 0
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
                     dev_mem = byte_to_mebibyte(  # byte to MiB
@@ -155,7 +153,17 @@ class NVIDIADetector(Detector):
                 if dev_mem == 0:
                     dev_mem, dev_mem_used = get_memory()
 
-                dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
+                dev_cores_util = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
+                    dev_cores_util = dev_util_rates.gpu
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
+                    )
+                    dev_cores_util = 0
 
                 dev_temp = None
                 with contextlib.suppress(pynvml.NVMLError):
@@ -164,7 +172,8 @@ class NVIDIADetector(Detector):
                         pynvml.NVML_TEMPERATURE_GPU,
                     )
 
-                dev_power, dev_power_used = None, None
+                dev_power = None
+                dev_power_used = None
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
                     dev_power = dev_power // 1000  # mW to W
@@ -212,7 +221,7 @@ class NVIDIADetector(Detector):
                             runtime_version_original=sys_runtime_ver_original,
                             compute_capability=dev_cc,
                             cores=dev_cores,
-                            cores_utilization=dev_util_rates.gpu,
+                            cores_utilization=dev_cores_util,
                             memory=dev_mem,
                             memory_used=dev_mem_used,
                             memory_utilization=get_utilization(dev_mem_used, dev_mem),
@@ -363,18 +372,10 @@ class NVIDIADetector(Detector):
                         ),
                     )
         except pynvml.NVMLError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices")
             raise
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices fetching")
             raise
         finally:
             pynvml.nvmlShutdown()

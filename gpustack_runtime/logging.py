@@ -155,3 +155,33 @@ def cleanup_logging() -> None:
     if _LOG_LISTENER is not None:
         _LOG_LISTENER.stop()
         _LOG_LISTENER = None
+
+
+def debug_log_exception(logger: logging.Logger, msg: str, *args: Any):
+    """
+    Log an exception message,
+    if the logger is enabled for DEBUG and GPUSTACK_RUNTIME_LOG_EXCEPTION is enabled.
+
+    Args:
+        logger: The logger instance to use.
+        msg: The message format string.
+        *args: Arguments to be formatted into the message.
+
+    """
+    if logger.isEnabledFor(logging.DEBUG) and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION:
+        logger.exception(msg, *args)
+
+
+def debug_log_warning(logger: logging.Logger, msg: str, *args: Any):
+    """
+    Log a warning message,
+    if the logger is enabled for DEBUG and GPUSTACK_RUNTIME_LOG_WARNING is enabled.
+
+    Args:
+        logger: The logger instance to use.
+        msg: The message format string.
+        *args: Arguments to be formatted into the message.
+
+    """
+    if logger.isEnabledFor(logging.DEBUG) and envs.GPUSTACK_RUNTIME_LOG_WARNING:
+        logger.warning(msg, *args)

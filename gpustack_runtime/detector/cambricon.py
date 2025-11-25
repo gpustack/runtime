@@ -5,6 +5,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
+from ..logging import debug_log_exception
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
@@ -123,11 +124,7 @@ class CambriconDetector(Detector):
                 )
 
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices fetching")
             raise
 
         return ret

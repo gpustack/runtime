@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from .. import envs
+from ..logging import debug_log_exception
 from .__types__ import (
     Detector,
     Device,
@@ -96,11 +97,7 @@ def detect_devices(fast: bool = True) -> Devices:
             detect_target = envs.GPUSTACK_RUNTIME_DETECT.lower()
             if detect_target == det.name:
                 raise
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to detect devices for %s", det.name)
+            debug_log_exception(logger, "Failed to detect devices for %s", det.name)
 
     return devices
 

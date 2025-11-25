@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .. import envs
+from ..logging import debug_log_exception, debug_log_warning
 from . import pyhsa, pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
@@ -47,11 +48,7 @@ class HygonDetector(Detector):
             pyrocmsmi.rsmi_init()
             supported = True
         except pyrocmsmi.ROCMSMIError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to initialize ROCM SMI")
+            debug_log_exception(logger, "Failed to initialize ROCM SMI")
 
         return supported
 
@@ -120,12 +117,21 @@ class HygonDetector(Detector):
                     dev_cores = None
 
                 dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
+                    )
+                    dev_cores_util = 0
+
                 dev_mem = byte_to_mebibyte(  # byte to MiB
                     pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
                 )
                 dev_mem_used = byte_to_mebibyte(  # byte to MiB
                     pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                 )
+
                 dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
 
                 dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
@@ -157,18 +163,10 @@ class HygonDetector(Detector):
                     ),
                 )
         except pyrocmsmi.ROCMSMIError:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices")
             raise
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices fetching")
             raise
 
         return ret

@@ -5,6 +5,7 @@ import logging
 from functools import lru_cache
 
 from .. import envs
+from ..logging import debug_log_exception, debug_log_warning
 from . import pyamdgpu, pyamdsmi, pyhsa, pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
@@ -48,11 +49,7 @@ class AMDDetector(Detector):
             pyamdsmi.amdsmi_shut_down()
             supported = True
         except pyamdsmi.AmdSmiException:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to initialize AMD SMI")
+            debug_log_exception(logger, "Failed to initialize AMD SMI")
 
         return supported
 
@@ -142,7 +139,8 @@ class AMDDetector(Detector):
                 elif dev_gpudev_info and hasattr(dev_gpudev_info, "cu_active_number"):
                     dev_cores = dev_gpudev_info.cu_active_number
 
-                dev_cores_util, dev_temp = None, None
+                dev_cores_util = None
+                dev_temp = None
                 try:
                     dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
                     dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)
@@ -152,8 +150,16 @@ class AMDDetector(Detector):
                         pyrocmsmi.rsmi_init()
                         dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
                         dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
+                    )
+                    dev_cores_util = 0
 
-                dev_mem, dev_mem_used = None, None
+                dev_mem = None
+                dev_mem_used = None
                 try:
                     dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
                     dev_mem = dev_gpu_vram_usage.get("vram_total")
@@ -168,7 +174,8 @@ class AMDDetector(Detector):
                             pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                         )
 
-                dev_power, dev_power_used = None, None
+                dev_power = None
+                dev_power_used = None
                 try:
                     dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
                     dev_power = (
@@ -219,18 +226,10 @@ class AMDDetector(Detector):
                     ),
                 )
         except pyamdsmi.AmdSmiException:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices")
             raise
         except Exception:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices fetching")
             raise
         finally:
             pyamdsmi.amdsmi_shut_down()

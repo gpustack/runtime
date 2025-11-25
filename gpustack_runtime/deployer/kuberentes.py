@@ -17,6 +17,7 @@ import urllib3.connection
 from dataclasses_json import dataclass_json
 
 from .. import envs
+from ..logging import debug_log_exception
 from . import ContainerCheck, ContainerMountModeEnum, OperationError
 from .__types__ import (
     Container,
@@ -315,11 +316,10 @@ class KubernetesDeployer(Deployer):
                 urllib3.exceptions.MaxRetryError,
                 kubernetes.client.exceptions.ApiException,
             ):
-                if (
-                    logger.isEnabledFor(logging.DEBUG)
-                    and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-                ):
-                    logger.exception("Failed to connect to Kubernetes API server")
+                debug_log_exception(
+                    logger,
+                    "Failed to connect to Kubernetes API server",
+                )
 
         return supported
 
@@ -344,11 +344,7 @@ class KubernetesDeployer(Deployer):
                 client = kubernetes.client.ApiClient()
                 client.user_agent = "gpustack/runtime"
         except kubernetes.config.config_exception.ConfigException:
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                logger.exception("Failed to get Kubernetes client")
+            debug_log_exception(logger, "Failed to get Kubernetes client")
 
         return client
 
@@ -1107,13 +1103,7 @@ class KubernetesDeployer(Deployer):
                 namespace=self_pod_namespace,
             )
         except kubernetes.client.exceptions.ApiException:
-            output_log = logger.warning
-            if (
-                logger.isEnabledFor(logging.DEBUG)
-                and envs.GPUSTACK_RUNTIME_LOG_EXCEPTION
-            ):
-                output_log = logger.exception
-            output_log(
+            logger.exception(
                 "Mirrored deployment enabled, but failed to get self Pod %s/%s, skipping",
                 self_pod_namespace,
                 self_pod_name,
