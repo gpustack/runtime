@@ -4,11 +4,11 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "amdsmi"
-version = "6.4.4"
+version = "7.0.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/77/61/fee27b157b8d42e3c2ccbd1b75c3e19d322a679d1dddf5e1c4f2660720e4/amdsmi-6.4.4.tar.gz", hash = "sha256:968fdc3b307f210f04688ac902711e57076db3a4475bffbddea32eb1866d55b6", size = 57634, upload-time = "2025-09-25T05:20:11.835Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/c1/330da195623ec7d9f699be2dbec98df364b1def9b48aa169f1abe369804f/amdsmi-7.0.2.tar.gz", hash = "sha256:3e622e48c630b889045a6f57387455cdf082066348718172dd8af6d275baf8f2", size = 61577, upload-time = "2025-10-11T05:17:44.898Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/f6/63507e83cf8d35b8d9f1a73f2dc088417191ee556145f959732cd42c6122/amdsmi-6.4.4-py3-none-any.whl", hash = "sha256:f7ac841a6919803ab065ca9f60f0d5672bd95df9d00090b107af22648d8f2ef6", size = 60382, upload-time = "2025-09-25T05:20:10.501Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/cf/bacc741d9926d662e76fd694f5bc63dd4c2471e32cedfb1c3cca7e47aa3c/amdsmi-7.0.2-py3-none-any.whl", hash = "sha256:db5aa757f8ed82dfd799c4d39e2828542678dc4e485b0ab7fabe5f398fec5652", size = 64366, upload-time = "2025-10-11T05:17:44.047Z" },
 ]
 
 [[package]]
@@ -309,7 +309,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "amdsmi", specifier = ">=6.4.4" },
+    { name = "amdsmi", specifier = ">=7.0.2" },
     { name = "dockerpty", specifier = ">=0.4.1" },
     { name = "hatch-vcs" },
     { name = "hatchling" },

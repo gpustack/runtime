@@ -236,10 +236,7 @@ def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
     if metric is None:
         metric = rsmi_temperature_metric_t.RSMI_TEMP_CURRENT
 
-    if sensor is None:
-        sensor = rsmi_temperature_type_t.RSMI_TEMP_TYPE_EDGE
-
-    if sensor:
+    if sensor is not None:
         c_temp = c_int64(0)
         ret = rocmsmiLib.rsmi_dev_temp_metric_get(
             c_uint32(device),
