@@ -233,26 +233,44 @@ def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
     if not rocmsmiLib:
         raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
 
-    if sensor is None:
-        sensor = rsmi_temperature_type_t.RSMI_TEMP_TYPE_JUNCTION
     if metric is None:
         metric = rsmi_temperature_metric_t.RSMI_TEMP_CURRENT
-    c_temp = c_int64(0)
-    ret = rocmsmiLib.rsmi_dev_temp_metric_get(
-        c_uint32(device),
-        sensor,
-        metric,
-        byref(c_temp),
-    )
-    _rocmsmiCheckReturn(ret)
-    return c_temp.value // 1000
+
+    if sensor is None:
+        sensor = rsmi_temperature_type_t.RSMI_TEMP_TYPE_EDGE
+
+    if sensor:
+        c_temp = c_int64(0)
+        ret = rocmsmiLib.rsmi_dev_temp_metric_get(
+            c_uint32(device),
+            sensor,
+            metric,
+            byref(c_temp),
+        )
+        _rocmsmiCheckReturn(ret)
+        return c_temp.value // 1000
+
+    # If no sensor specified,
+    # try all sensors and return the first valid temperature.
+    for sensor_i in range(7):
+        c_temp = c_int64(0)
+        ret = rocmsmiLib.rsmi_dev_temp_metric_get(
+            c_uint32(device),
+            sensor_i,
+            metric,
+            byref(c_temp),
+        )
+        if ret == rsmi_status_t.RSMI_STATUS_SUCCESS:
+            return c_temp.value // 1000
+
+    return None
 
 
 def rsmi_dev_power_cap_get(device=0):
     if not rocmsmiLib:
         raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
 
-    c_power_cap = c_uint64()
+    c_power_cap = c_uint64(0)
     ret = rocmsmiLib.rsmi_dev_power_cap_get(device, 0, byref(c_power_cap))
     _rocmsmiCheckReturn(ret)
     return c_power_cap.value // 1000000
@@ -263,7 +281,7 @@ def rsmi_dev_power_ave_get(device=0):
         raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
 
     c_device_chip = c_uint32(0)
-    c_power = c_uint64()
+    c_power = c_uint64(0)
     ret = rocmsmiLib.rsmi_dev_power_ave_get(device, c_device_chip, byref(c_power))
     _rocmsmiCheckReturn(ret)
     return c_power.value // 1000000
@@ -274,7 +292,7 @@ def rsmi_dev_power_get(device=0):
         raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
 
     try:
-        c_power = c_uint64()
+        c_power = c_uint64(0)
         c_power_type = rsmi_power_type_t()
         ret = rocmsmiLib.rsmi_dev_power_get(device, byref(c_power), byref(c_power_type))
         _rocmsmiCheckReturn(ret)
