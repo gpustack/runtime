@@ -82,8 +82,8 @@ def create_workload(workload: WorkloadPlan):
     msg = (
         "No available deployer. "
         "Please provide a container runtime, e.g. "
-        "bind mount the host `/var/run/docker.sock` for Docker, "
-        "or allow (in-)cluster access for Kubernetes"
+        "bind mount the host `/var/run/docker.sock` on Docker, "
+        "or allow (in-)cluster access on Kubernetes"
     )
     raise UnsupportedError(msg)
 
@@ -120,8 +120,8 @@ def get_workload(
     msg = (
         "No available deployer. "
         "Please provide a container runtime, e.g. "
-        "bind mount the host `/var/run/docker.sock` for Docker, "
-        "or allow (in-)cluster access for Kubernetes"
+        "bind mount the host `/var/run/docker.sock` on Docker, "
+        "or allow (in-)cluster access on Kubernetes"
     )
     raise UnsupportedError(msg)
 
@@ -158,8 +158,8 @@ def delete_workload(
     msg = (
         "No available deployer. "
         "Please provide a container runtime, e.g. "
-        "bind mount the host `/var/run/docker.sock` for Docker, "
-        "or allow (in-)cluster access for Kubernetes"
+        "bind mount the host `/var/run/docker.sock` on Docker, "
+        "or allow (in-)cluster access on Kubernetes"
     )
     raise UnsupportedError(msg)
 
@@ -196,8 +196,8 @@ def list_workloads(
     msg = (
         "No available deployer. "
         "Please provide a container runtime, e.g. "
-        "bind mount the host `/var/run/docker.sock` for Docker, "
-        "or allow (in-)cluster access for Kubernetes"
+        "bind mount the host `/var/run/docker.sock` on Docker, "
+        "or allow (in-)cluster access on Kubernetes"
     )
     raise UnsupportedError(msg)
 
@@ -257,8 +257,8 @@ def logs_workload(
     msg = (
         "No available deployer. "
         "Please provide a container runtime, e.g. "
-        "bind mount the host `/var/run/docker.sock` for Docker, "
-        "or allow (in-)cluster access for Kubernetes"
+        "bind mount the host `/var/run/docker.sock` on Docker, "
+        "or allow (in-)cluster access on Kubernetes"
     )
     raise UnsupportedError(msg)
 
@@ -318,8 +318,8 @@ async def async_logs_workload(
     msg = (
         "No available deployer. "
         "Please provide a container runtime, e.g. "
-        "bind mount the host `/var/run/docker.sock` for Docker, "
-        "or allow (in-)cluster access for Kubernetes"
+        "bind mount the host `/var/run/docker.sock` on Docker, "
+        "or allow (in-)cluster access on Kubernetes"
     )
     raise UnsupportedError(msg)
 
@@ -376,8 +376,8 @@ def exec_workload(
     msg = (
         "No available deployer. "
         "Please provide a container runtime, e.g. "
-        "bind mount the host `/var/run/docker.sock` for Docker, "
-        "or allow (in-)cluster access for Kubernetes"
+        "bind mount the host `/var/run/docker.sock` on Docker, "
+        "or allow (in-)cluster access on Kubernetes"
     )
     raise UnsupportedError(msg)
 
