@@ -33,6 +33,7 @@ AMDGPU_FAMILY_GC_12_0_0 = 152  # GC 12.0.0
 
 ## Error Codes ##
 AMDGPU_SUCCESS = 0
+AMDGPU_ERROR_CARD_NOTFOUND = -99996
 AMDGPU_ERROR_UNINITIALIZED = -99997
 AMDGPU_ERROR_FUNCTION_NOT_FOUND = -99998
 AMDGPU_ERROR_LIBRARY_NOT_FOUND = -99999
@@ -44,6 +45,7 @@ libLoadLock = threading.Lock()
 
 class AMDGPUError(Exception):
     _extend_errcode_to_string: ClassVar[dict[int, str]] = {
+        AMDGPU_ERROR_CARD_NOTFOUND: "Card Not Found",
         AMDGPU_ERROR_UNINITIALIZED: "Library Not Initialized",
         AMDGPU_ERROR_FUNCTION_NOT_FOUND: "Function Not Found",
         AMDGPU_ERROR_LIBRARY_NOT_FOUND: "Library Not Found",
@@ -240,7 +242,11 @@ def _LoadAMDGPULibrary():
 def amdgpu_device_initialize(card=1):
     _LoadAMDGPULibrary()
 
-    fd = os.open(f"/dev/dri/card{card}", os.O_RDONLY)
+    try:
+        fd = os.open(f"/dev/dri/card{card}", os.O_RDONLY)
+    except FileNotFoundError:
+        raise AMDGPUError(AMDGPU_ERROR_CARD_NOTFOUND)
+
     c_major = c_uint32()
     c_minor = c_uint32()
     device = c_amdgpu_device_t()
