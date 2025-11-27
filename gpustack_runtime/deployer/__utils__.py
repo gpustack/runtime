@@ -338,6 +338,9 @@ def compare_versions(v1: str | None, v2: str | None) -> int:
     if v2 is None:
         v2 = ""
 
+    v1 = v1.removeprefix("v")
+    v2 = v2.removeprefix("v")
+
     if v1 == v2:
         return 0
 
