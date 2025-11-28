@@ -1171,7 +1171,7 @@ class DockerDeployer(Deployer):
             self_container = self._find_self_container(self_container_id)
             logger.info(
                 "Mirrored deployment enabled, using self Container %s for options mirroring",
-                self_container.id,
+                self_container.id[:12],
             )
             self_image = self_container.image
         except docker.errors.APIError:
