@@ -1324,21 +1324,30 @@ class DockerDeployer(Deployer):
                     for did in r.get("DeviceIDs") or []
                 }
                 for r in mirrored_device_requests:
-                    dri: str = r.get("Driver")
-                    dids: list[str] = []
-                    for did in r.get("DeviceIDs") or []:
-                        if f"{dri}:{did}" in c_device_requests_ids:
+                    dri = r.get("Driver")
+                    count = r.get("Count")
+                    caps = r.get("Capabilities")
+                    opts = r.get("Options")
+                    orig_ids = r.get("DeviceIDs") or []
+
+                    if count == -1:
+                        final_ids = []
+                    else:
+                        final_ids = [
+                            did
+                            for did in orig_ids
+                            if f"{dri}:{did}" not in c_device_requests_ids
+                        ]
+                        if not final_ids:
                             continue
-                        dids.append(did)
-                    if not dids:
-                        continue
+
                     c_device_requests.append(
                         docker.types.DeviceRequest(
                             driver=dri,
-                            count=r.get("Count"),
-                            device_ids=dids,
-                            capabilities=r.get("Capabilities", None),
-                            options=r.get("Options", None),
+                            count=count,
+                            device_ids=final_ids,
+                            capabilities=caps,
+                            options=opts,
                         ),
                     )
                 create_options["device_requests"] = c_device_requests
