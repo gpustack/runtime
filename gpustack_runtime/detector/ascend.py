@@ -415,5 +415,5 @@ def get_ascend_cann_variant(name: str | None) -> str | None:
     if version < 260:
         return "a3"  # 910c
     if version < 270:
-        return "a5"  # 910d
+        return "a4"  # 910d
     return None
