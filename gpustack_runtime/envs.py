@@ -39,6 +39,15 @@ if TYPE_CHECKING:
     Enable no PCI check during detection.
     Useful for WSL environments, where PCI information may not be available.
     """
+    GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL: bool = False
+    """
+    Enable only using management libraries calls during detection.
+    Device detection typically involves calling platform-side management libraries and platform-side toolkit to retrieve extra information.
+    For example, during NVIDIA detection, the NVML and CUDA are called, with CUDA used to retrieve GPU cores.
+    However, if certain toolchains are not correctly installed in the environment,
+    such as the Nvidia Fabric Manager being missing, calling the CUDA can cause blocking.
+    Enabling this parameter can prevent blocking events.
+    """
     GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY: dict[str, str] | None = None
     """
     The detected backend mapping to resource keys,
@@ -225,6 +234,9 @@ variables: dict[str, Callable[[], Any]] = {
         lambda: getenv("GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK") is not None,
         lambda: to_bool(getenv("GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK")),
         lambda: any(x in get_os_release() for x in ("microsoft", "wsl")),
+    ),
+    "GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL", "0"),
     ),
     "GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY": lambda: to_dict(
         getenv(

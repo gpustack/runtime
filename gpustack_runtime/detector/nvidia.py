@@ -91,10 +91,11 @@ class NVIDIADetector(Detector):
             pci_devs = NVIDIADetector.detect_pci_devices()
 
             pynvml.nvmlInit()
-            try:
-                pycuda.cuInit()
-            except pycuda.CUDAError:
-                debug_log_exception(logger, "Failed to initialize CUDA")
+            if not envs.GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL:
+                try:
+                    pycuda.cuInit()
+                except pycuda.CUDAError:
+                    debug_log_exception(logger, "Failed to initialize CUDA")
 
             sys_driver_ver = pynvml.nvmlSystemGetDriverVersion()
 
@@ -136,12 +137,13 @@ class NVIDIADetector(Detector):
                 dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
 
                 dev_cores = None
-                with contextlib.suppress(pycuda.CUDAError):
-                    dev_gpudev = pycuda.cuDeviceGet(dev_idx)
-                    dev_cores = pycuda.cuDeviceGetAttribute(
-                        dev_gpudev,
-                        pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
-                    )
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL:
+                    with contextlib.suppress(pycuda.CUDAError):
+                        dev_gpudev = pycuda.cuDeviceGet(dev_idx)
+                        dev_cores = pycuda.cuDeviceGetAttribute(
+                            dev_gpudev,
+                            pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                        )
 
                 dev_mem = 0
                 dev_mem_used = 0
