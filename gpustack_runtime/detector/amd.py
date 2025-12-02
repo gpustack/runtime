@@ -86,6 +86,10 @@ class AMDDetector(Detector):
             hsa_agents = {hsa_agent.uuid: hsa_agent for hsa_agent in pyhsa.get_agents()}
 
             pyamdsmi.amdsmi_init()
+            try:
+                pyrocmsmi.rsmi_init()
+            except pyrocmsmi.ROCMSMIError:
+                debug_log_exception(logger, "Failed to initialize ROCm SMI")
 
             sys_runtime_ver_original = pyrocmcore.getROCmVersion()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
@@ -106,7 +110,6 @@ class AMDDetector(Detector):
                     dev_card_id = dev_kfd_info.get("node_id")
                 else:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        pyrocmsmi.rsmi_init()
                         dev_card_id = pyrocmsmi.rsmi_dev_node_id_get(dev_idx)
 
                 dev_gpudev_info = None
@@ -130,7 +133,6 @@ class AMDDetector(Detector):
                     dev_name = dev_gpu_asic_info.get("market_name")
                     dev_cc = None
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        pyrocmsmi.rsmi_init()
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
 
                 dev_cores = None
@@ -147,7 +149,6 @@ class AMDDetector(Detector):
                     dev_temp = dev_gpu_metrics_info.get("temperature_hotspot", 0)
                 except pyamdsmi.AmdSmiException:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        pyrocmsmi.rsmi_init()
                         dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
                         dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
                 if dev_cores_util is None:
@@ -166,7 +167,6 @@ class AMDDetector(Detector):
                     dev_mem_used = dev_gpu_vram_usage.get("vram_used")
                 except pyamdsmi.AmdSmiException:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        pyrocmsmi.rsmi_init()
                         dev_mem = byte_to_mebibyte(  # byte to MiB
                             pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
                         )
@@ -188,7 +188,6 @@ class AMDDetector(Detector):
                     )
                 except pyamdsmi.AmdSmiException:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        pyrocmsmi.rsmi_init()
                         dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                         dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 

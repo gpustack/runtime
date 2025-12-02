@@ -91,6 +91,10 @@ class NVIDIADetector(Detector):
             pci_devs = NVIDIADetector.detect_pci_devices()
 
             pynvml.nvmlInit()
+            try:
+                pycuda.cuInit()
+            except pycuda.CUDAError:
+                debug_log_exception(logger, "Failed to initialize CUDA")
 
             sys_driver_ver = pynvml.nvmlSystemGetDriverVersion()
 
@@ -133,7 +137,6 @@ class NVIDIADetector(Detector):
 
                 dev_cores = None
                 with contextlib.suppress(pycuda.CUDAError):
-                    pycuda.cuInit()
                     dev_gpudev = pycuda.cuDeviceGet(dev_idx)
                     dev_cores = pycuda.cuDeviceGetAttribute(
                         dev_gpudev,
