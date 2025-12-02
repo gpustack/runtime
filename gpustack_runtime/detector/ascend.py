@@ -311,6 +311,9 @@ def _get_device_virtual_info(
 
 # Borrowed from https://gitcode.com/Ascend/pytorch/blob/master/torch_npu/csrc/core/npu/NpuVariables.cpp#L13-L40 and
 # https://gitcode.com/Ascend/pytorch/blob/master/torch_npu/csrc/core/npu/NpuVariables.h#L5-L34.
+# Ascend product category, please refer to:
+# https://www.hiascend.com/document/detail/zh/AscendFAQ/ProduTech/productform/hardwaredesc_0001.html and
+# https://blog.csdn.net/fuhanghang/article/details/146411242.
 _soc_name_version_mapping: dict[str, int] = {
     "Ascend910PremiumA": 100,
     "Ascend910ProA": 101,
@@ -402,8 +405,6 @@ def get_ascend_cann_variant(name: str | None) -> str | None:
     if version <= 0:
         return None
     if version < 200:
-        if version == 104:
-            return "910b"
         return "910"
     if version < 220:
         return "310p"
