@@ -6,7 +6,6 @@ import logging
 import operator
 import os
 import socket
-import sys
 from dataclasses import dataclass, field
 from functools import lru_cache, reduce
 from math import ceil
@@ -448,10 +447,22 @@ class DockerDeployer(Deployer):
         try:
             repo, tag = parse_repository_tag(image)
             tag = tag or "latest"
-            pull_log = self._client.api.pull(
+            auth_config = None
+            if (
+                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME
+                and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD
+            ):
+                auth_config = {
+                    "username": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME,
+                    "password": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD,
+                }
+
+            logs = self._client.api.pull(
                 repo,
                 tag=tag,
                 stream=True,
+                decode=True,
+                auth_config=auth_config,
             )
 
             progress_threshold = 1
@@ -461,69 +472,45 @@ class DockerDeployer(Deployer):
             layers: dict[str, int] = {}
             layer_progress: dict[str, int] = {}
             layer_progress_current: dict[str, int] = {}
-            is_raw = sys.stdout.isatty() and logger.isEnabledFor(logging.DEBUG)
-            for line in pull_log:
-                line_str = (
-                    line.decode("utf-8", errors="replace")
-                    if isinstance(line, bytes)
-                    else line
-                )
-                for log_str in line_str.splitlines():
-                    log = json.loads(log_str)
-                    if "id" not in log:
-                        if is_raw:
-                            print(log["status"], flush=True)
-                        else:
-                            logger.info(log["status"])
-                        continue
-                    log_id = log["id"]
-                    if log_id not in layers:
-                        layers[log_id] = len(layers)
-                        layer_progress[log_id] = 0
-                        layer_progress_current[log_id] = 0
-                    if is_raw:
-                        print("\033[E", end="")
-                        print(f"\033[{layers[log_id] + 1};0H", end="")
-                        print("\033[K", end="")
-                    if "progress" in log:
-                        if is_raw:
-                            print(f"{log_id}: {log['progress']}", flush=True)
-                        else:
-                            p_c = log.get("progressDetail", {}).get("current")
-                            p_t = log.get("progressDetail", {}).get("total")
-                            if (
-                                (progress_in_percent is None or progress_in_percent)
-                                and p_c is not None
-                                and p_t is not None
-                            ):
-                                progress_in_percent = True
-                                layer_progress[log_id] = int(p_c * 100 // p_t)
-                                p_diff = (
-                                    sum(layer_progress.values())
-                                    * 100
-                                    // (len(layer_progress) * 100)
-                                    - progress
-                                )
-                                if p_diff >= progress_threshold:
-                                    progress += progress_threshold
-                                    progress_threshold = min(5, progress_threshold + 1)
-                                    logger.info(f"Pulling image {image}: {progress}%")
-                            elif not progress_in_percent and p_c is not None:
-                                progress_in_percent = False
-                                layer_progress_current[log_id] = p_c
-                                p_c_total = sum(layer_progress_current.values())
-                                p_diff = p_c_total - progress_current
-                                if p_diff >= progress_threshold * _MiB:
-                                    progress_current = p_c_total
-                                    progress_threshold = min(
-                                        200,
-                                        progress_threshold + 2,
-                                    )
-                                    logger.info(
-                                        f"Pulling image {image}: {bytes_to_human_readable(p_c_total)}",
-                                    )
-                    elif is_raw:
-                        print(f"{log_id}: {log['status']}", flush=True)
+            for log in logs:
+                if "id" not in log:
+                    logger.info(log["status"])
+                    continue
+                log_id = log["id"]
+                if log_id not in layers:
+                    layers[log_id] = len(layers)
+                    layer_progress[log_id] = 0
+                    layer_progress_current[log_id] = 0
+                p_c = log.get("progressDetail", {}).get("current")
+                p_t = log.get("progressDetail", {}).get("total")
+                if (
+                    (progress_in_percent is None or progress_in_percent)
+                    and p_c is not None
+                    and p_t is not None
+                ):
+                    progress_in_percent = True
+                    layer_progress[log_id] = int(p_c * 100 // p_t)
+                    p_diff = (
+                        sum(layer_progress.values())
+                        * 100
+                        // (len(layer_progress) * 100)
+                        - progress
+                    )
+                    if p_diff >= progress_threshold:
+                        progress += progress_threshold
+                        progress_threshold = min(5, progress_threshold + 1)
+                        logger.info(f"Pulling image {image}: {progress}%")
+                elif not progress_in_percent and p_c is not None:
+                    progress_in_percent = False
+                    layer_progress_current[log_id] = p_c
+                    p_c_total = sum(layer_progress_current.values())
+                    p_diff = p_c_total - progress_current
+                    if p_diff >= progress_threshold * _MiB:
+                        progress_current = p_c_total
+                        progress_threshold = min(200, progress_threshold + 2)
+                        logger.info(
+                            f"Pulling image {image}: {bytes_to_human_readable(p_c_total)}",
+                        )
 
             sep = "@" if tag.startswith("sha256:") else ":"
             return self._client.images.get(f"{repo}{sep}{tag}")

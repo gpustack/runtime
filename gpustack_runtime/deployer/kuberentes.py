@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import operator
 import os
@@ -35,7 +36,9 @@ from .__types__ import (
     WorkloadStatusStateEnum,
 )
 from .__utils__ import (
+    base64_encode,
     fnv1a_32_hex,
+    fnv1a_64_hex,
     validate_rfc1123_domain_name,
 )
 
@@ -284,6 +287,10 @@ class KubernetesDeployer(Deployer):
     _node_name: str | None = None
     """
     Name of the node where the deployer is running.
+    """
+    _image_pull_secret: str | None = None
+    """
+    Image pull secret for pulling container images.
     """
     _mutate_create_pod: (
         Callable[[kubernetes.client.V1Pod], kubernetes.client.V1Pod] | None
@@ -629,6 +636,120 @@ class KubernetesDeployer(Deployer):
 
         return probe
 
+    def _get_default_node_name(self) -> str:
+        """
+        Get the default node name of the cluster.
+
+        Returns:
+            The name of the first node in the cluster.
+
+        Raises:
+            OperationError:
+                If retrieving the node name fails.
+
+        """
+        core_api = kubernetes.client.CoreV1Api(self._client)
+        try:
+            nodes = core_api.list_node(limit=1)
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Failed to get the default node name of the cluster{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+        else:
+            if nodes.items:
+                return nodes.items[0].metadata.name
+            msg = "Failed to get the default node name of the cluster: No nodes found"
+            raise OperationError(msg)
+
+    def _apply_image_pull_secret(
+        self,
+        registry: str,
+        username: str,
+        password: str,
+    ) -> str:
+        """
+        Apply image pull secret for pulling container images.
+
+        Args:
+            registry:
+                The container registry URL.
+            username:
+                The username for the container registry.
+            password:
+                The password for the container registry.
+
+        Returns:
+            The name of the created image pull secret.
+
+        Raises:
+            OperationError:
+                If creating the image pull secret fails.
+
+        """
+        core_api = kubernetes.client.CoreV1Api(self._client)
+
+        auth = f"{username}:{password}"
+        auth_b64 = base64_encode(auth)
+
+        docker_config = {
+            "auths": {
+                registry: {
+                    "username": username,
+                    "password": password,
+                    "auth": auth_b64,
+                },
+            },
+        }
+        docker_config_json = json.dumps(docker_config)
+        docker_config_json_b64 = base64_encode(docker_config_json)
+
+        secret_name = f"gpustack-ips-{fnv1a_64_hex(auth_b64)}"
+        secret_namespace = envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
+
+        secret = kubernetes.client.V1Secret(
+            metadata=kubernetes.client.V1ObjectMeta(
+                name=secret_name,
+                namespace=secret_namespace,
+            ),
+            data={".dockerconfigjson": docker_config_json_b64},
+            type="kubernetes.io/dockerconfigjson",
+        )
+
+        try:
+            actual_secret = None
+            with contextlib.suppress(kubernetes.client.exceptions.ApiException):
+                actual_secret = core_api.read_namespaced_secret(
+                    name=secret_name,
+                    namespace=secret_namespace,
+                )
+            if not actual_secret:
+                core_api.create_namespaced_secret(
+                    namespace=secret_namespace,
+                    body=secret,
+                )
+                logger.debug(
+                    "Created image pull secret %s in namespace %s",
+                    secret_name,
+                    secret_namespace,
+                )
+            elif not equal_secrets(actual_secret, secret):
+                core_api.patch_namespaced_secret(
+                    name=secret_name,
+                    namespace=secret_namespace,
+                    body={
+                        "data": secret.data,
+                    },
+                )
+                logger.debug(
+                    "Updated image pull secret %s in namespace %s",
+                    secret_name,
+                    secret_namespace,
+                )
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Failed to create image pull secret{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+
+        return secret_name
+
     def _create_service(
         self,
         workload: KubernetesWorkloadPlan,
@@ -776,6 +897,13 @@ class KubernetesDeployer(Deployer):
                 ),
             ),
         )
+
+        if self._image_pull_secret:
+            pod.spec.image_pull_secrets = [
+                kubernetes.client.V1LocalObjectReference(
+                    name=self._image_pull_secret,
+                ),
+            ]
 
         cnt_init, cnt_run = -1, -1
         for ci, c in enumerate(workload.containers):
@@ -1053,18 +1181,21 @@ class KubernetesDeployer(Deployer):
         # Get the first node name of the cluster if not configured.
         # Required list permission on Kubernetes Node resources.
         if not self._node_name:
-            core_api = kubernetes.client.CoreV1Api(self._client)
-            try:
-                nodes = core_api.list_node(limit=1)
-            except kubernetes.client.exceptions.ApiException as e:
-                msg = f"Failed to get the default node name of the cluster{_detail_api_call_error(e)}"
-                raise OperationError(msg) from e
-            else:
-                if nodes.items:
-                    self._node_name = nodes.items[0].metadata.name
-                else:
-                    msg = "Failed to get the default node name of the cluster: No nodes found"
-                    raise OperationError(msg)
+            self._node_name = self._get_default_node_name()
+
+        # Create image pull secrets if default registry credentials are set.
+        if not self._image_pull_secret and (
+            envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME
+            and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD
+        ):
+            registry = (
+                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY or "index.docker.io"
+            )
+            self._image_pull_secret = self._apply_image_pull_secret(
+                registry=f"https://{registry}/v1/",
+                username=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME,
+                password=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD,
+            )
 
         # Prepare mirrored deployment if enabled.
         if self._mutate_create_pod:
@@ -1135,6 +1266,9 @@ class KubernetesDeployer(Deployer):
         mirrored_image_pull_secrets: list[kubernetes.client.V1LocalObjectReference] = (
             self_pod.spec.image_pull_secrets
         )
+        if self._image_pull_secret:
+            # Use created image pull secret if exists.
+            mirrored_image_pull_secrets = []
         ## - Container envs
         mirrored_envs: list[kubernetes.client.V1EnvVar] = [
             # Filter out gpustack-internal envs and cross-namespace secret/envref envs.
@@ -1740,6 +1874,26 @@ def equal_config_maps(
 
     Returns:
         True if the ConfigMap specs are equal, False otherwise.
+
+    """
+    return (a.data or {}) == (b.data or {})
+
+
+def equal_secrets(
+    a: kubernetes.client.V1Secret,
+    b: kubernetes.client.V1Secret,
+) -> bool:
+    """
+    Compare two Kubernetes Secret specs for equality, ignoring certain fields.
+
+    Args:
+        a:
+            The first Secret spec.
+        b:
+            The second Secret spec.
+
+    Returns:
+        True if the Secret specs are equal, False otherwise.
 
     """
     return (a.data or {}) == (b.data or {})

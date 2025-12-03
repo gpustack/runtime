@@ -64,6 +64,14 @@ if TYPE_CHECKING:
     If not set, it should be "docker.io".
     If the image name already contains a registry, this setting will be ignored.
     """
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME: str | None = None
+    """
+    Username for the default container registry.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD: str | None = None
+    """
+    Password for the default container registry.
+    """
     GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL: bool = True
     """
     Enable detailing the API call error during deployment.
@@ -257,6 +265,12 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY": lambda: trim_str(
         getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY"),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME": lambda: trim_str(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME"),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD": lambda: getenv(
+        "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL", "1"),

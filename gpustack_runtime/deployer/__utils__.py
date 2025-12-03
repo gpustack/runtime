@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import enum
 import json
 import platform
@@ -603,6 +604,24 @@ def fnv1a_64_hex(data: bytes | str) -> str:
     """
     hash_value = fnv1a_64(data)
     return f"{hash_value:016x}"
+
+
+def base64_encode(data: bytes | str) -> str:
+    """
+    Encode bytes or str to a base64 string.
+
+    Args:
+        data:
+            The input bytes or str to encode.
+
+    Returns:
+        The base64 encoded string.
+
+    """
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+
+    return base64.b64encode(data).decode("ascii")
 
 
 _KiB = 1 << 10
