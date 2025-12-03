@@ -19,6 +19,7 @@ from .cmds import (
     DetectDevicesSubCommand,
     ExecWorkloadSubCommand,
     GetWorkloadSubCommand,
+    InspectWorkloadSubCommand,
     ListImagesSubCommand,
     ListWorkloadsSubCommand,
     LogsWorkloadSubCommand,
@@ -65,6 +66,7 @@ def main():
     ListWorkloadsSubCommand.register(subcommand_parser)
     LogsWorkloadSubCommand.register(subcommand_parser)
     ExecWorkloadSubCommand.register(subcommand_parser)
+    InspectWorkloadSubCommand.register(subcommand_parser)
     DetectDevicesSubCommand.register(subcommand_parser)
     ListImagesSubCommand.register(subcommand_parser)
     SaveImagesSubCommand.register(subcommand_parser)
