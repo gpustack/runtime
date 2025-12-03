@@ -921,6 +921,13 @@ class KubernetesDeployer(Deployer):
                 ),
             ]
 
+        # Parameterize volumes
+        self._append_pod_volumes(
+            pod,
+            workload,
+            ephemeral_filename_mapping,
+        )
+
         cnt_init, cnt_run = -1, -1
         for ci, c in enumerate(workload.containers):
             # Annotate container info.
@@ -1063,13 +1070,6 @@ class KubernetesDeployer(Deployer):
                     limits=(resources if resources else None),
                     requests=(resources if resources else None),
                 )
-
-            # Parameterize volumes
-            self._append_pod_volumes(
-                pod,
-                workload,
-                ephemeral_filename_mapping,
-            )
 
             # Parameterize mounts
             self._append_container_volume_mounts(
