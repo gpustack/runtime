@@ -39,6 +39,7 @@ from .__utils__ import (
     base64_encode,
     fnv1a_32_hex,
     fnv1a_64_hex,
+    safe_yaml,
     validate_rfc1123_domain_name,
 )
 
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
 logger = logging.getLogger(__name__)
+clogger = logger.getChild("conversion")
 
 _LABEL_WORKLOAD = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/workload"
 _LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
@@ -408,6 +410,13 @@ class KubernetesDeployer(Deployer):
                     ),
                     data={"content": content},
                 )
+                if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
+                    clogger.info(
+                        f"Creating configmap %s/%s:{os.linesep}%s",
+                        workload.namespace,
+                        config_map_name,
+                        safe_yaml(config_map, indent=2, sort_keys=False),
+                    )
 
                 actual_config_map = None
                 with contextlib.suppress(kubernetes.client.exceptions.ApiException):
@@ -421,9 +430,9 @@ class KubernetesDeployer(Deployer):
                         body=config_map,
                     )
                     logger.debug(
-                        "Created configmap %s in namespace %s",
-                        config_map_name,
+                        "Created configmap %s/%s",
                         workload.namespace,
+                        config_map_name,
                     )
                 elif not equal_config_maps(actual_config_map, config_map):
                     core_api.patch_namespaced_config_map(
@@ -434,9 +443,9 @@ class KubernetesDeployer(Deployer):
                         },
                     )
                     logger.debug(
-                        "Updated configmap %s in namespace %s",
-                        config_map_name,
+                        "Updated configmap %s/%s",
                         workload.namespace,
+                        config_map_name,
                     )
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Failed to create configmap for workload {workload.name}{_detail_api_call_error(e)}"
@@ -727,9 +736,9 @@ class KubernetesDeployer(Deployer):
                     body=secret,
                 )
                 logger.debug(
-                    "Created image pull secret %s in namespace %s",
-                    secret_name,
+                    "Created image pull secret %s/%s",
                     secret_namespace,
+                    secret_name,
                 )
             elif not equal_secrets(actual_secret, secret):
                 core_api.patch_namespaced_secret(
@@ -740,9 +749,9 @@ class KubernetesDeployer(Deployer):
                     },
                 )
                 logger.debug(
-                    "Updated image pull secret %s in namespace %s",
-                    secret_name,
+                    "Updated image pull secret %s/%s",
                     secret_namespace,
+                    secret_name,
                 )
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Failed to create image pull secret{_detail_api_call_error(e)}"
@@ -797,6 +806,13 @@ class KubernetesDeployer(Deployer):
                 ],
             ),
         )
+        if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
+            clogger.info(
+                f"Creating service %s/%s:{os.linesep}%s",
+                workload.namespace,
+                service_name,
+                safe_yaml(service, indent=2, sort_keys=False),
+            )
 
         core_api = kubernetes.client.CoreV1Api(self._client)
         try:
@@ -812,9 +828,9 @@ class KubernetesDeployer(Deployer):
                     body=service,
                 )
                 logger.debug(
-                    "Created service %s in namespace %s",
-                    service_name,
+                    "Created service %s/%s",
                     workload.namespace,
+                    service_name,
                 )
             elif not equal_services(actual_service, service):
                 service = core_api.patch_namespaced_service(
@@ -825,9 +841,9 @@ class KubernetesDeployer(Deployer):
                     },
                 )
                 logger.debug(
-                    "Updated service %s in namespace %s",
-                    service_name,
+                    "Updated service %s/%s",
                     workload.namespace,
+                    service_name,
                 )
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Failed to create service for workload {workload.name}{_detail_api_call_error(e)}"
@@ -1114,10 +1130,17 @@ class KubernetesDeployer(Deployer):
             else:
                 pod.spec.containers.append(container)
 
-        pod = self._mutate_create_pod(pod)
-
         core_api = kubernetes.client.CoreV1Api(self._client)
         try:
+            pod = self._mutate_create_pod(pod)
+            if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
+                clogger.info(
+                    f"Creating pod %s/%s:{os.linesep}%s",
+                    workload.namespace,
+                    pod_name,
+                    safe_yaml(pod, indent=2, sort_keys=False),
+                )
+
             actual_pod = None
             with contextlib.suppress(kubernetes.client.exceptions.ApiException):
                 actual_pod = core_api.read_namespaced_pod(
@@ -1130,9 +1153,9 @@ class KubernetesDeployer(Deployer):
                     body=pod,
                 )
                 logger.debug(
-                    "Created pod %s in namespace %s",
-                    pod_name,
+                    "Created pod %s/%s",
                     workload.namespace,
+                    pod_name,
                 )
             elif not equal_pods(actual_pod, pod):
                 # Delete the existing Pod first, then create a new one.
@@ -1158,9 +1181,9 @@ class KubernetesDeployer(Deployer):
                     body=pod,
                 )
                 logger.debug(
-                    "Updated pod %s in namespace %s",
-                    pod_name,
+                    "Updated pod %s/%s",
                     workload.namespace,
+                    pod_name,
                 )
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Failed to create pod for workload {workload.name}{_detail_api_call_error(e)}"

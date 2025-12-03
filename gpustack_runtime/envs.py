@@ -76,6 +76,13 @@ if TYPE_CHECKING:
     """
     Enable detailing the API call error during deployment.
     """
+    GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION: bool = False
+    """
+    Enable printing the conversion during deployment.
+    GPUStack Runtime provides a unified Workload definition API,
+    which will be converted to the specific Container Runtime API calls(e.g., Docker SDK, Kubernetes API).
+    Enabling this option will print the final converted API calls in INFO log for debugging purposes.
+    """
     GPUSTACK_RUNTIME_DEPLOY_ASYNC: bool = True
     """
     Enable asynchronous deployment.
@@ -274,6 +281,9 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL", "1"),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION", "0"),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_ASYNC": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_ASYNC", "1"),

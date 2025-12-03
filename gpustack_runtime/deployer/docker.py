@@ -42,12 +42,13 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
-from .__utils__ import _MiB, bytes_to_human_readable
+from .__utils__ import _MiB, bytes_to_human_readable, safe_json
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
 logger = logging.getLogger(__name__)
+clogger = logger.getChild("conversion")
 
 _LABEL_WORKLOAD = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/workload"
 _LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
@@ -633,6 +634,13 @@ class DockerDeployer(Deployer):
         elif workload.shm_size:
             create_options["shm_size"] = workload.shm_size
 
+        if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
+            clogger.info(
+                f"Creating pause container %s with options:{os.linesep}%s",
+                container_name,
+                safe_json(create_options, indent=2),
+            )
+
         try:
             d_container = self._client.containers.create(
                 image=self._get_image(workload.pause_image),
@@ -696,6 +704,13 @@ class DockerDeployer(Deployer):
                 "/var/run/docker.sock:/var/run/docker.sock",
             ],
         }
+
+        if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
+            clogger.info(
+                f"Creating unhealthy restart container %s with options:{os.linesep}%s",
+                container_name,
+                safe_json(create_options, indent=2),
+            )
 
         try:
             d_container = self._client.containers.create(
@@ -1074,6 +1089,13 @@ class DockerDeployer(Deployer):
             try:
                 if c.profile == ContainerProfileEnum.RUN:
                     create_options = self._mutate_create_options(create_options)
+                if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
+                    clogger.info(
+                        f"Creating container %s with options:{os.linesep}%s",
+                        container_name,
+                        safe_json(create_options, indent=2),
+                    )
+
                 d_container = self._client.containers.create(
                     image=self._get_image(c.image, c.image_pull_policy),
                     detach=detach,
