@@ -1,6 +1,24 @@
 # GPUStack Runtime
 
-GPUStack Runtime provides an unified interface to detect GPU resources and manages GPU workloads.
+GPUStack Runtime offers a unified interface for detecting GPU resources and managing GPU workloads.
+
+It supports detection of a wide range of GPU and accelerator resources, including:
+
+- AMD GPU
+- Ascend NPU
+- Cambricon MLU
+- Hygon DCU
+- Iluvatar GPU
+- MetaX GPU
+- Moore Threads GPU
+- NVIDIA GPU
+
+Contributions to support additional GPU resources are welcome!
+
+GPUStack Runtime enables GPU workload management on the following platforms:
+
+- Docker
+- Kubernetes
 
 ## License
 
