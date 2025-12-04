@@ -1,6 +1,6 @@
 # GPUStack Runtime
 
-GPUStack Runtime provides a unified interface to detect GPU resources and manages GPU workloads.
+GPUStack Runtime provides an unified interface to detect GPU resources and manages GPU workloads.
 
 ## License
 
