@@ -150,9 +150,7 @@ RUN <<EOF
             PYTHON_LIB_PREFIX=$(python3 -c "import sys; print(sys.base_prefix);")
             echo "${PYTHON_LIB_PREFIX}/lib" >> /etc/ld.so.conf.d/python3.conf
             echo "${PYTHON_LIB_PREFIX}/lib64" >> /etc/ld.so.conf.d/python3.conf
-            EXPORT_PYTHON_LIB="export LD_LIBRARY_PATH=${PYTHON_LIB_PREFIX}/lib:${PYTHON_LIB_PREFIX}/lib64:\${LD_LIBRARY_PATH}"
-            echo "${EXPORT_PYTHON_LIB}" >> /etc/profile
-            echo "${EXPORT_PYTHON_LIB}" >> ~/.bashrc
+            ldconfig -v
         fi
         exit 0
     fi
@@ -216,6 +214,7 @@ Cython
 psutil
 pipx
 uv
+py-spy
 EOT
     pip install -r /tmp/requirements.txt
 
