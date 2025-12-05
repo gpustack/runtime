@@ -5,7 +5,7 @@ import atexit
 import contextlib
 import re
 from abc import ABC, abstractmethod
-from concurrent.futures.thread import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
