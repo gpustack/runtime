@@ -89,7 +89,8 @@ if TYPE_CHECKING:
     """
     GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS: int | None = None
     """
-    The number of threads in the threadpool.
+    The number of threads in the threadpool,
+    which is used for asynchronous deployment operations.
     If not set, it should be min(32, system cpu cores + 4)
     """
     GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT: bool = False
