@@ -1697,14 +1697,14 @@ class KubernetesDeployer(Deployer):
 
         return [
             KubernetesWorkloadStatus(
-                name=k_pod.metadata.labels.get(_LABEL_WORKLOAD, k_pod.metadata.name),
+                name=k_pod.metadata.labels[_LABEL_WORKLOAD],
                 k_pod=k_pod,
             )
             for k_pod in k_pods.items or []
             if (
                 k_pod.metadata.labels
-                and (_LABEL_WORKLOAD in k_pod.metadata.labels)
-                and k_pod.metadata.labels[_LABEL_WORKLOAD] == k_pod.metadata.name
+                and _LABEL_WORKLOAD in k_pod.metadata.labels
+                and k_pod.spec.node_name == self._node_name
             )
         ]
 
