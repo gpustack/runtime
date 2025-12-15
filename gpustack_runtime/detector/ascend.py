@@ -342,7 +342,7 @@ _soc_name_version_mapping: dict[str, int] = {
     "Ascend910_9382": 253,
     "Ascend910_9372": 254,
     "Ascend910_9362": 255,
-    "Ascend910_95": 260,
+    "Ascend910_9579": 260,
 }
 
 
@@ -415,5 +415,5 @@ def get_ascend_cann_variant(name: str | None) -> str | None:
     if version < 260:
         return "a3"  # 910c
     if version < 270:
-        return "a4"  # 910d
+        return "a5"  # 910d
     return None
