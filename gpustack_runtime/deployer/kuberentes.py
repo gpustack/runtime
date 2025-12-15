@@ -53,7 +53,7 @@ _LABEL_WORKLOAD = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/workload"
 _LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
 
 
-class KubernetesWorkloadServiceType(str, Enum):
+class KubernetesWorkloadServiceTypeEnum(str, Enum):
     """
     Types for Kubernetes Service.
     """
@@ -84,7 +84,7 @@ class KubernetesWorkloadPlan(WorkloadPlan):
     Attributes:
         domain_suffix (str):
             Domain suffix for the cluster. Default is "cluster.local".
-        service_type (KubernetesWorkloadServiceType):
+        service_type (KubernetesWorkloadServiceTypeEnum):
             Service type for the workload. Default is CLUSTER_IP.
         resource_key_runtime_env_mapping: (dict[str, str]):
             Mapping from resource names to environment variable names for device allocation,
@@ -130,7 +130,7 @@ class KubernetesWorkloadPlan(WorkloadPlan):
     """
     Domain suffix for the cluster.
     """
-    service_type: KubernetesWorkloadServiceType = field(
+    service_type: KubernetesWorkloadServiceTypeEnum = field(
         default_factory=lambda: envs.GPUSTACK_RUNTIME_KUBERNETES_SERVICE_TYPE,
     )
     """

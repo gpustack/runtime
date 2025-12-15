@@ -685,8 +685,8 @@ class Container:
     """
     Name of the container.
     """
-    image_pull_policy: ContainerImagePullPolicyEnum = (
-        ContainerImagePullPolicyEnum.IF_NOT_PRESENT
+    image_pull_policy: ContainerImagePullPolicyEnum = field(
+        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_IMAGE_PULL_POLICY,
     )
     """
     Image pull policy of the container.
