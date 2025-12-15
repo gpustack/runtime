@@ -1522,7 +1522,7 @@ class Deployer(ABC):
                 msg = "Asynchronous workload creation failed."
                 raise OperationError(msg) from e
         else:
-            return self._create(workload)
+            self._create(workload)
 
     @abstractmethod
     def _create(self, workload: WorkloadPlan):
