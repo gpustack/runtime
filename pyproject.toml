@@ -24,6 +24,7 @@ dependencies = [
     "gpustack-runner>=0.1.22",
     "nvidia-ml-py>=13.580.65",
     "argcomplete>=3.6.3",
+    "tqdm",
 ]
 dynamic = ["version"]
 

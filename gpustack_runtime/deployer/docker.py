@@ -20,6 +20,7 @@ import docker.models.volumes
 import docker.types
 from dataclasses_json import dataclass_json
 from docker.utils import parse_repository_tag
+from tqdm import tqdm
 
 from .. import envs
 from ..logging import debug_log_exception
@@ -42,7 +43,7 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
-from .__utils__ import _MiB, bytes_to_human_readable, safe_json
+from .__utils__ import safe_json
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -466,52 +467,53 @@ class DockerDeployer(Deployer):
                 auth_config=auth_config,
             )
 
-            progress_threshold = 1
-            progress_in_percent = None
-            progress: int = 0
-            progress_current: int = 0
-            layers: dict[str, int] = {}
-            layer_progress: dict[str, int] = {}
-            layer_progress_current: dict[str, int] = {}
+            layers: dict[str, tqdm] = {}
+
+            def clean_layers():
+                if not layers:
+                    return
+                for layer in layers.values():
+                    layer.close()
+                layers.clear()
+
             for log in logs:
                 if "id" not in log:
+                    clean_layers()
                     logger.info(log["status"])
                     continue
-                log_id = log["id"]
-                if log_id not in layers:
-                    layers[log_id] = len(layers)
-                    layer_progress[log_id] = 0
-                    layer_progress_current[log_id] = 0
-                p_c = log.get("progressDetail", {}).get("current")
-                p_t = log.get("progressDetail", {}).get("total")
-                if (
-                    (progress_in_percent is None or progress_in_percent)
-                    and p_c is not None
-                    and p_t is not None
-                ):
-                    progress_in_percent = True
-                    layer_progress[log_id] = int(p_c * 100 // p_t)
-                    p_diff = (
-                        sum(layer_progress.values())
-                        * 100
-                        // (len(layer_progress) * 100)
-                        - progress
+
+                layer_id = log.get("id")
+                layer_status = log.get("status", "")
+                layer_progress = log.get("progressDetail", {})
+                layer_progress_total = layer_progress.get("total", None)
+                layer_progress_current = layer_progress.get("current", None)
+                if layer_id not in layers:
+                    layers[layer_id] = tqdm(
+                        unit="B",
+                        unit_scale=True,
+                        position=len(layers),
+                        ncols=70,
+                        desc=f"{layer_id}: {layer_status}",
+                        bar_format="{desc}",
                     )
-                    if p_diff >= progress_threshold:
-                        progress += progress_threshold
-                        progress_threshold = min(5, progress_threshold + 1)
-                        logger.info(f"Pulling image {image}: {progress}%")
-                elif not progress_in_percent and p_c is not None:
-                    progress_in_percent = False
-                    layer_progress_current[log_id] = p_c
-                    p_c_total = sum(layer_progress_current.values())
-                    p_diff = p_c_total - progress_current
-                    if p_diff >= progress_threshold * _MiB:
-                        progress_current = p_c_total
-                        progress_threshold = min(200, progress_threshold + 2)
-                        logger.info(
-                            f"Pulling image {image}: {bytes_to_human_readable(p_c_total)}",
-                        )
+                else:
+                    layers[layer_id].desc = f"{layer_id}: {layer_status}"
+
+                if layer_progress_total is not None:
+                    layers[layer_id].total = layer_progress_total
+                    bf = "{desc} |{bar}| {n_fmt}/{total_fmt} [{rate_fmt}{postfix}]"
+                    layers[layer_id].bar_format = bf
+                elif layer_progress_current is not None:
+                    layers[layer_id].bar_format = "{desc} {n_fmt} [{rate_fmt}{postfix}]"
+                else:
+                    layers[layer_id].bar_format = "{desc}"
+
+                if layer_progress_current:
+                    layers[layer_id].n = layer_progress_current
+
+                layers[layer_id].refresh()
+
+            clean_layers()
 
             sep = "@" if tag.startswith("sha256:") else ":"
             return self._client.images.get(f"{repo}{sep}{tag}")
