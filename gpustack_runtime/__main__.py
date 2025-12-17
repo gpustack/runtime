@@ -98,12 +98,10 @@ def profile(watch: int):
             available_deployers: list[str] = []
             available_detectors: list[str] = []
             with contextlib.suppress(Exception):
-                for dep in deployer.deployers:
-                    if dep.is_supported():
-                        available_deployers.append(dep.name)
-                for det in detector.detectors:
-                    if det.is_supported():
-                        available_detectors.append(det.name)
+                for dep in deployer.supported_list():
+                    available_deployers.append(dep.name)
+                for det in detector.supported_list():
+                    available_detectors.append(det.name)
             print("\033[2J\033[H", end="")
             print(f"Available Deployers: [{', '.join(available_deployers)}]")
             print(f"Available Detectors: [{', '.join(available_detectors)}]")

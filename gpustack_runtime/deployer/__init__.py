@@ -47,10 +47,21 @@ if TYPE_CHECKING:
 
     from .__types__ import Deployer, WorkloadName
 
-deployers: list[Deployer] = [
+_DEPLOYERS: list[Deployer] = [
     DockerDeployer(),
     KubernetesDeployer(),
 ]
+
+
+def supported_list() -> list[Deployer]:
+    """
+    Return supported deployers.
+
+    Returns:
+        A list of supported deployers.
+
+    """
+    return [dep for dep in _DEPLOYERS if dep.is_supported()]
 
 
 def create_workload(workload: WorkloadPlan):
@@ -72,7 +83,7 @@ def create_workload(workload: WorkloadPlan):
             If the deployer fails to deploy the workload.
 
     """
-    for dep in deployers:
+    for dep in _DEPLOYERS:
         if not dep.is_supported():
             continue
 
@@ -111,7 +122,7 @@ def get_workload(
             If the deployer fails to get the status of the workload.
 
     """
-    for dep in deployers:
+    for dep in _DEPLOYERS:
         if not dep.is_supported():
             continue
 
@@ -149,7 +160,7 @@ def delete_workload(
             If the deployer fails to delete the workload.
 
     """
-    for dep in deployers:
+    for dep in _DEPLOYERS:
         if not dep.is_supported():
             continue
 
@@ -187,7 +198,7 @@ def list_workloads(
             If the deployer fails to list workloads.
 
     """
-    for dep in deployers:
+    for dep in _DEPLOYERS:
         if not dep.is_supported():
             continue
 
@@ -240,7 +251,7 @@ def logs_workload(
             If the deployer fails to get the logs of the workload.
 
     """
-    for dep in deployers:
+    for dep in _DEPLOYERS:
         if not dep.is_supported():
             continue
 
@@ -301,7 +312,7 @@ async def async_logs_workload(
             If the deployer fails to get the logs of the workload.
 
     """
-    for dep in deployers:
+    for dep in _DEPLOYERS:
         if not dep.is_supported():
             continue
 
@@ -360,7 +371,7 @@ def exec_workload(
             If the deployer fails to execute the command in the workload.
 
     """
-    for dep in deployers:
+    for dep in _DEPLOYERS:
         if not dep.is_supported():
             continue
 
@@ -421,4 +432,5 @@ __all__ = [
     "get_workload",
     "list_workloads",
     "logs_workload",
+    "supported_list",
 ]

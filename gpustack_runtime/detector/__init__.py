@@ -25,7 +25,7 @@ from .nvidia import NVIDIADetector
 
 logger = logging.getLogger(__package__)
 
-detectors: list[Detector] = [
+_DETECTORS: list[Detector] = [
     AMDDetector(),
     AscendDetector(),
     CambriconDetector(),
@@ -35,6 +35,17 @@ detectors: list[Detector] = [
     MThreadsDetector(),
     NVIDIADetector(),
 ]
+
+
+def supported_list() -> list[Detector]:
+    """
+    Return supported detectors.
+
+    Returns:
+        A list of supported detectors.
+
+    """
+    return [det for det in _DETECTORS if det.is_supported()]
 
 
 def detect_backend(fast: bool = True) -> str | list[str]:
@@ -53,7 +64,7 @@ def detect_backend(fast: bool = True) -> str | list[str]:
     """
     backends: list[str] = []
 
-    for det in detectors:
+    for det in _DETECTORS:
         if not det.is_supported():
             continue
 
@@ -84,7 +95,7 @@ def detect_devices(fast: bool = True) -> Devices:
     """
     devices: Devices = []
 
-    for det in detectors:
+    for det in _DETECTORS:
         if not det.is_supported():
             continue
 
@@ -111,5 +122,6 @@ __all__ = [
     "detect_devices",
     "manufacturer_to_backend",
     "supported_backends",
+    "supported_list",
     "supported_manufacturers",
 ]
