@@ -73,11 +73,11 @@ def setup_logging():
     Environment Variables:
         GPUSTACK_RUNTIME_LOG_LEVEL
             Controls logging levels. Examples:
-            - "DEBUG"                                         # All modules at DEBUG
-            - "runtime.module_a:DEBUG"                        # Only module_a module at DEBUG, other modules at INFO
-            - "module_a:DEBUG"                                # Same as above
-            - "runtime.module_a:DEBUG;runtime.module_b:INFO"  # Multiple modules
-            - "ERROR;runtime.module_a:DEBUG"                  # All modules at ERROR, only module_a module at DEBUG
+            - "DEBUG"                                                           # All modules at DEBUG
+            - "gpustack_runtime.module_a:DEBUG"                                 # Only module_a module at DEBUG, other modules at INFO
+            - "module_a:DEBUG"                                                  # Same as above
+            - "gpustack_runtime.module_a:DEBUG;gpustack_runtime.module_b:INFO"  # Multiple modules
+            - "ERROR;gpustack_runtime.module_a:DEBUG"                           # All modules at ERROR, only module_a module at DEBUG
 
         GPUSTACK_RUNTIME_LOG_TO_FILE
             If set, specifies the file path for log output. When this variable is set,
@@ -101,6 +101,7 @@ def setup_logging():
     module_levels = _parse_module_levels(level_str)
 
     formatter = logging.Formatter(DEFAULT_LOG_FORMAT)
+    level = module_levels.get("", logging.INFO)
     handlers: list[logging.StreamHandler[Any] | logging.FileHandler] = []
     queue_handler = logging.handlers.QueueHandler(_LOG_QUEUE)
 
@@ -115,25 +116,29 @@ def setup_logging():
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
 
-    # Configure root logger
-    root_logger = logging.getLogger(__package__)
-    root_logger.handlers.clear()
-    root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(queue_handler)
-    root_logger.propagate = False
+    # Configure package logger
+    package_logger = logging.getLogger(__package__)
+    package_logger.handlers.clear()
+    package_logger.setLevel(level)
+    package_logger.addHandler(queue_handler)
+    package_logger.propagate = False
 
-    # Set default level
-    if "" in module_levels:
-        root_logger.setLevel(module_levels[""])
-
-    # Configure module-specific levels
-    for module, level in module_levels.items():
+    # Configure module loggers
+    for module, module_level in module_levels.items():
         if module:  # Skip default level
-            logger = logging.getLogger(f"{__package__}.{module}")
-            logger.handlers.clear()
-            logger.addHandler(queue_handler)
-            logger.setLevel(level)
-            logger.propagate = False  # Prevent message duplication
+            module_logger = logging.getLogger(f"{__package__}.{module}")
+            module_logger.handlers.clear()
+            module_logger.addHandler(queue_handler)
+            module_logger.setLevel(module_level)
+            module_logger.propagate = False
+
+    # Configure 3rd-party loggers, set slightly higher level than package level
+    for _3rd in ["docker", "kubernetes"]:
+        _3rd_logger = logging.getLogger(_3rd)
+        _3rd_logger.handlers.clear()
+        _3rd_logger.addHandler(queue_handler)
+        _3rd_logger.setLevel(max(logging.NOTSET, min(level + 10, logging.CRITICAL)))
+        _3rd_logger.propagate = False
 
     _LOG_LISTENER = logging.handlers.QueueListener(
         _LOG_QUEUE,
