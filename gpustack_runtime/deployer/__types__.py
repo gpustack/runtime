@@ -1480,7 +1480,10 @@ class Deployer(ABC):
             pool_threads = envs.GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS
             if pool_threads and pool_threads < 1:
                 pool_threads = None
-            self._pool = ThreadPoolExecutor(max_workers=pool_threads)
+            self._pool = ThreadPoolExecutor(
+                max_workers=pool_threads,
+                thread_name_prefix=f"runtime-deployer-{self.name}",
+            )
         return self._pool
 
     @_default_args
