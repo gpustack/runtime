@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import os
 from functools import lru_cache
-from os import getenv
+from os import getenv as sys_getenv
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -668,6 +668,55 @@ def ternary(
     if condition():
         return true_callback()
     return false_callback()
+
+
+_ENV_PREFIX = "GPUSTACK_RUNTIME_"
+
+
+def getenv(key: str, default=None) -> any | None:
+    """
+    Get the value of an environment variable.
+    Try headless module variable if the key starts with "GPUSTACK_RUNTIME_".
+
+    Args:
+        key:
+            The environment variable key.
+        default:
+            The default value if the key is not found.
+
+    Returns:
+        The value of the environment variable if it exists, otherwise None.
+
+    """
+    value = sys_getenv(key)
+    if value is not None:
+        return value
+    if key.startswith(_ENV_PREFIX):
+        headless_key = key.removeprefix(_ENV_PREFIX)
+        return sys_getenv(headless_key, default)
+    return default
+
+
+def getenvs(keys: list[str], default=None) -> any | None:
+    """
+    Get the value of an environment variable.
+    Return the first found value among the provided keys.
+
+    Args:
+        keys:
+            The environment variable key(s).
+        default:
+            The default value if none of the keys are found.
+
+    Returns:
+        The value of the environment variable if it exists, otherwise None.
+
+    """
+    for key in keys:
+        value = getenv(key)
+        if value is not None:
+            return value
+    return default
 
 
 def get_os_release() -> str:
