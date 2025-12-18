@@ -6,6 +6,7 @@ import logging
 import operator
 import os
 import socket
+import sys
 from dataclasses import dataclass, field
 from functools import lru_cache, reduce
 from math import ceil
@@ -43,7 +44,7 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
-from .__utils__ import safe_json
+from .__utils__ import _MiB, bytes_to_human_readable, safe_json
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -444,9 +445,9 @@ class DockerDeployer(Deployer):
         return ephemeral_volume_name_mapping
 
     def _pull_image(self, image: str) -> docker.models.images.Image:
-        logger.info(f"Pulling image {image}")
-
         try:
+            logger.info("Pulling image %s", image)
+
             repo, tag = parse_repository_tag(image)
             tag = tag or "latest"
             auth_config = None
@@ -466,54 +467,9 @@ class DockerDeployer(Deployer):
                 decode=True,
                 auth_config=auth_config,
             )
+            _print_pull_logs(logs, image, tag)
 
-            layers: dict[str, tqdm] = {}
-
-            def clean_layers():
-                if not layers:
-                    return
-                for layer in layers.values():
-                    layer.close()
-                layers.clear()
-
-            for log in logs:
-                if "id" not in log:
-                    clean_layers()
-                    logger.info(log["status"])
-                    continue
-
-                layer_id = log.get("id")
-                layer_status = log.get("status", "")
-                layer_progress = log.get("progressDetail", {})
-                layer_progress_total = layer_progress.get("total", None)
-                layer_progress_current = layer_progress.get("current", None)
-                if layer_id not in layers:
-                    layers[layer_id] = tqdm(
-                        unit="B",
-                        unit_scale=True,
-                        position=len(layers),
-                        ncols=70,
-                        desc=f"{layer_id}: {layer_status}",
-                        bar_format="{desc}",
-                    )
-                else:
-                    layers[layer_id].desc = f"{layer_id}: {layer_status}"
-
-                if layer_progress_total is not None:
-                    layers[layer_id].total = layer_progress_total
-                    bf = "{desc} |{bar}| {n_fmt}/{total_fmt} [{rate_fmt}{postfix}]"
-                    layers[layer_id].bar_format = bf
-                elif layer_progress_current is not None:
-                    layers[layer_id].bar_format = "{desc} {n_fmt} [{rate_fmt}{postfix}]"
-                else:
-                    layers[layer_id].bar_format = "{desc}"
-
-                if layer_progress_current:
-                    layers[layer_id].n = layer_progress_current
-
-                layers[layer_id].refresh()
-
-            clean_layers()
+            logger.info("Pulled image %s", image)
 
             sep = "@" if tag.startswith("sha256:") else ":"
             return self._client.images.get(f"{repo}{sep}{tag}")
@@ -1959,3 +1915,150 @@ def _detail_api_call_error(err: docker.errors.APIError) -> str:
         msg += f": status code {err.response.status_code}"
 
     return msg
+
+
+def _print_pull_logs(logs, image, tag):
+    """
+    Display Docker image pull logs.
+
+    Args:
+        logs:
+            The logs from Docker image pull.
+        image:
+            The image being pulled.
+        tag:
+            The image tag being pulled.
+
+    """
+    if (
+        not envs.GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION
+        and sys.stderr.isatty()
+    ):
+        _visualize_pull_logs(logs, tag)
+    else:
+        _textualize_pull_logs(logs, image, tag)
+
+
+def _visualize_pull_logs(logs, tag):
+    """
+    Display Docker image pull logs as progress bars.
+
+    Args:
+        logs:
+            The logs from Docker image pull.
+        tag:
+            The image tag being pulled.
+
+    """
+    pbars: dict[str, tqdm] = {}
+    dmsgs: list[str] = []
+
+    try:
+        for log in logs:
+            id_ = log.get("id", None)
+            status = log.get("status", "")
+            if not id_:
+                dmsgs.append(status)
+                continue
+            if id_ == tag:
+                continue
+
+            progress = log.get("progressDetail", {})
+            progress_total = progress.get("total", None)
+            progress_current = progress.get("current", None)
+
+            if id_ not in pbars:
+                pbars[id_] = tqdm(
+                    unit="B",
+                    unit_scale=True,
+                    desc=f"{id_}: {status}",
+                    bar_format="{desc}",
+                )
+                continue
+
+            pbars[id_].desc = f"{id_}: {status}"
+            if progress_total is not None:
+                pbars[id_].total = progress_total
+                bf = "{desc} |{bar}| {n_fmt}/{total_fmt} [{rate_fmt}{postfix}]"
+                pbars[id_].bar_format = bf
+            elif progress_current is not None:
+                pbars[id_].bar_format = "{desc} {n_fmt} [{rate_fmt}{postfix}]"
+            else:
+                pbars[id_].bar_format = "{desc}"
+
+            if progress_current:
+                pbars[id_].n = progress_current
+
+            pbars[id_].refresh()
+    finally:
+        for pbar in pbars.values():
+            pbar.close()
+        pbars.clear()
+
+    for msg in dmsgs:
+        print(msg, flush=True)
+
+
+def _textualize_pull_logs(logs, image, tag):
+    """
+    Display Docker image pull logs as plain text.
+
+    Args:
+        logs:
+            The logs from Docker image pull.
+        image:
+            The image being pulled.
+        tag:
+            The image tag being pulled.
+
+    """
+    pstats: dict[str, tuple[int, int]] = {}
+    pstats_cursor: int = 0
+    pstats_cursor_move: int = 1
+    dmsgs: list[str] = []
+
+    for log in logs:
+        id_ = log.get("id", None)
+        status = log.get("status", "")
+        if not id_:
+            dmsgs.append(status)
+            continue
+        if id_ == tag:
+            continue
+
+        if id_ not in pstats:
+            pstats[id_] = (0, 0)
+            continue
+
+        progress = log.get("progressDetail", {})
+        progress_total = progress.get("total", None)
+        progress_current = progress.get("current", None)
+
+        if progress_total is not None or progress_current is not None:
+            pstats[id_] = (progress_total or 0, progress_current or 0)
+
+        pstats_total, pstats_current = 0, 0
+        for t, c in pstats.values():
+            pstats_total += t
+            pstats_current += c
+
+        if pstats_total:
+            pstats_cursor_diff = int(
+                pstats_current * 100 // pstats_total - pstats_cursor,
+            )
+            if pstats_cursor_diff >= pstats_cursor_move and pstats_cursor < 100:
+                pstats_cursor += pstats_cursor_diff
+                pstats_cursor_move = min(5, pstats_cursor_move + 1)
+                print(f"Pulling image {image}: {pstats_cursor}%", flush=True)
+        elif pstats_current:
+            pstats_cursor_diff = int(
+                pstats_current - pstats_cursor,
+            )
+            if pstats_cursor_diff >= pstats_cursor_move:
+                pstats_cursor += pstats_cursor_diff
+                pstats_cursor_move = min(200 * _MiB, pstats_cursor_move + 2 * _MiB)
+                pstats_cursor_human = bytes_to_human_readable(pstats_cursor)
+                print(f"Pulling image {image}: {pstats_cursor_human}", flush=True)
+
+    for msg in dmsgs:
+        print(msg, flush=True)

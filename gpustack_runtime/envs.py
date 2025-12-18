@@ -53,6 +53,10 @@ if TYPE_CHECKING:
     The detected backend mapping to resource keys,
     e.g `{"cuda": "nvidia.com/devices", "rocm": "amd.com/devices"}`.
     """
+    GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY: bool = True
+    """
+    Use physical index priority at detecting devices.
+    """
     ## Deployer
     GPUSTACK_RUNTIME_DEPLOY: str | None = None
     """
@@ -174,13 +178,6 @@ if TYPE_CHECKING:
     alignment is performed to ensure they are correctly identified.
     """
 
-    # Detector
-
-    GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY: bool = True
-    """
-    Use physical index priority at detecting devices.
-    """
-
     # Deployer
 
     ## Docker
@@ -189,6 +186,10 @@ if TYPE_CHECKING:
     Filter labels for selecting the mirrored deployer container in Docker.
     Only works when `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME` is not set.
     Normally, it should be injected automatically via CI without any manual configuration.
+    """
+    GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION: bool = False
+    """
+    Disable image pull visualization in Docker deployer.
     """
     GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE: str | None = None
     """
@@ -246,6 +247,7 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_LOG_EXCEPTION": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_LOG_EXCEPTION", "1"),
     ),
+    ## Detector
     "GPUSTACK_RUNTIME_DETECT": lambda: getenv(
         "GPUSTACK_RUNTIME_DETECT",
         "Auto",
@@ -271,6 +273,10 @@ variables: dict[str, Callable[[], Any]] = {
             "cuda=nvidia.com/devices;",
         ),
     ),
+    "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", "1"),
+    ),
+    ## Deployer
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY",
         "Auto",
@@ -373,11 +379,8 @@ variables: dict[str, Callable[[], Any]] = {
         ),
         sep=",",
     ),
-    # Detector
-    "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", "1"),
-    ),
     # Deployer
+    ## Docker
     "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS": lambda: to_dict(
         getenv(
             "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS",
@@ -401,6 +404,10 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK", "1"),
     ),
+    "GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION", "0"),
+    ),
+    ## Kubernetes
     "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME": lambda: getenv(
         "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME",
         None,
