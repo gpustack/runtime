@@ -51,6 +51,14 @@ _DEPLOYERS: list[Deployer] = [
     DockerDeployer(),
     KubernetesDeployer(),
 ]
+"""
+List of all deployers.
+"""
+
+_DEPLOYERS_MAP: dict[str, Deployer] = {dep.name: dep for dep in _DEPLOYERS}
+"""
+Mapping from deployer name to deployer.
+"""
 
 
 def supported_list() -> list[Deployer]:

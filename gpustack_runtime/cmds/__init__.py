@@ -11,7 +11,7 @@ from .deployer import (
     ListWorkloadsSubCommand,
     LogsWorkloadSubCommand,
 )
-from .detector import DetectDevicesSubCommand
+from .detector import DetectDevicesSubCommand, GetDevicesTopologySubCommand
 from .images import (
     CopyImagesSubCommand,
     ListImagesSubCommand,
@@ -29,6 +29,7 @@ __all__ = [
     "DeleteWorkloadsSubCommand",
     "DetectDevicesSubCommand",
     "ExecWorkloadSubCommand",
+    "GetDevicesTopologySubCommand",
     "GetWorkloadSubCommand",
     "InspectWorkloadSubCommand",
     "ListImagesSubCommand",

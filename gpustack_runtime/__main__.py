@@ -18,6 +18,7 @@ from .cmds import (
     DeleteWorkloadSubCommand,
     DetectDevicesSubCommand,
     ExecWorkloadSubCommand,
+    GetDevicesTopologySubCommand,
     GetWorkloadSubCommand,
     InspectWorkloadSubCommand,
     ListImagesSubCommand,
@@ -68,6 +69,7 @@ def main():
     ExecWorkloadSubCommand.register(subcommand_parser)
     InspectWorkloadSubCommand.register(subcommand_parser)
     DetectDevicesSubCommand.register(subcommand_parser)
+    GetDevicesTopologySubCommand.register(subcommand_parser)
     ListImagesSubCommand.register(subcommand_parser)
     SaveImagesSubCommand.register(subcommand_parser)
     CopyImagesSubCommand.register(subcommand_parser)

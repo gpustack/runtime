@@ -2,16 +2,97 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
+
+from dataclasses_json import dataclass_json
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 from . import pyacl, pydcmi
-from .__types__ import Detector, Device, Devices, ManufacturerEnum
-from .__utils__ import PCIDevice, get_brief_version, get_pci_devices, get_utilization
+from .__types__ import Detector, Device, Devices, ManufacturerEnum, Topology
+from .__utils__ import (
+    PCIDevice,
+    get_brief_version,
+    get_pci_devices,
+    get_utilization,
+    map_cpu_affinity_to_numa_node,
+)
 
 logger = logging.getLogger(__name__)
 slogger = logger.getChild("internal")
+
+_TOPOLOGY_DISTANCE_UNKNOWN: int = 100
+"""
+Distance value for unknown Ascend topology.
+A larger value indicates a more distant relationship.
+"""
+
+_TOPOLOGY_DISTANCE_MAPPING: dict[int, int] = {
+    pydcmi.DCMI_TOPO_TYPE_SELF: 0,
+    pydcmi.DCMI_TOPO_TYPE_HCCS: 5,  # Traversing via high-speed interconnect, RoCE, etc.
+    pydcmi.DCMI_TOPO_TYPE_PIX: 10,  # Traversing via a single PCIe bridge.
+    pydcmi.DCMI_TOPO_TYPE_PXB: 20,  # Traversing via multiple PCIe bridges without PCIe Host Bridge.
+    pydcmi.DCMI_TOPO_TYPE_PHB: 30,  # Traversing via a PCIe Host Bridge.
+    pydcmi.DCMI_TOPO_TYPE_SYS: 50,  # Traversing via SMP interconnect across other NUMA nodes.
+}
+"""
+Mapping of Ascend topologies to distance values.
+"""
+
+_DISTANCE_NAME_UNKNOWN: str = "UNK"
+"""
+Name for unknown Ascend topology.
+"""
+
+_DISTANCE_NAME_MAPPING: dict[int, str] = {
+    0: "X",
+    5: "LINK",
+    10: "PIX",
+    20: "PXB",
+    30: "PHB",
+    50: "SYS",
+}
+"""
+Mapping of distance values to Ascend topology names.
+"""
+
+
+@dataclass_json
+@dataclass
+class AscendTopology(Topology):
+    """
+    Topology information between Ascend NPUs.
+    """
+
+    @staticmethod
+    def stringify_devices_distance(distance: int) -> str:
+        """
+        Map the devices distance to a human-readable format.
+
+        Args:
+            distance:
+                The distance between two devices.
+
+        Returns:
+            A string representing the distance.
+
+        """
+        return str(_DISTANCE_NAME_MAPPING.get(distance, _DISTANCE_NAME_UNKNOWN))
+
+    def __init__(self, devices_count: int):
+        """
+        Initialize the AscendTopology object.
+
+        Args:
+            devices_count:
+                Count of devices in the topology.
+
+        """
+        super().__init__(
+            manufacturer=ManufacturerEnum.ASCEND,
+            devices_count=devices_count,
+        )
 
 
 class AscendDetector(Detector):
@@ -207,6 +288,78 @@ class AscendDetector(Detector):
             raise
 
         return ret
+
+    def get_topology(self, devices: Devices | None) -> AscendTopology | None:
+        """
+        Get the Topology object between Ascend NPUs.
+
+        Args:
+            devices:
+                The list of detected Ascend NPU devices.
+                If None, detect topology for all available devices.
+
+        Returns:
+            A Topology object, or None if not supported.
+
+        """
+        if devices is None:
+            devices = self.detect()
+            if devices is None:
+                return None
+
+        devices_count = len(devices)
+        topology = AscendTopology(
+            devices_count=devices_count,
+        )
+
+        for i, dev_i in enumerate(devices):
+            try:
+                cpu_affinity = pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
+                    dev_i.appendix["card_id"],
+                    dev_i.appendix["device_id"],
+                )
+                topology.devices_cpu_affinities[i] = cpu_affinity
+            except pydcmi.DCMIError:
+                debug_log_warning(
+                    slogger,
+                    "Failed to get CPU affinity for device %d",
+                    dev_i.index,
+                )
+
+            topology.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
+                cpu_affinity=topology.devices_cpu_affinities[i],
+            )
+
+            for j, dev_j in enumerate(devices):
+                if i == j:
+                    continue
+                if topology.devices_distances[i][j] != 0:
+                    continue
+
+                distance = _TOPOLOGY_DISTANCE_UNKNOWN
+                try:
+                    topo_type = pydcmi.dcmi_get_topo_info_by_device_id(
+                        dev_i.appendix["card_id"],
+                        dev_i.appendix["device_id"],
+                        dev_j.appendix["card_id"],
+                        dev_j.appendix["device_id"],
+                    )
+                    distance = _TOPOLOGY_DISTANCE_MAPPING.get(
+                        topo_type,
+                        _TOPOLOGY_DISTANCE_UNKNOWN,
+                    )
+                except pydcmi.DCMIError:
+                    debug_log_exception(
+                        slogger,
+                        "Failed to get topology info between device %d and %d",
+                        dev_i.index,
+                        dev_j.index,
+                    )
+
+                topology.devices_distances[i][j] = distance
+                topology.devices_distances[j][i] = distance
+
+        return topology
 
 
 def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:

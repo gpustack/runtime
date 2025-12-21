@@ -223,6 +223,131 @@ A list of Device objects.
 """
 
 
+@dataclass_json
+@dataclass
+class Topology:
+    """
+    Topology information between devices.
+    """
+
+    manufacturer: ManufacturerEnum
+    """
+    Manufacturer of the devices that this topology applies to.
+    """
+    devices_distances: list[list[int]]
+    """
+    A 2D list representing the distances between devices.
+    The value at row i and column j represents the distance
+    between device i and device j.
+    """
+    devices_cpu_affinities: list[str]
+    """
+    A list representing the CPU affinity associated with each device.
+    The value at index i represents the CPU set for device i.
+    """
+    devices_numa_affinities: list[str]
+    """
+    A list representing the NUMA affinity associated with each device.
+    The value at index i represents the Memory set for device i.
+    """
+
+    @staticmethod
+    def stringify_devices_distance(distance: int) -> str:
+        """
+        Stringify the devices distance to a human-readable format.
+
+        Args:
+            distance:
+                The distance between two devices.
+
+        Returns:
+            A string representing the distance.
+
+        """
+        return str(distance)
+
+    def __init__(
+        self,
+        manufacturer: ManufacturerEnum,
+        devices_count: int,
+    ):
+        """
+        Initialize the Topology object.
+
+        Args:
+            manufacturer:
+                Manufacturer of the devices.
+            devices_count:
+                Count of devices in the topology.
+
+        """
+        self.manufacturer = manufacturer
+        self.devices_distances = [[0] * devices_count for _ in range(devices_count)]
+        self.devices_cpu_affinities = [""] * devices_count
+        self.devices_numa_affinities = [""] * devices_count
+
+    def stringify(self) -> list[list[str]]:
+        """
+        Stringify the devices distances and return the maximum width.
+
+        Returns:
+            A 2D list representing the devices distances with string values.
+
+        """
+        devices_count = len(self.devices_distances)
+        devices_info: list[list[str]] = [[]] * devices_count
+        for i in range(devices_count):
+            devices_info[i] = [
+                self.stringify_devices_distance(d) for d in self.devices_distances[i]
+            ]
+            devices_info[i] += [
+                self.devices_cpu_affinities[i]
+                if self.devices_cpu_affinities[i]
+                else "N/A",
+            ]
+            devices_info[i] += [
+                self.devices_numa_affinities[i]
+                if self.devices_numa_affinities[i]
+                else "N/A",
+            ]
+        return devices_info
+
+
+def reduce_devices_distances(
+    devices_distances: list[list[int]],
+) -> dict[int, list[int]]:
+    """
+    Reduce the devices distances and return a brief relationship mapping.
+
+    The key of relationship mapping is the device index,
+    and the value is device indexes sorted from near to far.
+
+    For example, given 4 devices with the following devices distances:
+    `[[0, 10, 20, 30], [10, 0, 15, 25], [20, 15, 0, 5], [30, 25, 5, 0]]`,
+    the resulting relationship will be:
+    `{0: [1, 2, 3], 1: [0, 2, 3], 2: [3, 1, 0], 3: [2, 1, 0]}`.
+
+    Args:
+        devices_distances:
+            A 2D list representing the distances between devices.
+
+    Returns:
+        A dictionary representing the relationship.
+
+    """
+    result: dict[int, list[int]] = {}
+
+    devices_count = len(devices_distances)
+    for index in range(devices_count):
+        device_indexes = list(range(devices_count))
+        distances = zip(device_indexes, devices_distances[index], strict=False)
+        sorted_distances = sorted(distances, key=lambda x: x[1])
+        sorted_indexes = [device_index for device_index, _ in sorted_distances]
+        result[index] = sorted_indexes[1:]
+
+    return result
+
+
 class Detector(ABC):
     """
     Base class for all detectors.
@@ -269,3 +394,17 @@ class Detector(ABC):
 
         """
         raise NotImplementedError
+
+    def get_topology(self, devices: Devices | None) -> Topology | None:  # noqa: ARG002
+        """
+        Get the Topology object between the given devices.
+
+        Args:
+            devices:
+                A list of Device objects.
+
+        Returns:
+            A Topology object, or None if not supported.
+
+        """
+        return None

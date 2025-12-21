@@ -9,8 +9,10 @@ from .__types__ import (
     Device,
     Devices,
     ManufacturerEnum,
+    Topology,
     backend_to_manufacturer,
     manufacturer_to_backend,
+    reduce_devices_distances,
     supported_backends,
     supported_manufacturers,
 )
@@ -35,6 +37,16 @@ _DETECTORS: list[Detector] = [
     MThreadsDetector(),
     NVIDIADetector(),
 ]
+"""
+List of all detectors.
+"""
+
+_DETECTORS_MAP: dict[ManufacturerEnum, Detector] = {
+    det.manufacturer: det for det in _DETECTORS
+}
+"""
+Mapping from manufacturer to detector.
+"""
 
 
 def supported_list() -> list[Detector]:
@@ -113,14 +125,82 @@ def detect_devices(fast: bool = True) -> Devices:
     return devices
 
 
+def get_devices_topologies(
+    devices: Devices | None = None,
+    fast: bool = True,
+) -> list[Topology]:
+    """
+    Get the topology information of the given devices.
+
+    Args:
+        devices:
+            A list of devices to get the topology information from.
+            If None, detects devices automatically.
+        fast:
+            If True, return topologies from the first supported detector.
+            Otherwise, return topologies from all supported detectors.
+
+    Returns:
+        A list of Topology objects for each manufacturer group.
+
+    """
+    if devices is None:
+        devices = detect_devices(fast=fast)
+
+    topologies: list[Topology] = []
+
+    # Group devices by manufacturer.
+    group_devices = group_devices_by_manufacturer(devices)
+    if not group_devices:
+        return topologies
+
+    # Get topology for each group.
+    for manu, devs in group_devices.items():
+        det = _DETECTORS_MAP.get(manu)
+        if det is not None:
+            topo = det.get_topology(devs)
+            if topo:
+                topologies.append(topo)
+            if fast and topologies:
+                return topologies
+
+    return topologies
+
+
+def group_devices_by_manufacturer(
+    devices: Devices | None,
+) -> dict[ManufacturerEnum, Devices]:
+    """
+    Group devices by their manufacturer.
+
+    Args:
+        devices:
+            A list of devices to be grouped.
+
+    Returns:
+        A dictionary mapping each manufacturer to its corresponding list of devices.
+
+    """
+    group_devices: dict[ManufacturerEnum, Devices] = {}
+    for dev in devices or []:
+        if dev.manufacturer not in group_devices:
+            group_devices[dev.manufacturer] = []
+        group_devices[dev.manufacturer].append(dev)
+    return group_devices
+
+
 __all__ = [
     "Device",
     "Devices",
     "ManufacturerEnum",
+    "Topology",
     "backend_to_manufacturer",
     "detect_backend",
     "detect_devices",
+    "get_devices_topologies",
+    "group_devices_by_manufacturer",
     "manufacturer_to_backend",
+    "reduce_devices_distances",
     "supported_backends",
     "supported_list",
     "supported_manufacturers",

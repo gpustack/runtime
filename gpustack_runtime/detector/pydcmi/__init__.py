@@ -31,6 +31,7 @@ HCCS_RES_PCS_NUM = 64
 IP_ADDR_LIST_LEN = 1024
 HCCS_PING_MESH_MAX_NUM = 48
 ADDR_MAX_LEN = 16
+TOPO_INFO_MAX_LENGTH = 256
 
 ## Enums ##
 DCMI_IPADDR_TYPE_V4 = 0
@@ -126,6 +127,17 @@ DCMI_DMS_FAULT_EVENT = 0
 ## Enums ##
 DCMI_DIE_TYPE_NDIE = 0
 DCMI_DIE_TYPE_VDIE = 1
+
+## Enums ##
+DCMI_TOPO_TYPE_SELF = 0
+DCMI_TOPO_TYPE_SYS = 1
+DCMI_TOPO_TYPE_PHB = 2
+DCMI_TOPO_TYPE_HCCS = 3
+DCMI_TOPO_TYPE_PXB = 4
+DCMI_TOPO_TYPE_PIX = 5
+DCMI_TOPO_TYPE_BUTT = 6  # Unknown
+DCMI_TOPO_TYOE_MAX = 7
+
 
 ## Error Codes ##
 DCMI_SUCCESS = 0
@@ -1161,3 +1173,21 @@ def dcmi_set_spod_node_status(card_id, device_id, sdid, status):
     fn = _dcmiGetFunctionPointer("dcmi_set_spod_node_status")
     ret = fn(card_id, device_id, sdid, status)
     _dcmiCheckReturn(ret)
+
+
+def dcmi_get_topo_info_by_device_id(card_id1, device_id1, card_id2, device_id2):
+    c_topo_info = c_int()
+    fn = _dcmiGetFunctionPointer("dcmi_get_topo_info_by_device_id")
+    ret = fn(card_id1, device_id1, card_id2, device_id2, byref(c_topo_info))
+    _dcmiCheckReturn(ret)
+    return c_topo_info.value
+
+
+@convertStrBytes
+def dcmi_get_affinity_cpu_info_by_device_id(card_id, device_id):
+    c_cpu_info = create_string_buffer(TOPO_INFO_MAX_LENGTH)
+    c_cpu_info_len = c_int()
+    fn = _dcmiGetFunctionPointer("dcmi_get_affinity_cpu_info_by_device_id")
+    ret = fn(card_id, device_id, c_cpu_info, byref(c_cpu_info_len))
+    _dcmiCheckReturn(ret)
+    return c_cpu_info.value

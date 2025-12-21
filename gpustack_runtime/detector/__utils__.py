@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import uuid
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -419,6 +423,21 @@ def byte_to_mebibyte(value: int) -> int:
         return 0
 
 
+def stringify_uuid(data: bytes) -> str:
+    """
+    Convert a UUID in bytes to a string representation.
+
+    Args:
+        data:
+            The UUID in bytes.
+
+    Returns:
+        The string representation of the UUID.
+
+    """
+    return str(uuid.UUID(bytes=data))
+
+
 def get_brief_version(version: str | None) -> str | None:
     """
     Get a brief version string,
@@ -537,3 +556,261 @@ def get_memory() -> tuple[int, int]:
 
     except OSError:
         return 0, 0
+
+
+@lru_cache(maxsize=1)
+def get_bits_size() -> int:
+    """
+    Get the system bit size.
+
+    Returns:
+        The system bit size (32 or 64).
+
+    """
+    if sys.maxsize > 2**32:
+        return 64
+    return 32
+
+
+@lru_cache(maxsize=1)
+def get_cpu_size():
+    """
+    Get the number of CPUs.
+
+    Returns:
+        The number of CPUs available.
+
+    """
+    n_proc = os.cpu_count()
+    if n_proc:
+        return n_proc
+
+    return os.sysconf("SC_NPROCESSORS_CONF")
+
+
+@lru_cache(maxsize=1)
+def get_cpuset_size() -> int:
+    """
+    Get the CPU set size.
+
+    Returns:
+        The number of the available CPU set size.
+
+    """
+    n_cpus = get_cpu_size()
+    n_bits = get_bits_size()
+    return (n_cpus + n_bits) // n_bits
+
+
+@lru_cache(maxsize=1)
+def get_numa_node_size():
+    """
+    Get the number of NUMA nodes.
+
+    Returns:
+        The number of NUMA nodes available.
+
+    """
+    max_node = 0
+
+    with contextlib.suppress(Exception):
+        with Path("/sys/devices/system/node/possible").open("r") as f:
+            s = f.read().strip()
+        for part in s.split(","):
+            if "-" in part:
+                _, hi = part.split("-")
+                max_node = max(max_node, int(hi))
+            else:
+                max_node = max(max_node, int(part))
+
+    return max_node + 1
+
+
+@lru_cache(maxsize=1)
+def get_numa_nodeset_size() -> int:
+    """
+    Get the NUMA node set size.
+
+    Returns:
+        The number of the available NUMA node set size.
+
+    """
+    n_nodes = get_numa_node_size()
+    n_bits = get_bits_size()
+
+    return (n_nodes + n_bits) // n_bits
+
+
+@lru_cache(maxsize=1)
+def get_cpu_numa_node_mapping() -> list[int | None]:
+    """
+    Map CPU cores to NUMA nodes.
+    The index corresponds to the CPU core number,
+    and the value is the NUMA node the core belongs to.
+
+    Returns:
+        A list mapping CPU cores to NUMA nodes.
+        If failed to detect the NUMA node of a CPU core, its corresponding value is `None`.
+
+    """
+    n_cpus = get_cpu_size()
+    n_nodes = get_numa_node_size()
+
+    mapping: list[int | None] = [None] * n_cpus
+    for i in range(n_nodes):
+        with contextlib.suppress(Exception):
+            with Path(f"/sys/devices/system/node/node{i}/cpulist").open("r") as f:
+                s = f.read().strip()
+            for part in s.split(","):
+                if "-" in part:
+                    lo, hi = part.split("-")
+                    for cpu in range(int(lo), int(hi) + 1):
+                        mapping[cpu] = i
+                else:
+                    cpu = int(part)
+                    mapping[cpu] = i
+
+    return mapping
+
+
+@lru_cache
+def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
+    """
+    Map CPU affinity to NUMA nodes.
+
+    Args:
+        cpu_affinity:
+            The CPU affinity as an integer bitmask or a string (e.g., "0-3,5,7-9").
+
+    Returns:
+        A comma-separated string of NUMA node indices,
+        or blank string if no NUMA nodes are found.
+
+    """
+    if cpu_affinity is None:
+        return ""
+
+    if isinstance(cpu_affinity, int):
+        cpu_indices = bits_to_list(cpu_affinity)
+    else:
+        cpu_indices: list[int] = []
+        for part in cpu_affinity.split(","):
+            if "-" in part:
+                lo, hi = part.split("-")
+                lo_idx = safe_int(lo, -1)
+                hi_idx = safe_int(hi, -1)
+                if lo_idx == -1 or hi_idx == -1 or lo_idx > hi_idx:
+                    continue
+                cpu_indices.extend(list(range(lo_idx, hi_idx + 1)))
+            else:
+                idx = safe_int(part, -1)
+                if idx == -1:
+                    continue
+                cpu_indices.append(idx)
+
+    cpu_numa_mapping = get_cpu_numa_node_mapping()
+
+    numa_nodes: set[int] = set()
+    for cpu_idx in cpu_indices:
+        if 0 <= cpu_idx < len(cpu_numa_mapping):
+            numa_node = cpu_numa_mapping[cpu_idx]
+            if numa_node is not None:
+                numa_nodes.add(numa_node)
+    if not numa_nodes:
+        return ""
+
+    return list_to_range_str(sorted(numa_nodes))
+
+
+def bits_to_list(bits: int, offset: int = 0) -> list[int]:
+    """
+    Convert a bitmask to a list of set bit indices.
+
+    Args:
+        bits:
+            The bitmask as an integer.
+        offset:
+            The offset to add to each index.
+
+    Returns:
+        A list of indices where the bits are set to 1.
+
+    """
+    bits_len = bits.bit_length()
+    indices = [offset + i for i in range(bits_len) if (bits >> i) & 1]
+    return indices
+
+
+def bits_to_str(bits: int, offset: int = 0, prefix: str = "") -> str:
+    """
+    Convert a bitmask to a comma-separated string of set bit indices.
+
+    Args:
+        bits:
+            The bitmask as an integer.
+        offset:
+            The offset to add to each index.
+        prefix:
+            The prefix to add to the string, separated by a comma.
+
+    Returns:
+        If the bitmask is 0, returns blank string.
+        If the bits are contiguous, returns a range string (e.g., "2-5"),
+        Otherwise, returns a comma-separated string of indices (e.g., "0,2-4").
+
+    """
+    bits_str = prefix
+
+    bits_list = bits_to_list(bits, offset)
+    if bits_list:
+        if bits_str:
+            bits_str += ","
+        bits_str += list_to_range_str(bits_list, is_sorted=True)
+
+    return bits_str
+
+
+def list_to_range_str(indices: list[int], is_sorted: bool = False) -> str:
+    """
+    Convert a list of indices to a comma-separated string with ranges.
+
+    Args:
+        indices:
+            The list of indices.
+        is_sorted:
+            The indicates whether the input list is already sorted.
+
+    Returns:
+        A comma-separated string with ranges (e.g., "0,2-4,6").
+
+    """
+    if not indices:
+        return ""
+
+    sorted_indices = indices
+    if not is_sorted:
+        sorted_indices = sorted(set(indices))
+    if len(sorted_indices) == 1:
+        return f"{sorted_indices[0]}"
+    if len(sorted_indices) == (sorted_indices[-1] - sorted_indices[0] + 1):
+        return f"{sorted_indices[0]}-{sorted_indices[-1]}"
+
+    start, end = sorted_indices[0], sorted_indices[0]
+    ranges: list[tuple[int, int]] = []
+    for i in sorted_indices[1:]:
+        if i == end + 1:
+            end = i
+        else:
+            ranges.append((start, end))
+            start, end = i, i
+    ranges.append((start, end))
+
+    range_str_parts: list[str] = []
+    for start, end in ranges:
+        if start == end:
+            range_str_parts.append(f"{start}")
+        else:
+            range_str_parts.append(f"{start}-{end}")
+    range_str = ",".join(range_str_parts)
+
+    return range_str
