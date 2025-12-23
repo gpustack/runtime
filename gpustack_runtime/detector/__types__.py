@@ -251,21 +251,6 @@ class Topology:
     The value at index i represents the Memory set for device i.
     """
 
-    @staticmethod
-    def stringify_devices_distance(distance: int) -> str:
-        """
-        Stringify the devices distance to a human-readable format.
-
-        Args:
-            distance:
-                The distance between two devices.
-
-        Returns:
-            A string representing the distance.
-
-        """
-        return str(distance)
-
     def __init__(
         self,
         manufacturer: ManufacturerEnum,
@@ -298,7 +283,7 @@ class Topology:
         devices_info: list[list[str]] = [[]] * devices_count
         for i in range(devices_count):
             devices_info[i] = [
-                self.stringify_devices_distance(d) for d in self.devices_distances[i]
+                stringify_devices_distance(d) for d in self.devices_distances[i]
             ]
             devices_info[i] += [
                 self.devices_cpu_affinities[i]
@@ -311,6 +296,76 @@ class Topology:
                 else "N/A",
             ]
         return devices_info
+
+
+class TopologyDistanceEnum(int, Enum):
+    """
+    Enum for Topology Distance Levels.
+    """
+
+    INTERNAL = 0
+    """
+    Same device.
+    """
+    LINK = 5
+    """
+    Connection traversing with High-Speed Link (e.g., AMD XGMI, Ascend HCCS, NVIDIA NVLink).
+    """
+    PIX = 10
+    """
+    Connection traversing at most a single PCIe bridge.
+    """
+    PXB = 20
+    """
+    Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge).
+    """
+    PHB = 30
+    """
+    Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU).
+    """
+    NODE = 40
+    """
+    Connection traversing PCIe and the interconnect between NUMA nodes.
+    """
+    SYS = 50
+    """
+    Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI).
+    """
+    UNKNOWN = 100
+    """
+    Unknown connection.
+    """
+
+
+def stringify_devices_distance(distance: int) -> str:
+    """
+    Stringify the devices distance to a human-readable format.
+
+    Args:
+        distance:
+            The distance between two devices.
+
+    Returns:
+        A string representing the distance.
+
+    """
+    match distance:
+        case 0:
+            return "X"
+        case 5:
+            return "LINK"
+        case 10:
+            return "PIX"
+        case 20:
+            return "PXB"
+        case 30:
+            return "PHB"
+        case 40:
+            return "NODE"
+        case 50:
+            return "SYS"
+        case _:
+            return "N/A"
 
 
 def reduce_devices_distances(

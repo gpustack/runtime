@@ -117,6 +117,20 @@ class GetDevicesTopologySubCommand(SubCommand):
                 for topo in topologies:
                     print(format_topology_table(topo))
 
+                # Legend
+                legend_lines = [
+                    "",
+                    "Legend (from nearest to farthest):",
+                    "  X    = Self",
+                    "  LINK = Connection traversing with High-Speed Link (e.g., AMD XGMI, Ascend HCCS, NVIDIA NVLink)",
+                    "  PIX  = Connection traversing at most a single PCIe bridge",
+                    "  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)",
+                    "  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)",
+                    "  NODE = Connection traversing PCIe and the interconnect between NUMA nodes",
+                    "  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)",
+                ]
+                print(os.linesep.join(legend_lines))
+
 
 def format_devices_json(devs: Devices) -> str:
     return json.dumps([dev.to_dict() for dev in devs], indent=2)
@@ -259,21 +273,8 @@ def format_topology_table(topo: Topology) -> str:
         "+" + "-" * (width - 2) + "+",
     ]
 
-    # Legend
-    legend_lines = [
-        "",
-        "Legend (from nearest to farthest):",
-        "  X    = Self",
-        "  LINK = Connection traversing with High-Speed Link (e.g., NVIDIA NVLink, Ascend HCCS)",
-        "  PIX  = Connection traversing at most a single PCIe bridge",
-        "  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)",
-        "  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)",
-        "  NODE = Connection traversing PCIe and the interconnect between NUMA nodes",
-        "  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)",
-    ]
-
     # Combine all parts
-    return os.linesep.join(header_lines + topology_lines + footer_lines + legend_lines)
+    return os.linesep.join(header_lines + topology_lines + footer_lines)
 
 
 def format_topologies_json(topologies: list[Topology]) -> str:

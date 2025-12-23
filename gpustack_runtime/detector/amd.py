@@ -6,14 +6,15 @@ from functools import lru_cache
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import pyamdgpu, pyamdsmi, pyhsa, pyrocmcore, pyrocmsmi
-from .__types__ import Detector, Device, Devices, ManufacturerEnum
+from . import Topology, pyamdgpu, pyamdsmi, pyhsa, pyrocmcore, pyrocmsmi
+from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
 from .__utils__ import (
     PCIDevice,
     byte_to_mebibyte,
     get_brief_version,
     get_pci_devices,
     get_utilization,
+    map_numa_node_to_cpu_affinity,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,6 +204,20 @@ class AMDDetector(Detector):
                     "card_id": dev_card_id,
                 }
 
+                with contextlib.suppress(pyamdsmi.AmdSmiException):
+                    dev_xgmi = pyamdsmi.amdsmi_get_xgmi_info(dev)
+                    for k in [
+                        "xgmi_lanes",
+                        "xgmi_hive_id",
+                        "xgmi_node_id",
+                    ]:
+                        if value := dev_xgmi.get(k):
+                            dev_appendix[k] = value
+
+                with contextlib.suppress(pyamdsmi.AmdSmiException):
+                    dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
+                    dev_appendix["bdf"] = str(dev_bdf)
+
                 ret.append(
                     Device(
                         manufacturer=self.manufacturer,
@@ -234,6 +249,120 @@ class AMDDetector(Detector):
             pyamdsmi.amdsmi_shut_down()
 
         return ret
+
+    def get_topology(self, devices: Devices | None) -> Topology | None:
+        """
+        Get the Topology object between AMD GPUs.
+
+        Args:
+            devices:
+                The list of detected AMD GPU devices.
+                If None, detect topology for all available devices.
+
+        Returns:
+            A Topology object, or None if not supported.
+
+        """
+        if devices is None:
+            devices = self.detect()
+            if devices is None:
+                return None
+
+        devices_count = len(devices)
+        topology = Topology(
+            manufacturer=self.manufacturer,
+            devices_count=devices_count,
+        )
+
+        devs_mapping = None
+
+        def get_device_handle(dev: Device):
+            if "bdf" in dev.appendix:
+                return pyamdsmi.amdsmi_get_processor_handle_from_bdf(
+                    dev.appendix["bdf"],
+                )
+            nonlocal devs_mapping
+            if devs_mapping is None:
+                devs = pyamdsmi.amdsmi_get_processor_handles()
+                devs_mapping = dict(enumerate(devs))
+            return devs_mapping.get(dev.index)
+
+        try:
+            pyamdsmi.amdsmi_init()
+
+            for i, dev_i in enumerate(devices):
+                dev_i_handle = get_device_handle(dev_i)
+
+                # Get NUMA affinity.
+                try:
+                    dev_i_numa_node = pyamdsmi.amdsmi_topo_get_numa_node_number(
+                        dev_i_handle,
+                    )
+                    topology.devices_numa_affinities[i] = str(dev_i_numa_node)
+                except pyamdsmi.AmdSmiException:
+                    debug_log_exception(
+                        logger,
+                        "Failed to get NUMA affinity for device %d",
+                        dev_i.index,
+                    )
+
+                # Get CPU affinity.
+                topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                    numa_node=topology.devices_numa_affinities[i],
+                )
+
+                # Get distances to other devices.
+                for j, dev_j in enumerate(devices):
+                    if i == j:
+                        continue
+                    if topology.devices_distances[i][j] != 0:
+                        continue
+
+                    dev_j_handle = get_device_handle(dev_j)
+
+                    distance = TopologyDistanceEnum.UNKNOWN
+                    try:
+                        link_type = pyamdsmi.amdsmi_topo_get_link_type(
+                            dev_i_handle,
+                            dev_j_handle,
+                        )
+                        match int(link_type.type):
+                            case pyamdsmi.AMDSMI_LINK_TYPE_INTERNAL:
+                                distance = TopologyDistanceEnum.INTERNAL
+                            case pyamdsmi.AMDSMI_LINK_TYPE_XGMI:
+                                distance = TopologyDistanceEnum.LINK
+                            # For PCIe links,
+                            # further distinguish between PHB and SYS based on NUMA affinity.
+                            case pyamdsmi.AMDSMI_LINK_TYPE_PCIE:
+                                if link_type == pyamdsmi.AMDSMI_LINK_TYPE_PCIE:
+                                    dev_i_numa, dev_j_numa = (
+                                        topology.devices_numa_affinities[i],
+                                        topology.devices_numa_affinities[j],
+                                    )
+                                    if dev_i_numa != "" and dev_i_numa == dev_j_numa:
+                                        distance = TopologyDistanceEnum.PHB
+                                    else:
+                                        distance = TopologyDistanceEnum.SYS
+                    except pyamdsmi.AmdSmiException:
+                        debug_log_exception(
+                            logger,
+                            "Failed to get distance between device %d and device %d",
+                            dev_i.index,
+                            dev_j.index,
+                        )
+
+                    topology.devices_distances[i][j] = distance
+                    topology.devices_distances[j][i] = distance
+        except pyamdsmi.AmdSmiException:
+            debug_log_exception(logger, "Failed to get topology")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process topology fetching")
+            raise
+        finally:
+            pyamdsmi.amdsmi_shut_down()
+
+        return topology
 
 
 def _get_arch_family(

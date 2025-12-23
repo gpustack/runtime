@@ -3,17 +3,15 @@ from __future__ import annotations
 import contextlib
 import logging
 from _ctypes import byref
-from dataclasses import dataclass
 from functools import lru_cache
 from math import ceil
 
 import pynvml
-from dataclasses_json import dataclass_json
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 from . import Topology, pycuda
-from .__types__ import Detector, Device, Devices, ManufacturerEnum
+from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
 from .__utils__ import (
     PCIDevice,
     bits_to_str,
@@ -30,72 +28,6 @@ from .__utils__ import (
 )
 
 logger = logging.getLogger(__name__)
-
-_TOPOLOGY_DISTANCE_UNKNOWN: int = 100
-"""
-Distance value for unknown Ascend topology.
-A larger value indicates a more distant relationship.
-"""
-
-_NVML_TOPOLOGY_NVLINK: int = 5
-"""
-NVML topology value for NVLink connection.
-"""
-
-_DISTANCE_NAME_UNKNOWN: str = "UNK"
-"""
-Name for unknown NVIDIA topology.
-"""
-
-_DISTANCE_NAME_MAPPING: dict[int, str] = {
-    pynvml.NVML_TOPOLOGY_INTERNAL: "X",
-    _NVML_TOPOLOGY_NVLINK: "LINK",
-    pynvml.NVML_TOPOLOGY_SINGLE: "PIX",
-    pynvml.NVML_TOPOLOGY_MULTIPLE: "PXB",
-    pynvml.NVML_TOPOLOGY_HOSTBRIDGE: "PHB",
-    pynvml.NVML_TOPOLOGY_NODE: "NODE",
-    pynvml.NVML_TOPOLOGY_SYSTEM: "SYS",
-}
-"""
-Mapping of distance values to NVIDIA topology names.
-"""
-
-
-@dataclass_json
-@dataclass
-class NVIDIATopology(Topology):
-    """
-    Topology information between NVIDIA GPUs.
-    """
-
-    @staticmethod
-    def stringify_devices_distance(distance: int) -> str:
-        """
-        Map the devices distance to a human-readable format.
-
-        Args:
-            distance:
-                The distance between two devices.
-
-        Returns:
-            A string representing the distance.
-
-        """
-        return str(_DISTANCE_NAME_MAPPING.get(distance, _DISTANCE_NAME_UNKNOWN))
-
-    def __init__(self, devices_count: int):
-        """
-        Initialize the NVIDIA Topology.
-
-        Args:
-            devices_count:
-                Count of devices in the topology.
-
-        """
-        super().__init__(
-            manufacturer=ManufacturerEnum.NVIDIA,
-            devices_count=devices_count,
-        )
 
 
 class NVIDIADetector(Detector):
@@ -268,20 +200,18 @@ class NVIDIADetector(Detector):
                     "vgpu": dev_is_vgpu,
                 }
 
-                dev_fabric = pynvml.c_nvmlGpuFabricInfoV_t()
-                try:
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_fabric = pynvml.c_nvmlGpuFabricInfoV_t()
                     r = pynvml.nvmlDeviceGetGpuFabricInfoV(dev, byref(dev_fabric))
                     if r != pynvml.NVML_SUCCESS:
                         dev_fabric = None
                     if dev_fabric.state != pynvml.NVML_GPU_FABRIC_STATE_COMPLETED:
                         dev_fabric = None
-                except pynvml.NVMLError:
-                    dev_fabric = None
-                if dev_fabric:
-                    dev_appendix["fabric_cluster_uuid"] = stringify_uuid(
-                        dev_fabric.clusterUuid,
-                    )
-                    dev_appendix["fabric_clique_id"] = dev_fabric.cliqueId
+                    if dev_fabric:
+                        dev_appendix["fabric_cluster_uuid"] = stringify_uuid(
+                            dev_fabric.clusterUuid,
+                        )
+                        dev_appendix["fabric_clique_id"] = dev_fabric.cliqueId
 
                 dev_mig_mode = pynvml.NVML_DEVICE_MIG_DISABLE
                 with contextlib.suppress(pynvml.NVMLError):
@@ -463,7 +393,7 @@ class NVIDIADetector(Detector):
 
         return ret
 
-    def get_topology(self, devices: Devices | None) -> NVIDIATopology | None:
+    def get_topology(self, devices: Devices | None) -> Topology | None:
         """
         Get the Topology object between NVIDIA GPUs.
 
@@ -482,7 +412,8 @@ class NVIDIADetector(Detector):
                 return None
 
         devices_count = len(devices)
-        topology = NVIDIATopology(
+        topology = Topology(
+            manufacturer=self.manufacturer,
             devices_count=devices_count,
         )
 
@@ -492,6 +423,7 @@ class NVIDIADetector(Detector):
             for i, dev_i in enumerate(devices):
                 dev_i_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
 
+                # Get CPU affinity.
                 try:
                     dev_i_cpuset = pynvml.nvmlDeviceGetCpuAffinity(
                         dev_i_handle,
@@ -510,12 +442,13 @@ class NVIDIADetector(Detector):
                         cpuset_bits_offset += cpuset_bits_len
 
                 except pynvml.NVMLError:
-                    debug_log_warning(
+                    debug_log_exception(
                         logger,
                         "Failed to get CPU affinity for device %d",
                         dev_i.index,
                     )
 
+                # Get NUMA affinity.
                 try:
                     dev_i_memset = pynvml.nvmlDeviceGetMemoryAffinity(
                         dev_i_handle,
@@ -534,7 +467,7 @@ class NVIDIADetector(Detector):
                             topology.devices_numa_affinities[i] = memset_bits_str
                         memset_bits_offset += memset_bits_len
                 except pynvml.NVMLError:
-                    debug_log_warning(
+                    debug_log_exception(
                         logger,
                         "Failed to get NUMA affinity for device %d",
                         dev_i.index,
@@ -543,6 +476,7 @@ class NVIDIADetector(Detector):
                         cpu_affinity=topology.devices_cpu_affinities[i],
                     )
 
+                # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
                     if i == j:
                         continue
@@ -551,7 +485,7 @@ class NVIDIADetector(Detector):
 
                     dev_j_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
 
-                    distance = _TOPOLOGY_DISTANCE_UNKNOWN
+                    distance = TopologyDistanceEnum.UNKNOWN
                     try:
                         distance = pynvml.nvmlDeviceGetTopologyCommonAncestor(
                             dev_i_handle,
@@ -559,17 +493,23 @@ class NVIDIADetector(Detector):
                         )
                         # In practice, there may not be NVLINK nodes that are not interconnected.
                         if "fabric_cluster_uuid" in dev_i.appendix:
-                            distance = _NVML_TOPOLOGY_NVLINK
+                            distance = TopologyDistanceEnum.LINK
                     except pynvml.NVMLError:
                         debug_log_exception(
                             logger,
-                            "Failed to get topology between device %d and %d",
+                            "Failed to get distance between device %d and %d",
                             dev_i.index,
                             dev_j.index,
                         )
 
                     topology.devices_distances[i][j] = distance
                     topology.devices_distances[j][i] = distance
+        except pynvml.NVMLError:
+            debug_log_exception(logger, "Failed to get topology")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process topology fetching")
+            raise
         finally:
             pynvml.nvmlShutdown()
 

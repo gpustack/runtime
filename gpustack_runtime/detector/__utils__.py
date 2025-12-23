@@ -673,6 +673,28 @@ def get_cpu_numa_node_mapping() -> list[int | None]:
     return mapping
 
 
+@lru_cache(maxsize=1)
+def get_numa_node_cpu_mapping() -> dict[int, list[int]]:
+    """
+    Map NUMA nodes to CPU cores.
+    The key corresponds to the NUMA node number,
+    and the value is the list of CPU cores that belong to that NUMA node.
+
+    Returns:
+        A dictionary mapping NUMA nodes to lists of CPU cores.
+
+    """
+    cpu_numa_mapping = get_cpu_numa_node_mapping()
+
+    numa_cpu_mapping: dict[int, list[int]] = {}
+    for cpu_idx, numa_node in enumerate(cpu_numa_mapping):
+        if numa_node is not None:
+            if numa_node not in numa_cpu_mapping:
+                numa_cpu_mapping[numa_node] = []
+            numa_cpu_mapping[numa_node].append(cpu_idx)
+    return numa_cpu_mapping
+
+
 @lru_cache
 def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
     """
@@ -722,6 +744,53 @@ def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
     return list_to_range_str(sorted(numa_nodes))
 
 
+@lru_cache
+def map_numa_node_to_cpu_affinity(numa_node: int | str | None) -> str:
+    """
+    Map NUMA nodes to CPU affinity.
+
+    Args:
+        numa_node:
+            The NUMA nodes as an integer bitmask or a string (e.g., "0-1,3").
+
+    Returns:
+        A comma-separated string of CPU core indices,
+        or blank string if no CPU cores are found.
+
+    """
+    if numa_node is None:
+        return ""
+
+    if isinstance(numa_node, int):
+        numa_indices = bits_to_list(numa_node)
+    else:
+        numa_indices: list[int] = []
+        for part in numa_node.split(","):
+            if "-" in part:
+                lo, hi = part.split("-")
+                lo_idx = safe_int(lo, -1)
+                hi_idx = safe_int(hi, -1)
+                if lo_idx == -1 or hi_idx == -1 or lo_idx > hi_idx:
+                    continue
+                numa_indices.extend(list(range(lo_idx, hi_idx + 1)))
+            else:
+                idx = safe_int(part, -1)
+                if idx == -1:
+                    continue
+                numa_indices.append(idx)
+
+    numa_cpu_mapping = get_numa_node_cpu_mapping()
+
+    cpu_cores: set[int] = set()
+    for numa_idx in numa_indices:
+        if numa_idx in numa_cpu_mapping:
+            cpu_cores.update(numa_cpu_mapping[numa_idx])
+    if not cpu_cores:
+        return ""
+
+    return list_to_range_str(sorted(cpu_cores))
+
+
 def bits_to_list(bits: int, offset: int = 0) -> list[int]:
     """
     Convert a bitmask to a list of set bit indices.
@@ -765,20 +834,18 @@ def bits_to_str(bits: int, offset: int = 0, prefix: str = "") -> str:
     if bits_list:
         if bits_str:
             bits_str += ","
-        bits_str += list_to_range_str(bits_list, is_sorted=True)
+        bits_str += list_to_range_str(bits_list)
 
     return bits_str
 
 
-def list_to_range_str(indices: list[int], is_sorted: bool = False) -> str:
+def list_to_range_str(indices: list[int]) -> str:
     """
     Convert a list of indices to a comma-separated string with ranges.
 
     Args:
         indices:
-            The list of indices.
-        is_sorted:
-            The indicates whether the input list is already sorted.
+            The list of indices, must be sorted in ascending order.
 
     Returns:
         A comma-separated string with ranges (e.g., "0,2-4,6").
@@ -787,17 +854,14 @@ def list_to_range_str(indices: list[int], is_sorted: bool = False) -> str:
     if not indices:
         return ""
 
-    sorted_indices = indices
-    if not is_sorted:
-        sorted_indices = sorted(set(indices))
-    if len(sorted_indices) == 1:
-        return f"{sorted_indices[0]}"
-    if len(sorted_indices) == (sorted_indices[-1] - sorted_indices[0] + 1):
-        return f"{sorted_indices[0]}-{sorted_indices[-1]}"
+    if len(indices) == 1:
+        return f"{indices[0]}"
+    if len(indices) == (indices[-1] - indices[0] + 1):
+        return f"{indices[0]}-{indices[-1]}"
 
-    start, end = sorted_indices[0], sorted_indices[0]
+    start, end = indices[0], indices[0]
     ranges: list[tuple[int, int]] = []
-    for i in sorted_indices[1:]:
+    for i in indices[1:]:
         if i == end + 1:
             end = i
         else:

@@ -7,6 +7,12 @@ import contextlib
 import os
 from pathlib import Path
 
+AMDSMI_LINK_TYPE_INTERNAL = 0
+AMDSMI_LINK_TYPE_PCIE = 1
+AMDSMI_LINK_TYPE_XGMI = 2
+AMDSMI_LINK_TYPE_NOT_APPLICABLE = 3
+AMDSMI_LINK_TYPE_UNKNOWN = 4
+
 try:
     with Path(os.devnull).open("w") as dev_null, contextlib.redirect_stdout(dev_null):
         from amdsmi import *
