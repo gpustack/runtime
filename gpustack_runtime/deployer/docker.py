@@ -2012,10 +2012,13 @@ def _textualize_pull_logs(logs, image, tag):
             The image tag being pulled.
 
     """
-    pstats: dict[str, tuple[int, int]] = {}
-    pstats_cursor: int = 0
-    pstats_cursor_move: int = 1
+    pstats: dict[str, tuple[int, int, int]] = {}
     dmsgs: list[str] = []
+
+    p_c: int = 0  # bytes cursor
+    p_c_m: int = 1  # bytes cursor move
+    p_c_p: int = 0  # progress cursor
+    p_c_p_m: int = 1  # progress cursor move
 
     for log in logs:
         id_ = log.get("id", None)
@@ -2027,7 +2030,7 @@ def _textualize_pull_logs(logs, image, tag):
             continue
 
         if id_ not in pstats:
-            pstats[id_] = (0, 0)
+            pstats[id_] = (0, 0, 0)
             continue
 
         progress = log.get("progressDetail", {})
@@ -2035,30 +2038,42 @@ def _textualize_pull_logs(logs, image, tag):
         progress_current = progress.get("current", None)
 
         if progress_total is not None or progress_current is not None:
-            pstats[id_] = (progress_total or 0, progress_current or 0)
+            pstats[id_] = (
+                progress_total or 0,
+                progress_current or 0,
+                0 if not progress_total else progress_current * 100 // progress_total,
+            )
 
-        pstats_total, pstats_current = 0, 0
-        for t, c in pstats.values():
+        pstats_total, pstats_current, pstats_progress = 0, 0, 0
+        for t, c, p in pstats.values():
             pstats_total += t
             pstats_current += c
+            pstats_progress += p
+
+        p_c_d = pstats_current - p_c  # bytes cursor delta
 
         if pstats_total:
-            pstats_cursor_diff = int(
-                pstats_current * 100 // pstats_total - pstats_cursor,
-            )
-            if pstats_cursor_diff >= pstats_cursor_move and pstats_cursor < 100:
-                pstats_cursor += pstats_cursor_diff
-                pstats_cursor_move = min(5, pstats_cursor_move + 1)
-                print(f"Pulling image {image}: {pstats_cursor}%", flush=True)
+            p_c_p_d = pstats_progress // len(pstats) - p_c_p  # progress cursor delta
+            # Update textual progress when:
+            # 1. Progress is not complete yet, and
+            # 2. Progress cursor delta >= progress cursor move, or
+            # 3. Bytes cursor delta >= bytes cursor move.
+            if p_c_p < 100 and (p_c_p_d >= p_c_p_m or p_c_d >= p_c_m):
+                p_c += p_c_d
+                p_c_m = min(200 * _MiB, p_c_m + 2 * _MiB)
+                p_c_p_n = min(p_c_p + p_c_p_d, 100)  # progress cursor new
+                # Update progress cursor if it has advanced.
+                if p_c_p_n > p_c_p:
+                    p_c_p = p_c_p_n
+                    p_c_p_m = min(5, p_c_p_m + 1, 100 - p_c_p)
+                    print(f"Pulling image {image}: {p_c_p}%", flush=True)
         elif pstats_current:
-            pstats_cursor_diff = int(
-                pstats_current - pstats_cursor,
-            )
-            if pstats_cursor_diff >= pstats_cursor_move:
-                pstats_cursor += pstats_cursor_diff
-                pstats_cursor_move = min(200 * _MiB, pstats_cursor_move + 2 * _MiB)
-                pstats_cursor_human = bytes_to_human_readable(pstats_cursor)
-                print(f"Pulling image {image}: {pstats_cursor_human}", flush=True)
+            # Update textual progress when bytes cursor delta >= bytes cursor move.
+            if p_c_d >= p_c_m:
+                p_c += p_c_d
+                p_c_m = min(200 * _MiB, p_c_m + 2 * _MiB)
+                p_c_h = bytes_to_human_readable(p_c)
+                print(f"Pulling image {image}: {p_c_h}", flush=True)
 
     for msg in dmsgs:
         print(msg, flush=True)
