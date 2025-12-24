@@ -11,11 +11,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53046,
-    "memory_utilization": 80.94,
-    "temperature": 47,
+    "memory_used": 3421,
+    "memory_utilization": 5.22,
+    "temperature": 49,
     "power": null,
-    "power_used": 117.1,
+    "power_used": 99.9,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -24,7 +24,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.6",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:c1:00.0"
     }
   },
   {
@@ -39,11 +40,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53035,
-    "memory_utilization": 80.92,
-    "temperature": 49,
+    "memory_used": 12458,
+    "memory_utilization": 19.01,
+    "temperature": 51,
     "power": null,
-    "power_used": 112.0,
+    "power_used": 100.0,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -52,7 +53,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.5",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:01:00.0"
     }
   },
   {
@@ -67,11 +69,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53039,
-    "memory_utilization": 80.93,
-    "temperature": 47,
+    "memory_used": 3413,
+    "memory_utilization": 5.21,
+    "temperature": 49,
     "power": null,
-    "power_used": 99.4,
+    "power_used": 100.2,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -80,7 +82,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.8",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:c2:00.0"
     }
   },
   {
@@ -95,11 +98,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53037,
-    "memory_utilization": 80.93,
-    "temperature": 48,
+    "memory_used": 3412,
+    "memory_utilization": 5.21,
+    "temperature": 51,
     "power": null,
-    "power_used": 99.1,
+    "power_used": 100.3,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -108,7 +111,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.7",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:02:00.0"
     }
   },
   {
@@ -123,11 +127,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53037,
-    "memory_utilization": 80.93,
-    "temperature": 47,
+    "memory_used": 3410,
+    "memory_utilization": 5.2,
+    "temperature": 49,
     "power": null,
-    "power_used": 101.3,
+    "power_used": 102.2,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -136,7 +140,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.11",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:81:00.0"
     }
   },
   {
@@ -151,11 +156,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53034,
-    "memory_utilization": 80.92,
-    "temperature": 48,
+    "memory_used": 3408,
+    "memory_utilization": 5.2,
+    "temperature": 51,
     "power": null,
-    "power_used": 103.1,
+    "power_used": 104.5,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -164,7 +169,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.12",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:41:00.0"
     }
   },
   {
@@ -179,11 +185,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53034,
-    "memory_utilization": 80.92,
-    "temperature": 48,
+    "memory_used": 3408,
+    "memory_utilization": 5.2,
+    "temperature": 51,
     "power": null,
-    "power_used": 114.7,
+    "power_used": 116.6,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -192,7 +198,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.10",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:82:00.0"
     }
   },
   {
@@ -207,11 +214,11 @@
     "cores": 24,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 53035,
-    "memory_utilization": 80.92,
-    "temperature": 48,
+    "memory_used": 3409,
+    "memory_utilization": 5.2,
+    "temperature": 51,
     "power": null,
-    "power_used": 101.2,
+    "power_used": 102.2,
     "appendix": {
       "arch_family": "Ascend910B2",
       "vgpu": false,
@@ -220,7 +227,8 @@
       "device_id_max": 0,
       "roce_ip": "10.52.65.9",
       "roce_mask": "255.255.255.0",
-      "roce_gateway": "10.52.65.1"
+      "roce_gateway": "10.52.65.1",
+      "bdf": "0000:42:00.0"
     }
   }
 ]

@@ -31,7 +31,7 @@ HCCS_RES_PCS_NUM = 64
 IP_ADDR_LIST_LEN = 1024
 HCCS_PING_MESH_MAX_NUM = 48
 ADDR_MAX_LEN = 16
-TOPO_INFO_MAX_LENGTH = 256
+TOPO_INFO_MAX_LENGTH = 32
 
 ## Enums ##
 DCMI_IPADDR_TYPE_V4 = 0
@@ -811,6 +811,12 @@ def dcmi_get_device_pcie_info_v2(card_id, device_id):
     ret = fn(card_id, device_id, byref(c_pcie_info))
     _dcmiCheckReturn(ret)
     return c_pcie_info
+
+
+def dcmi_get_device_bdf(card_id, device_id):
+    c_pcie_info = dcmi_get_device_pcie_info_v2(card_id, device_id)
+    # Format BDF as a string
+    return f"{c_pcie_info.domain:04x}:{c_pcie_info.bdf_busid:02x}:{c_pcie_info.bdf_deviceid:02x}.{c_pcie_info.bdf_funcid:x}"
 
 
 def dcmi_get_device_chip_info(card_id, device_id):

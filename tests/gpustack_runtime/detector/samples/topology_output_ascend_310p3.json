@@ -1,0 +1,23 @@
+[
+  {
+    "manufacturer": "ascend",
+    "devices_distances": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "devices_cpu_affinities": [
+      "64-95",
+      "64-95"
+    ],
+    "devices_numa_affinities": [
+      "2",
+      "2"
+    ]
+  }
+]

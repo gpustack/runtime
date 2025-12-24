@@ -695,6 +695,30 @@ def get_numa_node_cpu_mapping() -> dict[int, list[int]]:
     return numa_cpu_mapping
 
 
+@lru_cache(maxsize=128)
+def get_numa_node_by_bdf(bdf: str) -> str:
+    """
+    Get the NUMA node for a given PCI device BDF (Bus:Device.Function) address.
+
+    Args:
+        bdf:
+            The PCI device BDF address (e.g., "0000:00:1f.0").
+
+    Returns:
+        The NUMA node index if found, otherwise blank string.
+
+    """
+    if bdf:
+        with contextlib.suppress(Exception):
+            with Path(f"/sys/bus/pci/devices/{bdf}/numa_node").open("r") as f:
+                s = f.read().strip()
+            numa_node = int(s)
+            if numa_node >= 0:
+                return str(numa_node)
+
+    return ""
+
+
 @lru_cache
 def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
     """
@@ -715,6 +739,8 @@ def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
     if isinstance(cpu_affinity, int):
         cpu_indices = bitmask_to_list(cpu_affinity)
     else:
+        if not cpu_affinity:
+            return ""
         cpu_indices: list[int] = []
         for part in cpu_affinity.split(","):
             if "-" in part:
@@ -764,6 +790,8 @@ def map_numa_node_to_cpu_affinity(numa_node: int | str | None) -> str:
     if isinstance(numa_node, int):
         numa_indices = bitmask_to_list(numa_node)
     else:
+        if not numa_node:
+            return ""
         numa_indices: list[int] = []
         for part in numa_node.split(","):
             if "-" in part:
@@ -810,29 +838,6 @@ def bitmask_to_list(bitmask: int, offset: int = 0) -> list[int]:
     return indices
 
 
-def bitmask_to_str(bitmask_list: list) -> str:
-    """
-    Convert a bitmask to a comma-separated string of set bit indices.
-
-    Args:
-        bitmask_list:
-            An integer list stores each item in bitmask.
-
-    Returns:
-        If a bitmask are contiguous, returns a range string (e.g., "2-5"),
-        Otherwise, returns a comma-separated string of indices (e.g., "0,2-4").
-
-    """
-    bits_lists = []
-    offset = 0
-    for bitmask in bitmask_list:
-        if bitmask != 0:
-            bits_lists.extend(bitmask_to_list(bitmask, offset))
-        offset += get_bits_size()
-
-    return list_to_range_str(sorted(bits_lists))
-
-
 def list_to_range_str(indices: list[int]) -> str:
     """
     Convert a list of indices to a comma-separated string with ranges.
@@ -872,3 +877,26 @@ def list_to_range_str(indices: list[int]) -> str:
     range_str = ",".join(range_str_parts)
 
     return range_str
+
+
+def bitmask_to_str(bitmask_list: list) -> str:
+    """
+    Convert a bitmask to a comma-separated string of set bit indices.
+
+    Args:
+        bitmask_list:
+            An integer list stores each item in bitmask.
+
+    Returns:
+        If a bitmask are contiguous, returns a range string (e.g., "2-5"),
+        Otherwise, returns a comma-separated string of indices (e.g., "0,2-4").
+
+    """
+    bits_lists = []
+    offset = 0
+    for bitmask in bitmask_list:
+        if bitmask != 0:
+            bits_lists.extend(bitmask_to_list(bitmask, offset))
+        offset += get_bits_size()
+
+    return list_to_range_str(sorted(bits_lists))

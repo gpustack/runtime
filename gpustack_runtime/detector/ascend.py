@@ -18,9 +18,11 @@ from .__types__ import (
 from .__utils__ import (
     PCIDevice,
     get_brief_version,
+    get_numa_node_by_bdf,
     get_pci_devices,
     get_utilization,
     map_cpu_affinity_to_numa_node,
+    map_numa_node_to_cpu_affinity,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,9 +113,6 @@ class AscendDetector(Detector):
 
             _, card_list = pydcmi.dcmi_get_card_list()
             for dev_card_id in card_list:
-                device_id_max_in_card, _, _ = pydcmi.dcmi_get_device_id_in_card(
-                    dev_card_id,
-                )
                 device_num_in_card = pydcmi.dcmi_get_device_num_in_card(dev_card_id)
                 for dev_device_id in range(device_num_in_card):
                     dev_is_vgpu = False
@@ -193,7 +192,7 @@ class AscendDetector(Detector):
                         "vgpu": dev_is_vgpu,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
-                        "device_id_max": device_id_max_in_card - 1,
+                        "device_id_max": device_num_in_card - 1,
                     }
 
                     dev_roce_ip, dev_roce_mask, dev_roce_gateway = (
@@ -208,6 +207,13 @@ class AscendDetector(Detector):
                         dev_appendix["roce_mask"] = str(dev_roce_mask)
                     if dev_roce_gateway:
                         dev_appendix["roce_gateway"] = str(dev_roce_gateway)
+
+                    with contextlib.suppress(pydcmi.DCMIError):
+                        dev_bdf = pydcmi.dcmi_get_device_bdf(
+                            dev_card_id,
+                            dev_device_id,
+                        )
+                        dev_appendix["bdf"] = str(dev_bdf).lower()
 
                     ret.append(
                         Device(
@@ -265,24 +271,35 @@ class AscendDetector(Detector):
             pydcmi.dcmi_init()
 
             for i, dev_i in enumerate(devices):
-                # Get CPU affinity.
-                try:
-                    cpu_affinity = pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
-                        dev_i.appendix["card_id"],
-                        dev_i.appendix["device_id"],
-                    )
-                    topology.devices_cpu_affinities[i] = cpu_affinity
-                except pydcmi.DCMIError:
-                    debug_log_exception(
-                        slogger,
-                        "Failed to get CPU affinity for device %d",
-                        dev_i.index,
-                    )
+                dev_i_card_id = dev_i.appendix["card_id"]
+                dev_i_device_id = dev_i.appendix["device_id"]
 
-                # Get NUMA affinity.
-                topology.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
-                    cpu_affinity=topology.devices_cpu_affinities[i],
-                )
+                # Get affinity with PCIe BDF if possible.
+                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                    numa_node = get_numa_node_by_bdf(dev_i_bdf)
+                    topology.devices_numa_affinities[i] = numa_node
+                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        numa_node,
+                    )
+                # Otherwise, get affinity via DCMI.
+                if not topology.devices_cpu_affinities[i]:
+                    # Get CPU affinity.
+                    try:
+                        cpu_affinity = pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
+                            dev_i.appendix["card_id"],
+                            dev_i.appendix["device_id"],
+                        )
+                        topology.devices_cpu_affinities[i] = cpu_affinity
+                    except pydcmi.DCMIError:
+                        debug_log_exception(
+                            slogger,
+                            "Failed to get CPU affinity for device %d",
+                            dev_i.index,
+                        )
+                    # Get NUMA affinity.
+                    topology.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
+                        cpu_affinity=topology.devices_cpu_affinities[i],
+                    )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
@@ -291,13 +308,21 @@ class AscendDetector(Detector):
                     if topology.devices_distances[i][j] != 0:
                         continue
 
+                    dev_j_card_id = dev_j.appendix["card_id"]
+                    dev_j_device_id = dev_j.appendix["device_id"]
+
+                    # If two devices are the same card,
+                    # skip distance calculation.
+                    if dev_i_card_id == dev_j_card_id:
+                        continue
+
                     distance = TopologyDistanceEnum.UNK
                     try:
                         topo_type = pydcmi.dcmi_get_topo_info_by_device_id(
-                            dev_i.appendix["card_id"],
-                            dev_i.appendix["device_id"],
-                            dev_j.appendix["card_id"],
-                            dev_j.appendix["device_id"],
+                            dev_i_card_id,
+                            dev_i_device_id,
+                            dev_j_card_id,
+                            dev_j_device_id,
                         )
                         distance = _TOPO_TYPE_DISTANCE_MAPPING.get(topo_type, distance)
                     except pydcmi.DCMIError:

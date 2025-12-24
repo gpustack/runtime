@@ -19,6 +19,7 @@
     "appendix": {
       "arch_family": "Hopper",
       "vgpu": false,
+      "bdf": "0000:ca:00.0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }

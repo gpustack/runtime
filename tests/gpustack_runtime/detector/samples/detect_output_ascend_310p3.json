@@ -11,8 +11,8 @@
     "cores": 8,
     "cores_utilization": 0,
     "memory": 44280,
-    "memory_used": 40999,
-    "memory_utilization": 92.59,
+    "memory_used": 41731,
+    "memory_utilization": 94.24,
     "temperature": 47,
     "power": null,
     "power_used": null,
@@ -21,7 +21,8 @@
       "vgpu": false,
       "card_id": 4,
       "device_id": 0,
-      "device_id_max": 1
+      "device_id_max": 1,
+      "bdf": "0000:81:00.0"
     }
   },
   {
@@ -36,8 +37,8 @@
     "cores": 8,
     "cores_utilization": 0,
     "memory": 43693,
-    "memory_used": 1522,
-    "memory_utilization": 3.48,
+    "memory_used": 1507,
+    "memory_utilization": 3.45,
     "temperature": 45,
     "power": null,
     "power_used": null,
@@ -46,7 +47,8 @@
       "vgpu": false,
       "card_id": 4,
       "device_id": 1,
-      "device_id_max": 1
+      "device_id_max": 1,
+      "bdf": "0000:81:00.0"
     }
   }
 ]

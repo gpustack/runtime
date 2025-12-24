@@ -12,6 +12,7 @@ from .__utils__ import (
     PCIDevice,
     byte_to_mebibyte,
     get_brief_version,
+    get_numa_node_by_bdf,
     get_pci_devices,
     get_utilization,
     map_numa_node_to_cpu_affinity,
@@ -216,7 +217,7 @@ class AMDDetector(Detector):
 
                 with contextlib.suppress(pyamdsmi.AmdSmiException):
                     dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
-                    dev_appendix["bdf"] = str(dev_bdf)
+                    dev_appendix["bdf"] = str(dev_bdf).lower()
 
                 ret.append(
                     Device(
@@ -277,10 +278,8 @@ class AMDDetector(Detector):
         devs_mapping = None
 
         def get_device_handle(dev: Device):
-            if "bdf" in dev.appendix:
-                return pyamdsmi.amdsmi_get_processor_handle_from_bdf(
-                    dev.appendix["bdf"],
-                )
+            if bdf := dev.appendix.get("bdf", None):
+                return pyamdsmi.amdsmi_get_processor_handle_from_bdf(bdf)
             nonlocal devs_mapping
             if devs_mapping is None:
                 devs = pyamdsmi.amdsmi_get_processor_handles()
@@ -293,23 +292,31 @@ class AMDDetector(Detector):
             for i, dev_i in enumerate(devices):
                 dev_i_handle = get_device_handle(dev_i)
 
-                # Get NUMA affinity.
-                try:
-                    dev_i_numa_node = pyamdsmi.amdsmi_topo_get_numa_node_number(
-                        dev_i_handle,
+                # Get affinity with PCIe BDF if possible.
+                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                    numa_node = get_numa_node_by_bdf(dev_i_bdf)
+                    topology.devices_numa_affinities[i] = numa_node
+                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        numa_node,
                     )
-                    topology.devices_numa_affinities[i] = str(dev_i_numa_node)
-                except pyamdsmi.AmdSmiException:
-                    debug_log_exception(
-                        logger,
-                        "Failed to get NUMA affinity for device %d",
-                        dev_i.index,
+                # Otherwise, get affinity via AMD SMI.
+                if not topology.devices_cpu_affinities[i]:
+                    # Get NUMA affinity.
+                    try:
+                        dev_i_numa_node = pyamdsmi.amdsmi_topo_get_numa_node_number(
+                            dev_i_handle,
+                        )
+                        topology.devices_numa_affinities[i] = str(dev_i_numa_node)
+                    except pyamdsmi.AmdSmiException:
+                        debug_log_exception(
+                            logger,
+                            "Failed to get NUMA affinity for device %d",
+                            dev_i.index,
+                        )
+                    # Get CPU affinity.
+                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        numa_node=topology.devices_numa_affinities[i],
                     )
-
-                # Get CPU affinity.
-                topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                    numa_node=topology.devices_numa_affinities[i],
-                )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):

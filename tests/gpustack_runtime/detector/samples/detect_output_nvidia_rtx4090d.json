@@ -13,12 +13,13 @@
     "memory": 24564,
     "memory_used": 486,
     "memory_utilization": 1.98,
-    "temperature": 33,
+    "temperature": 32,
     "power": 425,
     "power_used": 10,
     "appendix": {
       "arch_family": "Ada-Lovelace",
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:04:00.0"
     }
   }
 ]

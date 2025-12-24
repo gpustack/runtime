@@ -4,21 +4,22 @@
     "index": 0,
     "name": "NVIDIA GeForce RTX 4080 SUPER",
     "uuid": "GPU-e41f9601-2307-3af8-98c3-f25afe04c263",
-    "driver_version": "560.35.05",
-    "runtime_version": "12.6",
-    "runtime_version_original": "12.6.0",
+    "driver_version": "570.195.03",
+    "runtime_version": "12.8",
+    "runtime_version_original": "12.8.0",
     "compute_capability": "8.9",
     "cores": 80,
     "cores_utilization": 0,
     "memory": 16376,
-    "memory_used": 1173,
-    "memory_utilization": 61.31,
-    "temperature": 43,
+    "memory_used": 15791,
+    "memory_utilization": 96.43,
+    "temperature": 42,
     "power": 320,
-    "power_used": 10,
+    "power_used": 11,
     "appendix": {
       "arch_family": "Ada-Lovelace",
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:01:00.0"
     }
   },
   {
@@ -26,21 +27,22 @@
     "index": 1,
     "name": "NVIDIA GeForce RTX 4080 SUPER",
     "uuid": "GPU-a8b7ce35-e2fa-d11a-8d73-d09eceb012d8",
-    "driver_version": "560.35.05",
-    "runtime_version": "12.6",
-    "runtime_version_original": "12.6.0",
+    "driver_version": "570.195.03",
+    "runtime_version": "12.8",
+    "runtime_version_original": "12.8.0",
     "compute_capability": "8.9",
     "cores": 80,
     "cores_utilization": 0,
     "memory": 16376,
-    "memory_used": 1173,
-    "memory_utilization": 39.74,
-    "temperature": 43,
+    "memory_used": 13006,
+    "memory_utilization": 79.42,
+    "temperature": 40,
     "power": 320,
-    "power_used": 6,
+    "power_used": 5,
     "appendix": {
       "arch_family": "Ada-Lovelace",
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:72:00.0"
     }
   }
 ]

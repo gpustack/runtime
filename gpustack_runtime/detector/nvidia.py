@@ -20,10 +20,11 @@ from .__utils__ import (
     get_cpuset_size,
     get_device_files,
     get_memory,
+    get_numa_node_by_bdf,
     get_numa_nodeset_size,
     get_pci_devices,
     get_utilization,
-    map_cpu_affinity_to_numa_node,
+    map_numa_node_to_cpu_affinity,
     stringify_uuid,
 )
 
@@ -198,6 +199,7 @@ class NVIDIADetector(Detector):
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_cc_t),
                     "vgpu": dev_is_vgpu,
+                    "bdf": str(dev_pci_info.busIdLegacy).lower(),
                 }
 
                 with contextlib.suppress(pynvml.NVMLError):
@@ -423,42 +425,47 @@ class NVIDIADetector(Detector):
             for i, dev_i in enumerate(devices):
                 dev_i_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
 
-                # Get CPU affinity.
-                try:
-                    dev_i_cpuset = pynvml.nvmlDeviceGetCpuAffinity(
-                        dev_i_handle,
-                        get_cpuset_size(),
+                # Get affinity with PCIe BDF if possible.
+                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                    numa_node = get_numa_node_by_bdf(dev_i_bdf)
+                    topology.devices_numa_affinities[i] = numa_node
+                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        numa_node,
                     )
-                    topology.devices_cpu_affinities[i] = bitmask_to_str(
-                        list(dev_i_cpuset),
-                    )
+                # Otherwise, get affinity via NVML.
+                if not topology.devices_cpu_affinities[i]:
+                    # Get CPU affinity.
+                    try:
+                        dev_i_cpuset = pynvml.nvmlDeviceGetCpuAffinity(
+                            dev_i_handle,
+                            get_cpuset_size(),
+                        )
+                        topology.devices_cpu_affinities[i] = bitmask_to_str(
+                            list(dev_i_cpuset),
+                        )
 
-                except pynvml.NVMLError:
-                    debug_log_exception(
-                        logger,
-                        "Failed to get CPU affinity for device %d",
-                        dev_i.index,
-                    )
-
-                # Get NUMA affinity.
-                try:
-                    dev_i_memset = pynvml.nvmlDeviceGetMemoryAffinity(
-                        dev_i_handle,
-                        get_numa_nodeset_size(),
-                        pynvml.NVML_AFFINITY_SCOPE_NODE,
-                    )
-                    topology.devices_numa_affinities[i] = bitmask_to_str(
-                        list(dev_i_memset),
-                    )
-                except pynvml.NVMLError:
-                    debug_log_exception(
-                        logger,
-                        "Failed to get NUMA affinity for device %d",
-                        dev_i.index,
-                    )
-                    topology.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
-                        cpu_affinity=topology.devices_cpu_affinities[i],
-                    )
+                    except pynvml.NVMLError:
+                        debug_log_exception(
+                            logger,
+                            "Failed to get CPU affinity for device %d",
+                            dev_i.index,
+                        )
+                    # Get NUMA affinity.
+                    try:
+                        dev_i_memset = pynvml.nvmlDeviceGetMemoryAffinity(
+                            dev_i_handle,
+                            get_numa_nodeset_size(),
+                            pynvml.NVML_AFFINITY_SCOPE_NODE,
+                        )
+                        topology.devices_numa_affinities[i] = bitmask_to_str(
+                            list(dev_i_memset),
+                        )
+                    except pynvml.NVMLError:
+                        debug_log_exception(
+                            logger,
+                            "Failed to get NUMA affinity for device %d",
+                            dev_i.index,
+                        )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
