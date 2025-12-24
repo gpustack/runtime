@@ -14,7 +14,7 @@ from . import Topology, pycuda
 from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
 from .__utils__ import (
     PCIDevice,
-    bits_to_str,
+    bitmask_to_str,
     byte_to_mebibyte,
     get_brief_version,
     get_cpuset_size,
@@ -429,17 +429,9 @@ class NVIDIADetector(Detector):
                         dev_i_handle,
                         get_cpuset_size(),
                     )
-                    cpuset_bits_offset = 0
-                    for cpuset_bits in dev_i_cpuset:
-                        cpuset_bits_len = cpuset_bits.bit_length()
-                        if cpuset_bits != 0:
-                            cpuset_bits_str = bits_to_str(
-                                bits=cpuset_bits,
-                                offset=cpuset_bits_offset,
-                                prefix=topology.devices_cpu_affinities[i],
-                            )
-                            topology.devices_cpu_affinities[i] = cpuset_bits_str
-                        cpuset_bits_offset += cpuset_bits_len
+                    topology.devices_cpu_affinities[i] = bitmask_to_str(
+                        list(dev_i_cpuset),
+                    )
 
                 except pynvml.NVMLError:
                     debug_log_exception(
@@ -455,17 +447,9 @@ class NVIDIADetector(Detector):
                         get_numa_nodeset_size(),
                         pynvml.NVML_AFFINITY_SCOPE_NODE,
                     )
-                    memset_bits_offset = 0
-                    for memset_bits in dev_i_memset:
-                        memset_bits_len = memset_bits.bit_length()
-                        if memset_bits != 0:
-                            memset_bits_str = bits_to_str(
-                                bits=memset_bits,
-                                offset=memset_bits_offset,
-                                prefix=topology.devices_numa_affinities[i],
-                            )
-                            topology.devices_numa_affinities[i] = memset_bits_str
-                        memset_bits_offset += memset_bits_len
+                    topology.devices_numa_affinities[i] = bitmask_to_str(
+                        list(dev_i_memset),
+                    )
                 except pynvml.NVMLError:
                     debug_log_exception(
                         logger,

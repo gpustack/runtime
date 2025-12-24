@@ -713,7 +713,7 @@ def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
         return ""
 
     if isinstance(cpu_affinity, int):
-        cpu_indices = bits_to_list(cpu_affinity)
+        cpu_indices = bitmask_to_list(cpu_affinity)
     else:
         cpu_indices: list[int] = []
         for part in cpu_affinity.split(","):
@@ -762,7 +762,7 @@ def map_numa_node_to_cpu_affinity(numa_node: int | str | None) -> str:
         return ""
 
     if isinstance(numa_node, int):
-        numa_indices = bits_to_list(numa_node)
+        numa_indices = bitmask_to_list(numa_node)
     else:
         numa_indices: list[int] = []
         for part in numa_node.split(","):
@@ -791,12 +791,12 @@ def map_numa_node_to_cpu_affinity(numa_node: int | str | None) -> str:
     return list_to_range_str(sorted(cpu_cores))
 
 
-def bits_to_list(bits: int, offset: int = 0) -> list[int]:
+def bitmask_to_list(bitmask: int, offset: int = 0) -> list[int]:
     """
     Convert a bitmask to a list of set bit indices.
 
     Args:
-        bits:
+        bitmask:
             The bitmask as an integer.
         offset:
             The offset to add to each index.
@@ -805,38 +805,32 @@ def bits_to_list(bits: int, offset: int = 0) -> list[int]:
         A list of indices where the bits are set to 1.
 
     """
-    bits_len = bits.bit_length()
-    indices = [offset + i for i in range(bits_len) if (bits >> i) & 1]
+    bits_len = bitmask.bit_length()
+    indices = [offset + i for i in range(bits_len) if (bitmask >> i) & 1]
     return indices
 
 
-def bits_to_str(bits: int, offset: int = 0, prefix: str = "") -> str:
+def bitmask_to_str(bitmask_list: list) -> str:
     """
     Convert a bitmask to a comma-separated string of set bit indices.
 
     Args:
-        bits:
-            The bitmask as an integer.
-        offset:
-            The offset to add to each index.
-        prefix:
-            The prefix to add to the string, separated by a comma.
+        bitmask_list:
+            An integer list stores each item in bitmask.
 
     Returns:
-        If the bitmask is 0, returns blank string.
-        If the bits are contiguous, returns a range string (e.g., "2-5"),
+        If a bitmask are contiguous, returns a range string (e.g., "2-5"),
         Otherwise, returns a comma-separated string of indices (e.g., "0,2-4").
 
     """
-    bits_str = prefix
+    bits_lists = []
+    offset = 0
+    for bitmask in bitmask_list:
+        if bitmask != 0:
+            bits_lists.extend(bitmask_to_list(bitmask, offset))
+        offset += get_bits_size()
 
-    bits_list = bits_to_list(bits, offset)
-    if bits_list:
-        if bits_str:
-            bits_str += ","
-        bits_str += list_to_range_str(bits_list)
-
-    return bits_str
+    return list_to_range_str(sorted(bits_lists))
 
 
 def list_to_range_str(indices: list[int]) -> str:
