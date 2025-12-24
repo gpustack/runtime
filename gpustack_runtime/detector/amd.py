@@ -250,7 +250,7 @@ class AMDDetector(Detector):
 
         return ret
 
-    def get_topology(self, devices: Devices | None) -> Topology | None:
+    def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
         Get the Topology object between AMD GPUs.
 
@@ -320,7 +320,7 @@ class AMDDetector(Detector):
 
                     dev_j_handle = get_device_handle(dev_j)
 
-                    distance = TopologyDistanceEnum.UNKNOWN
+                    distance = TopologyDistanceEnum.UNK
                     try:
                         link_type = pyamdsmi.amdsmi_topo_get_link_type(
                             dev_i_handle,
@@ -328,7 +328,7 @@ class AMDDetector(Detector):
                         )
                         match int(link_type.type):
                             case pyamdsmi.AMDSMI_LINK_TYPE_INTERNAL:
-                                distance = TopologyDistanceEnum.INTERNAL
+                                distance = TopologyDistanceEnum.SELF
                             case pyamdsmi.AMDSMI_LINK_TYPE_XGMI:
                                 distance = TopologyDistanceEnum.LINK
                             # For PCIe links,

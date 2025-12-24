@@ -303,9 +303,9 @@ class TopologyDistanceEnum(int, Enum):
     Enum for Topology Distance Levels.
     """
 
-    INTERNAL = 0
+    SELF = 0
     """
-    Same device.
+    Self connection.
     """
     LINK = 5
     """
@@ -331,7 +331,7 @@ class TopologyDistanceEnum(int, Enum):
     """
     Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI).
     """
-    UNKNOWN = 100
+    UNK = 100
     """
     Unknown connection.
     """
@@ -350,19 +350,19 @@ def stringify_devices_distance(distance: int) -> str:
 
     """
     match distance:
-        case 0:
+        case TopologyDistanceEnum.SELF:
             return "X"
-        case 5:
+        case TopologyDistanceEnum.LINK:
             return "LINK"
-        case 10:
+        case TopologyDistanceEnum.PIX:
             return "PIX"
-        case 20:
+        case TopologyDistanceEnum.PXB:
             return "PXB"
-        case 30:
+        case TopologyDistanceEnum.PHB:
             return "PHB"
-        case 40:
+        case TopologyDistanceEnum.NODE:
             return "NODE"
-        case 50:
+        case TopologyDistanceEnum.SYS:
             return "SYS"
         case _:
             return "N/A"
@@ -450,7 +450,7 @@ class Detector(ABC):
         """
         raise NotImplementedError
 
-    def get_topology(self, devices: Devices | None) -> Topology | None:  # noqa: ARG002
+    def get_topology(self, devices: Devices | None = None) -> Topology | None:  # noqa: ARG002
         """
         Get the Topology object between the given devices.
 

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 slogger = logger.getChild("internal")
 
 _TOPO_TYPE_DISTANCE_MAPPING: dict[int, int] = {
-    pydcmi.DCMI_TOPO_TYPE_SELF: TopologyDistanceEnum.INTERNAL,
+    pydcmi.DCMI_TOPO_TYPE_SELF: TopologyDistanceEnum.SELF,
     pydcmi.DCMI_TOPO_TYPE_HCCS: TopologyDistanceEnum.LINK,  # Traversing via high-speed interconnect, RoCE, etc.
     pydcmi.DCMI_TOPO_TYPE_PIX: TopologyDistanceEnum.PIX,  # Traversing via a single PCIe bridge.
     pydcmi.DCMI_TOPO_TYPE_PXB: TopologyDistanceEnum.PXB,  # Traversing via multiple PCIe bridges without PCIe Host Bridge.
@@ -111,6 +111,9 @@ class AscendDetector(Detector):
 
             _, card_list = pydcmi.dcmi_get_card_list()
             for dev_card_id in card_list:
+                device_id_max_in_card, _, _ = pydcmi.dcmi_get_device_id_in_card(
+                    dev_card_id,
+                )
                 device_num_in_card = pydcmi.dcmi_get_device_num_in_card(dev_card_id)
                 for dev_device_id in range(device_num_in_card):
                     dev_is_vgpu = False
@@ -190,6 +193,7 @@ class AscendDetector(Detector):
                         "vgpu": dev_is_vgpu,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
+                        "device_id_max": device_id_max_in_card - 1,
                     }
 
                     dev_roce_ip, dev_roce_mask, dev_roce_gateway = (
@@ -233,7 +237,7 @@ class AscendDetector(Detector):
 
         return ret
 
-    def get_topology(self, devices: Devices | None) -> Topology | None:
+    def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
         Get the Topology object between Ascend NPUs.
 
@@ -258,6 +262,8 @@ class AscendDetector(Detector):
         )
 
         try:
+            pydcmi.dcmi_init()
+
             for i, dev_i in enumerate(devices):
                 # Get CPU affinity.
                 try:
@@ -285,7 +291,7 @@ class AscendDetector(Detector):
                     if topology.devices_distances[i][j] != 0:
                         continue
 
-                    distance = TopologyDistanceEnum.UNKNOWN
+                    distance = TopologyDistanceEnum.UNK
                     try:
                         topo_type = pydcmi.dcmi_get_topo_info_by_device_id(
                             dev_i.appendix["card_id"],

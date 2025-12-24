@@ -1,0 +1,26 @@
+[
+  {
+    "manufacturer": "amd",
+    "index": 0,
+    "name": "Navi 32 [Radeon RX 7700 XT / 7800 XT]",
+    "uuid": "GPU-5c88007d760374f3",
+    "driver_version": "6.12.12",
+    "runtime_version": "7.1",
+    "runtime_version_original": "7.1.1",
+    "compute_capability": "gfx1101",
+    "cores": 60,
+    "cores_utilization": 0,
+    "memory": 16368,
+    "memory_used": 5713,
+    "memory_utilization": 34.9,
+    "temperature": 37,
+    "power": 236,
+    "power_used": 7,
+    "appendix": {
+      "arch_family": "GC 11.0.0",
+      "vgpu": false,
+      "card_id": 1,
+      "bdf": "0000:03:00.0"
+    }
+  }
+]

@@ -393,7 +393,7 @@ class NVIDIADetector(Detector):
 
         return ret
 
-    def get_topology(self, devices: Devices | None) -> Topology | None:
+    def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
         Get the Topology object between NVIDIA GPUs.
 
@@ -485,7 +485,7 @@ class NVIDIADetector(Detector):
 
                     dev_j_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
 
-                    distance = TopologyDistanceEnum.UNKNOWN
+                    distance = TopologyDistanceEnum.UNK
                     try:
                         distance = pynvml.nvmlDeviceGetTopologyCommonAncestor(
                             dev_i_handle,

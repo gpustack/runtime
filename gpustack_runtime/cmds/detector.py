@@ -128,6 +128,7 @@ class GetDevicesTopologySubCommand(SubCommand):
                     "  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)",
                     "  NODE = Connection traversing PCIe and the interconnect between NUMA nodes",
                     "  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)",
+                    "  N/A  = Unknown or unavailable information",
                 ]
                 print(os.linesep.join(legend_lines))
 
