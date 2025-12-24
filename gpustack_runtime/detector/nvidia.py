@@ -209,7 +209,7 @@ class NVIDIADetector(Detector):
                         dev_fabric = None
                     if dev_fabric:
                         dev_appendix["fabric_cluster_uuid"] = stringify_uuid(
-                            dev_fabric.clusterUuid,
+                            bytes(dev_fabric.clusterUuid),
                         )
                         dev_appendix["fabric_clique_id"] = dev_fabric.cliqueId
 
