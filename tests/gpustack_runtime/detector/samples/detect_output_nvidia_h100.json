@@ -1,0 +1,26 @@
+[
+  {
+    "manufacturer": "nvidia",
+    "index": 0,
+    "name": "NVIDIA H100 80GB HBM3",
+    "uuid": "GPU-2a694e94-6a61-c064-32d7-c5783806bcb5",
+    "driver_version": "575.57.08",
+    "runtime_version": "12.9",
+    "runtime_version_original": "12.9.0",
+    "compute_capability": "9.0",
+    "cores": 132,
+    "cores_utilization": 0,
+    "memory": 81559,
+    "memory_used": 73076,
+    "memory_utilization": 89.6,
+    "temperature": 37,
+    "power": 700,
+    "power_used": 146,
+    "appendix": {
+      "arch_family": "Hopper",
+      "vgpu": false,
+      "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
+      "fabric_clique_id": 0
+    }
+  }
+]

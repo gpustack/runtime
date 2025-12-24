@@ -1,0 +1,16 @@
+[
+  {
+    "manufacturer": "nvidia",
+    "devices_distances": [
+      [
+        0
+      ]
+    ],
+    "devices_cpu_affinities": [
+      "0-19"
+    ],
+    "devices_numa_affinities": [
+      "0"
+    ]
+  }
+]
