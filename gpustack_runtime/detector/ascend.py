@@ -213,7 +213,7 @@ class AscendDetector(Detector):
                             dev_card_id,
                             dev_device_id,
                         )
-                        dev_appendix["bdf"] = str(dev_bdf).lower()
+                        dev_appendix["bdf"] = dev_bdf
 
                     ret.append(
                         Device(
@@ -276,10 +276,11 @@ class AscendDetector(Detector):
 
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
-                    numa_node = get_numa_node_by_bdf(dev_i_bdf)
-                    topology.devices_numa_affinities[i] = numa_node
+                    topology.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                        dev_i_bdf,
+                    )
                     topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        numa_node,
+                        topology.devices_numa_affinities[i],
                     )
                 # Otherwise, get affinity via DCMI.
                 if not topology.devices_cpu_affinities[i]:
@@ -298,14 +299,15 @@ class AscendDetector(Detector):
                         )
                     # Get NUMA affinity.
                     topology.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
-                        cpu_affinity=topology.devices_cpu_affinities[i],
+                        topology.devices_cpu_affinities[i],
                     )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
-                    if i == j:
-                        continue
-                    if topology.devices_distances[i][j] != 0:
+                    if (
+                        dev_i.index == dev_j.index
+                        or topology.devices_distances[i][j] != 0
+                    ):
                         continue
 
                     dev_j_card_id = dev_j.appendix["card_id"]

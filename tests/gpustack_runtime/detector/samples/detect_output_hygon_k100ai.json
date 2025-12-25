@@ -4,20 +4,21 @@
     "index": 0,
     "name": "K100_AI",
     "uuid": "GPU-7100f95cee823041",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
     "cores": 120,
     "cores_utilization": 0,
     "memory": 65520,
-    "memory_used": 2,
-    "memory_utilization": 0.0,
-    "temperature": 51,
+    "memory_used": 1996,
+    "memory_utilization": 3.05,
+    "temperature": 62,
     "power": 400,
-    "power_used": 76,
+    "power_used": 105,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:07:00.0"
     }
   },
   {
@@ -25,20 +26,21 @@
     "index": 1,
     "name": "K100_AI",
     "uuid": "GPU-715322fd7cac4121",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
     "cores": 120,
     "cores_utilization": 0,
     "memory": 65520,
-    "memory_used": 2,
-    "memory_utilization": 0.0,
-    "temperature": 53,
+    "memory_used": 2013,
+    "memory_utilization": 3.07,
+    "temperature": 65,
     "power": 400,
-    "power_used": 80,
+    "power_used": 109,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:0a:00.0"
     }
   },
   {
@@ -46,7 +48,7 @@
     "index": 2,
     "name": "K100_AI",
     "uuid": "GPU-7151b6f7e44e2041",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
@@ -55,11 +57,12 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 53,
+    "temperature": 66,
     "power": 400,
-    "power_used": 78,
+    "power_used": 107,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:0f:00.0"
     }
   },
   {
@@ -67,7 +70,7 @@
     "index": 3,
     "name": "K100_AI",
     "uuid": "GPU-71010022e8c648a1",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
@@ -76,11 +79,12 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 51,
+    "temperature": 64,
     "power": 400,
-    "power_used": 75,
+    "power_used": 105,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:16:00.0"
     }
   },
   {
@@ -88,7 +92,7 @@
     "index": 4,
     "name": "K100_AI",
     "uuid": "GPU-7151b6f7e45818c1",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
@@ -97,19 +101,21 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 54,
+    "temperature": 66,
     "power": 400,
-    "power_used": 80,
+    "power_used": 110,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:1d:00.0"
     }
   },
   {
     "manufacturer": "hygon",
     "index": 5,
     "name": "K100_AI",
+
     "uuid": "GPU-7151be4ceb721101",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
@@ -118,11 +124,12 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 55,
+    "temperature": 67,
     "power": 400,
-    "power_used": 81,
+    "power_used": 110,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:20:00.0"
     }
   },
   {
@@ -130,7 +137,7 @@
     "index": 6,
     "name": "K100_AI",
     "uuid": "GPU-7100f9639dd62881",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
@@ -139,11 +146,12 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 54,
+    "temperature": 66,
     "power": 400,
-    "power_used": 81,
+    "power_used": 111,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:25:00.0"
     }
   },
   {
@@ -151,7 +159,7 @@
     "index": 7,
     "name": "K100_AI",
     "uuid": "GPU-715322f979f21901",
-    "driver_version": "6.2.31",
+    "driver_version": null,
     "runtime_version": "24.04",
     "runtime_version_original": "24.04.3",
     "compute_capability": "gfx928",
@@ -160,11 +168,12 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 51,
+    "temperature": 63,
     "power": 400,
-    "power_used": 81,
+    "power_used": 109,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:2c:00.0"
     }
   }
 ]

@@ -17,7 +17,6 @@ from .__utils__ import (
     bitmask_to_str,
     byte_to_mebibyte,
     get_brief_version,
-    get_cpuset_size,
     get_device_files,
     get_memory,
     get_numa_node_by_bdf,
@@ -427,29 +426,14 @@ class NVIDIADetector(Detector):
 
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
-                    numa_node = get_numa_node_by_bdf(dev_i_bdf)
-                    topology.devices_numa_affinities[i] = numa_node
+                    topology.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                        dev_i_bdf,
+                    )
                     topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        numa_node,
+                        topology.devices_numa_affinities[i],
                     )
                 # Otherwise, get affinity via NVML.
                 if not topology.devices_cpu_affinities[i]:
-                    # Get CPU affinity.
-                    try:
-                        dev_i_cpuset = pynvml.nvmlDeviceGetCpuAffinity(
-                            dev_i_handle,
-                            get_cpuset_size(),
-                        )
-                        topology.devices_cpu_affinities[i] = bitmask_to_str(
-                            list(dev_i_cpuset),
-                        )
-
-                    except pynvml.NVMLError:
-                        debug_log_exception(
-                            logger,
-                            "Failed to get CPU affinity for device %d",
-                            dev_i.index,
-                        )
                     # Get NUMA affinity.
                     try:
                         dev_i_memset = pynvml.nvmlDeviceGetMemoryAffinity(
@@ -466,12 +450,17 @@ class NVIDIADetector(Detector):
                             "Failed to get NUMA affinity for device %d",
                             dev_i.index,
                         )
+                    # Get CPU affinity.
+                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        topology.devices_numa_affinities[i],
+                    )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
-                    if i == j:
-                        continue
-                    if topology.devices_distances[i][j] != 0:
+                    if (
+                        dev_i.index == dev_j.index
+                        or topology.devices_distances[i][j] != 0
+                    ):
                         continue
 
                     dev_j_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
@@ -496,7 +485,7 @@ class NVIDIADetector(Detector):
                     topology.devices_distances[i][j] = distance
                     topology.devices_distances[j][i] = distance
         except pynvml.NVMLError:
-            debug_log_exception(logger, "Failed to get topology")
+            debug_log_exception(logger, "Failed to fetch topology")
             raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")

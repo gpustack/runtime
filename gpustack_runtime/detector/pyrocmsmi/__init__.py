@@ -12,6 +12,12 @@ from ctypes import *
 from functools import wraps
 from pathlib import Path
 
+## Enums ##
+ROCMSMI_IOLINK_TYPE_UNDEFINED = 0
+ROCMSMI_IOLINK_TYPE_PCIE = 1
+ROCMSMI_IOLINK_TYPE_XGMI = 2
+ROCMSMI_IOLINK_TYPE_NUMIOLINKTYPES = 3
+
 ## Error Codes ##
 ROCMSMI_ERROR_UNINITIALIZED = -99997
 
@@ -21,13 +27,14 @@ libLoadLock = threading.Lock()
 
 if rocmsmiLib is None:
     # Example ROCM_SMI_LIB_PATH
-    # - /opt/dtk-24.04.3/rocm_smi/lib
+    # - /opt/hyhal/lib
     # - /opt/rocm/rocm_smi/lib
+    # Example ROCM_PATH/ROCM_HOME
+    # - /opt/dtk-24.04.3
+    # - /opt/dtk
+    # - /opt/rocm
     rocmsmi_lib_path = os.getenv("ROCM_SMI_LIB_PATH")
     if not rocmsmi_lib_path:
-        # Example ROCM_PATH/ROCM_HOME
-        # - /opt/dtk-24.04.3
-        # - /opt/rocm
         rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
         rocmsmi_lib_path = str(rocm_path / "lib")
         if not Path(rocmsmi_lib_path).exists():
@@ -307,3 +314,77 @@ def rsmi_dev_node_id_get(device=0):
     ret = rocmsmiLib.rsmi_dev_node_id_get(device, byref(c_node_id))
     _rocmsmiCheckReturn(ret)
     return c_node_id.value
+
+
+def rsmi_dev_pci_id_get(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
+    c_pci_id = c_uint64()
+    ret = rocmsmiLib.rsmi_dev_pci_id_get(device, byref(c_pci_id))
+    _rocmsmiCheckReturn(ret)
+
+    v_pci_id = c_pci_id.value
+    # BDFID = ((DOMAIN & 0xFFFFFFFF) << 32) | ((Partition & 0xF) << 28)
+    #         | ((BUS & 0xFF) << 8) | ((DEVICE & 0x1F) <<3 )
+    #         | (FUNCTION & 0x7)
+    # Extract domain, bus, device, function
+    domain = (v_pci_id >> 32) & 0xFFFFFFFF
+    bus = (v_pci_id >> 8) & 0xFF
+    device_id = (v_pci_id >> 3) & 0x1F
+    function = v_pci_id & 0x7
+    return f"{domain:04x}:{bus:02x}:{device_id:02x}.{function:x}"
+
+
+def rsmi_topo_get_numa_node_number(device=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
+    c_numa_node = c_uint32()
+    ret = rocmsmiLib.rsmi_topo_get_numa_node_number(device, byref(c_numa_node))
+    _rocmsmiCheckReturn(ret)
+    return c_numa_node.value
+
+
+def rsmi_topo_get_link_type(device_a=0, device_b=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
+    c_hops = c_uint64()
+    c_type = c_uint32()
+    ret = rocmsmiLib.rsmi_topo_get_link_type(
+        device_a,
+        device_b,
+        byref(c_hops),
+        byref(c_type),
+    )
+    _rocmsmiCheckReturn(ret)
+    return {"hops": c_hops.value, "type": c_type.value}
+
+
+def rsmi_topo_get_link_weight(device_a=0, device_b=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
+    c_weight = c_uint64()
+    ret = rocmsmiLib.rsmi_topo_get_link_weight(
+        device_a,
+        device_b,
+        byref(c_weight),
+    )
+    _rocmsmiCheckReturn(ret)
+    return c_weight.value
+
+
+def rsmi_is_p2p_accessible(device_a=0, device_b=0):
+    if not rocmsmiLib:
+        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+
+    c_accessible = c_bool()
+    ret = rocmsmiLib.rsmi_is_P2P_accessible(
+        device_a,
+        device_b,
+        byref(c_accessible),
+    )
+    _rocmsmiCheckReturn(ret)
+    return c_accessible.value

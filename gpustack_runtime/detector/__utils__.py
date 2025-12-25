@@ -24,6 +24,14 @@ class PCIDevice:
     """
     Path to the PCI device in sysfs.
     """
+    root: str
+    """
+    Root of the PCI device.
+    """
+    switches: list[str]
+    """
+    Switches of the PCI device.
+    """
     address: str
     """
     Address of the PCI device.
@@ -64,7 +72,7 @@ def get_pci_devices(
         vendor = [vendor]
 
     for dev_path in sysfs_pci_path.iterdir():
-        dev_address = dev_path.name
+        dev_address = dev_path.name.lower()
         if address and dev_address not in address:
             continue
 
@@ -92,10 +100,19 @@ def get_pci_devices(
         if dev_class is None or dev_config is None:
             continue
 
+        dev_path_resolved = dev_path.resolve()
+        dev_switches = []
+        dev_root = dev_path_resolved.parent
+        while (dev_root != sysfs_pci_path) and (dev_root.name.count(":") == 2):
+            dev_switches.append(dev_root.name)
+            dev_root = dev_root.parent
+
         pci_devices.append(
             PCIDevice(
                 vendor=dev_vendor,
-                path=str(dev_path),
+                path=str(dev_path_resolved),
+                root=dev_root.name,
+                switches=dev_switches,
                 address=dev_address,
                 class_=dev_class,
                 config=dev_config,
@@ -103,6 +120,40 @@ def get_pci_devices(
         )
 
     return pci_devices
+
+
+def compare_pci_devices(
+    dev_a: PCIDevice | None,
+    dev_b: PCIDevice | None,
+) -> int:
+    """
+    Compare two PCI devices.
+
+    Args:
+        dev_a:
+            The first PCI device.
+        dev_b:
+            The second PCI device.
+
+    Returns:
+        -1 if devices have different roots,
+        0 if devices have the same root but different switches,
+        1 if devices have the same root and same switches.
+
+    """
+    if dev_a and dev_b:
+        is_same_root = dev_a.root == dev_b.root
+        is_same_switch = is_same_root and len(dev_a.switches) == len(dev_b.switches)
+        if is_same_switch:
+            for sw_a, sw_b in zip(dev_a.switches, dev_b.switches, strict=False):
+                if sw_a != sw_b:
+                    is_same_switch = False
+                    break
+        if is_same_switch:
+            return 1
+        if is_same_root:
+            return 0
+    return -1
 
 
 @dataclass

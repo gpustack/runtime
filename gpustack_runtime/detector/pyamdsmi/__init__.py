@@ -7,6 +7,7 @@ import contextlib
 import os
 from pathlib import Path
 
+## Enums ##
 AMDSMI_LINK_TYPE_INTERNAL = 0
 AMDSMI_LINK_TYPE_PCIE = 1
 AMDSMI_LINK_TYPE_XGMI = 2

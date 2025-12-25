@@ -815,8 +815,12 @@ def dcmi_get_device_pcie_info_v2(card_id, device_id):
 
 def dcmi_get_device_bdf(card_id, device_id):
     c_pcie_info = dcmi_get_device_pcie_info_v2(card_id, device_id)
-    # Format BDF as a string
-    return f"{c_pcie_info.domain:04x}:{c_pcie_info.bdf_busid:02x}:{c_pcie_info.bdf_deviceid:02x}.{c_pcie_info.bdf_funcid:x}"
+
+    domain = c_pcie_info.domain
+    bus = c_pcie_info.bdf_busid
+    device = c_pcie_info.bdf_deviceid
+    function = c_pcie_info.bdf_funcid
+    return f"{domain:04x}:{bus:02x}:{device:02x}.{function:x}"
 
 
 def dcmi_get_device_chip_info(card_id, device_id):

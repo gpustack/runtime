@@ -11,6 +11,7 @@ from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDist
 from .__utils__ import (
     PCIDevice,
     byte_to_mebibyte,
+    compare_pci_devices,
     get_brief_version,
     get_numa_node_by_bdf,
     get_pci_devices,
@@ -217,7 +218,7 @@ class AMDDetector(Detector):
 
                 with contextlib.suppress(pyamdsmi.AmdSmiException):
                     dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
-                    dev_appendix["bdf"] = str(dev_bdf).lower()
+                    dev_appendix["bdf"] = dev_bdf
 
                 ret.append(
                     Device(
@@ -287,20 +288,48 @@ class AMDDetector(Detector):
             return devs_mapping.get(dev.index)
 
         try:
+            pci_devices = self.detect_pci_devices()
+
+            def distance_pci_devices(bdf_a: str, bdf_b: str) -> TopologyDistanceEnum:
+                """
+                Compute distance between two PCI devices by their BDFs.
+
+                Args:
+                    bdf_a:
+                        The BDF of the first PCI device.
+                    bdf_b:
+                        The BDF of the second PCI device.
+
+                Returns:
+                    The TopologyDistanceEnum representing the distance.
+
+                """
+                pcid_a = pci_devices.get(bdf_a, None)
+                pcid_b = pci_devices.get(bdf_b, None)
+
+                score = compare_pci_devices(pcid_a, pcid_b)
+                if score > 0:
+                    return TopologyDistanceEnum.PIX
+                if score == 0:
+                    return TopologyDistanceEnum.PXB
+                return TopologyDistanceEnum.PHB
+
             pyamdsmi.amdsmi_init()
 
+            # Get NUMA and CPU affinities.
             for i, dev_i in enumerate(devices):
-                dev_i_handle = get_device_handle(dev_i)
-
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
-                    numa_node = get_numa_node_by_bdf(dev_i_bdf)
-                    topology.devices_numa_affinities[i] = numa_node
+                    topology.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                        dev_i_bdf,
+                    )
                     topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        numa_node,
+                        topology.devices_numa_affinities[i],
                     )
                 # Otherwise, get affinity via AMD SMI.
                 if not topology.devices_cpu_affinities[i]:
+                    dev_i_handle = get_device_handle(dev_i)
+
                     # Get NUMA affinity.
                     try:
                         dev_i_numa_node = pyamdsmi.amdsmi_topo_get_numa_node_number(
@@ -315,41 +344,50 @@ class AMDDetector(Detector):
                         )
                     # Get CPU affinity.
                     topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        numa_node=topology.devices_numa_affinities[i],
+                        topology.devices_numa_affinities[i],
                     )
 
-                # Get distances to other devices.
+            # Get distances to other devices.
+            for i, dev_i in enumerate(devices):
+                dev_i_handle = get_device_handle(dev_i)
+
                 for j, dev_j in enumerate(devices):
-                    if i == j:
-                        continue
-                    if topology.devices_distances[i][j] != 0:
+                    if (
+                        dev_i.index == dev_j.index
+                        or topology.devices_distances[i][j] != 0
+                    ):
                         continue
 
                     dev_j_handle = get_device_handle(dev_j)
 
                     distance = TopologyDistanceEnum.UNK
                     try:
-                        link_type = pyamdsmi.amdsmi_topo_get_link_type(
+                        link = pyamdsmi.amdsmi_topo_get_link_type(
                             dev_i_handle,
                             dev_j_handle,
                         )
-                        match int(link_type.type):
+                        link_type = link.get("type", -1)
+                        link_hops = link.get("hops", -1)
+                        match link_type:
                             case pyamdsmi.AMDSMI_LINK_TYPE_INTERNAL:
                                 distance = TopologyDistanceEnum.SELF
+                            case pyamdsmi.AMDSMI_LINK_TYPE_PCIE:
+                                dev_i_numa, dev_j_numa = (
+                                    topology.devices_numa_affinities[i],
+                                    topology.devices_numa_affinities[j],
+                                )
+                                if dev_i_numa and dev_i_numa == dev_j_numa:
+                                    distance = distance_pci_devices(
+                                        dev_i.appendix.get("bdf", ""),
+                                        dev_j.appendix.get("bdf", ""),
+                                    )
+                                else:
+                                    distance = TopologyDistanceEnum.SYS
                             case pyamdsmi.AMDSMI_LINK_TYPE_XGMI:
                                 distance = TopologyDistanceEnum.LINK
-                            # For PCIe links,
-                            # further distinguish between PHB and SYS based on NUMA affinity.
-                            case pyamdsmi.AMDSMI_LINK_TYPE_PCIE:
-                                if link_type == pyamdsmi.AMDSMI_LINK_TYPE_PCIE:
-                                    dev_i_numa, dev_j_numa = (
-                                        topology.devices_numa_affinities[i],
-                                        topology.devices_numa_affinities[j],
-                                    )
-                                    if dev_i_numa != "" and dev_i_numa == dev_j_numa:
-                                        distance = TopologyDistanceEnum.PHB
-                                    else:
-                                        distance = TopologyDistanceEnum.SYS
+                            case _:
+                                if link_hops == 0:
+                                    distance = TopologyDistanceEnum.SELF
                     except pyamdsmi.AmdSmiException:
                         debug_log_exception(
                             logger,
@@ -361,7 +399,7 @@ class AMDDetector(Detector):
                     topology.devices_distances[i][j] = distance
                     topology.devices_distances[j][i] = distance
         except pyamdsmi.AmdSmiException:
-            debug_log_exception(logger, "Failed to get topology")
+            debug_log_exception(logger, "Failed to fetch topology")
             raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
