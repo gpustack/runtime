@@ -2031,6 +2031,8 @@ def _textualize_pull_logs(logs, image, tag):
 
         if id_ not in pstats:
             pstats[id_] = (0, 0, 0)
+            if status in ["Pull complete", "Already exists"]:
+                pstats[id_] = (0, 0, 100)
             continue
 
         progress = log.get("progressDetail", {})
