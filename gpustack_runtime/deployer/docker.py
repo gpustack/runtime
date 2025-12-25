@@ -44,7 +44,7 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
-from .__utils__ import _MiB, bytes_to_human_readable, safe_json
+from .__utils__ import _MiB, bytes_to_human_readable, replace_image_with, safe_json
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -137,6 +137,17 @@ class DockerWorkloadPlan(WorkloadPlan):
 
         # Default and validate in the base class.
         super().validate_and_default()
+
+        # Adjust default image namespace if needed.
+        if namespace := envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE:
+            self.pause_image = replace_image_with(
+                image=self.pause_image,
+                namespace=namespace,
+            )
+            self.unhealthy_restart_image = replace_image_with(
+                image=self.unhealthy_restart_image,
+                namespace=namespace,
+            )
 
 
 @dataclass_json

@@ -68,6 +68,11 @@ if TYPE_CHECKING:
     If not set, it should be "docker.io".
     If the image name already contains a registry, this setting will be ignored.
     """
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE: str | None = None
+    """
+    Namespace for default runner images.
+    If not set, it should be "gpustack".
+    """
     GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME: str | None = None
     """
     Username for the default container registry.
@@ -282,7 +287,15 @@ variables: dict[str, Callable[[], Any]] = {
         "Auto",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY": lambda: trim_str(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY"),
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY",
+                "GPUSTACK_SYSTEM_DEFAULT_CONTAINER_REGISTRY",  # Compatible with gpustack/gpustack.
+            ],
+        ),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE": lambda: trim_str(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE"),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME": lambda: trim_str(
         getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME"),

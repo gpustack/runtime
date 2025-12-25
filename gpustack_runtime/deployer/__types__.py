@@ -1023,13 +1023,12 @@ class WorkloadPlan(WorkloadSecurity):
                 and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY
                 not in ["docker.io", "index.docker.io"]
             ):
+                image_registry = envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE
                 image_split = c.image.split("/")
                 if len(image_split) == 1:
-                    c.image = f"{envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY}/library/{c.image}"
+                    c.image = f"{image_registry}/library/{c.image}"
                 elif len(image_split) == 2:
-                    c.image = (
-                        f"{envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY}/{c.image}"
-                    )
+                    c.image = f"{image_registry}/{c.image}"
             # Correct runner image if needed.
             if envs.GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE:
                 c.image, ok = correct_runner_image(c.image)

@@ -1,0 +1,69 @@
+[
+  [
+    "1: empty",
+    {
+      "repository": ""
+    },
+    ""
+  ],
+  [
+    "2: empty",
+    {
+      "repository": "nginx"
+    },
+    "nginx"
+  ],
+  [
+    "nginx:latest",
+    {
+      "repository": "nginx",
+      "tag": "latest"
+    },
+    "nginx:latest"
+  ],
+  [
+    "website.com/abc/library/nginx",
+    {
+      "repository": "nginx",
+      "registry": "website.com/abc"
+    },
+    "website.com/abc/library/nginx"
+  ],
+  [
+    "xyz/nginx",
+    {
+      "repository": "nginx",
+      "namespace": "xyz"
+    },
+    "xyz/nginx"
+  ],
+  [
+    "1: website.com/abc/xyz/nginx:v0.1.0",
+    {
+      "repository": "nginx",
+      "registry": "website.com/abc",
+      "namespace": "xyz",
+      "tag": "v0.1.0"
+    },
+    "website.com/abc/xyz/nginx:v0.1.0"
+  ],
+  [
+    "2: website.com/abc/xyz/nginx:v0.1.0",
+    {
+      "repository": "nginx",
+      "registry": "website.com",
+      "namespace": "abc/xyz",
+      "tag": "v0.1.0"
+    },
+    "website.com/abc/xyz/nginx:v0.1.0"
+  ],
+  [
+    "xyz/nginx@sha256:abcdef1234567890",
+    {
+      "repository": "nginx",
+      "namespace": "xyz",
+      "tag": "sha256:abcdef1234567890"
+    },
+    "xyz/nginx@sha256:abcdef1234567890"
+  ]
+]
