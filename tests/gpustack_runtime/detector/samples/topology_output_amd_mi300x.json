@@ -1,0 +1,23 @@
+[
+  {
+    "manufacturer": "amd",
+    "devices_distances": [
+      [
+        0,
+        30
+      ],
+      [
+        30,
+        0
+      ]
+    ],
+    "devices_cpu_affinities": [
+      "0-47,96-143",
+      "0-47,96-143"
+    ],
+    "devices_numa_affinities": [
+      "0",
+      "0"
+    ]
+  }
+]

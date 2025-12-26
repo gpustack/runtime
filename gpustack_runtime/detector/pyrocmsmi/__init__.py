@@ -324,15 +324,17 @@ def rsmi_dev_pci_id_get(device=0):
     ret = rocmsmiLib.rsmi_dev_pci_id_get(device, byref(c_pci_id))
     _rocmsmiCheckReturn(ret)
 
-    v_pci_id = c_pci_id.value
+    return str_bdfid(c_pci_id.value)
+
+
+def str_bdfid(bdfid: int) -> str:
     # BDFID = ((DOMAIN & 0xFFFFFFFF) << 32) | ((Partition & 0xF) << 28)
     #         | ((BUS & 0xFF) << 8) | ((DEVICE & 0x1F) <<3 )
     #         | (FUNCTION & 0x7)
-    # Extract domain, bus, device, function
-    domain = (v_pci_id >> 32) & 0xFFFFFFFF
-    bus = (v_pci_id >> 8) & 0xFF
-    device_id = (v_pci_id >> 3) & 0x1F
-    function = v_pci_id & 0x7
+    domain = (bdfid >> 32) & 0xFFFFFFFF
+    bus = (bdfid >> 8) & 0xFF
+    device_id = (bdfid >> 3) & 0x1F
+    function = bdfid & 0x7
     return f"{domain:04x}:{bus:02x}:{device_id:02x}.{function:x}"
 
 

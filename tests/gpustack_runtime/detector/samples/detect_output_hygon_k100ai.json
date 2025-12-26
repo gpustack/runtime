@@ -11,14 +11,16 @@
     "cores": 120,
     "cores_utilization": 0,
     "memory": 65520,
-    "memory_used": 1996,
-    "memory_utilization": 3.05,
-    "temperature": 62,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 60,
     "power": 400,
-    "power_used": 105,
+    "power_used": 104,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:07:00.0"
+      "bdf": "0000:07:00.0",
+      "card_id": 1,
+      "renderd_id": 128
     }
   },
   {
@@ -33,14 +35,16 @@
     "cores": 120,
     "cores_utilization": 0,
     "memory": 65520,
-    "memory_used": 2013,
-    "memory_utilization": 3.07,
-    "temperature": 65,
+    "memory_used": 2,
+    "memory_utilization": 0.0,
+    "temperature": 62,
     "power": 400,
-    "power_used": 109,
+    "power_used": 107,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:0a:00.0"
+      "bdf": "0000:0a:00.0",
+      "card_id": 2,
+      "renderd_id": 129
     }
   },
   {
@@ -57,12 +61,14 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 66,
+    "temperature": 63,
     "power": 400,
-    "power_used": 107,
+    "power_used": 106,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:0f:00.0"
+      "bdf": "0000:0f:00.0",
+      "card_id": 3,
+      "renderd_id": 130
     }
   },
   {
@@ -79,12 +85,14 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 64,
+    "temperature": 61,
     "power": 400,
     "power_used": 105,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:16:00.0"
+      "bdf": "0000:16:00.0",
+      "card_id": 4,
+      "renderd_id": 131
     }
   },
   {
@@ -101,19 +109,20 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 66,
+    "temperature": 63,
     "power": 400,
-    "power_used": 110,
+    "power_used": 108,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:1d:00.0"
+      "bdf": "0000:1d:00.0",
+      "card_id": 5,
+      "renderd_id": 132
     }
   },
   {
     "manufacturer": "hygon",
     "index": 5,
     "name": "K100_AI",
-
     "uuid": "GPU-7151be4ceb721101",
     "driver_version": null,
     "runtime_version": "24.04",
@@ -124,12 +133,14 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 67,
+    "temperature": 65,
     "power": 400,
     "power_used": 110,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:20:00.0"
+      "bdf": "0000:20:00.0",
+      "card_id": 6,
+      "renderd_id": 133
     }
   },
   {
@@ -146,12 +157,14 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 66,
+    "temperature": 63,
     "power": 400,
-    "power_used": 111,
+    "power_used": 110,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:25:00.0"
+      "bdf": "0000:25:00.0",
+      "card_id": 7,
+      "renderd_id": 134
     }
   },
   {
@@ -168,12 +181,14 @@
     "memory": 65520,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 63,
+    "temperature": 60,
     "power": 400,
-    "power_used": 109,
+    "power_used": 108,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:2c:00.0"
+      "bdf": "0000:2c:00.0",
+      "card_id": 8,
+      "renderd_id": 135
     }
   }
 ]

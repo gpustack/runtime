@@ -3,6 +3,7 @@
 ##
 from __future__ import annotations
 
+import contextlib
 import os
 import string
 import sys
@@ -437,6 +438,12 @@ def hsa_agent_get_info_driver_node_id(agent):
     return c_driver_node_id.value
 
 
+def has_agent_get_asic_family_id(agent):
+    c_family_id = c_uint32()
+    hsa_agent_get_info(agent, HSA_AMD_AGENT_INFO_ASIC_FAMILY_ID, byref(c_family_id))
+    return c_family_id.value
+
+
 @dataclass
 class Agent:
     device_type: int
@@ -445,7 +452,7 @@ class Agent:
     name: str
     compute_capability: str
     compute_units: int
-    driver_node_id: int
+    asic_family_id: int | None
 
 
 def get_agents() -> list[Agent]:
@@ -464,7 +471,9 @@ def get_agents() -> list[Agent]:
             agent_name = hsa_agent_get_info_product_name(agent)
             agent_compute_capability = hsa_agent_get_info_name(agent)
             agent_compute_units = hsa_agent_get_info_compute_unit_count(agent)
-            agent_driver_node_id = hsa_agent_get_info_driver_node_id(agent)
+            agent_asic_family_id = None
+            with contextlib.suppress(HSAError):
+                agent_asic_family_id = has_agent_get_asic_family_id(agent)
 
             agents.append(
                 Agent(
@@ -474,7 +483,7 @@ def get_agents() -> list[Agent]:
                     name=agent_name,
                     compute_capability=agent_compute_capability,
                     compute_units=agent_compute_units,
-                    driver_node_id=agent_driver_node_id,
+                    asic_family_id=agent_asic_family_id,
                 )
             )
 

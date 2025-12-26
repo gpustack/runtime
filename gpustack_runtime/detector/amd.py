@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
@@ -102,47 +103,47 @@ class AMDDetector(Detector):
                 dev_index = dev_idx
 
                 dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
-                dev_uuid = f"GPU-{(dev_gpu_asic_info.get('asic_serial')[2:]).lower()}"
+                if dev_gpu_asic_info.get("asic_serial") != "N/A":
+                    asic_serial = dev_gpu_asic_info.get("asic_serial")
+                    dev_uuid = f"GPU-{(asic_serial[2:]).lower()}"
+                else:
+                    dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
                 dev_hsa_agent = hsa_agents.get(dev_uuid)
 
-                dev_card_id = None
-                if dev_hsa_agent:
-                    dev_card_id = dev_hsa_agent.driver_node_id
-                elif hasattr(pyamdsmi, "amdsmi_get_gpu_kfd_info"):
-                    dev_kfd_info = pyamdsmi.amdsmi_get_gpu_kfd_info(dev)
-                    dev_card_id = dev_kfd_info.get("node_id")
-                else:
-                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        dev_card_id = pyrocmsmi.rsmi_dev_node_id_get(dev_idx)
+                dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
+                dev_driver_ver = dev_gpu_driver_info.get("driver_version")
 
-                dev_gpudev_info = None
-                if dev_card_id is not None:
+                dev_name = dev_hsa_agent.name
+                if not dev_name:
+                    dev_name = dev_gpu_asic_info.get("market_name")
+
+                dev_cc = dev_hsa_agent.compute_capability
+                if not dev_cc:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
+
+                dev_bdf = None
+                dev_card_id = None
+                dev_renderd_id = None
+                with contextlib.suppress(pyamdsmi.AmdSmiException):
+                    dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
+                    dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
+
+                dev_cores = dev_hsa_agent.compute_units
+                dev_asic_family_id = dev_hsa_agent.asic_family_id
+                if (
+                    not dev_cores or not dev_asic_family_id
+                ) and dev_card_id is not None:
                     with contextlib.suppress(pyamdgpu.AMDGPUError):
                         _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(
                             dev_card_id,
                         )
                         dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
                         pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
-
-                dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
-                dev_driver_ver = dev_gpu_driver_info.get("driver_version")
-
-                if dev_hsa_agent:
-                    dev_name = dev_hsa_agent.name
-                    if not dev_name:
-                        dev_name = dev_gpu_asic_info.get("market_name")
-                    dev_cc = dev_hsa_agent.compute_capability
-                else:
-                    dev_name = dev_gpu_asic_info.get("market_name")
-                    dev_cc = None
-                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
-
-                dev_cores = None
-                if dev_hsa_agent:
-                    dev_cores = dev_hsa_agent.compute_units
-                elif dev_gpudev_info and hasattr(dev_gpudev_info, "cu_active_number"):
-                    dev_cores = dev_gpudev_info.cu_active_number
+                        if not dev_cores:
+                            dev_cores = dev_gpudev_info.cu_active_number
+                        if not dev_asic_family_id:
+                            dev_asic_family_id = dev_gpudev_info.family_id
 
                 dev_cores_util = None
                 dev_temp = None
@@ -201,24 +202,22 @@ class AMDDetector(Detector):
                     )
 
                 dev_appendix = {
-                    "arch_family": _get_arch_family(dev_gpudev_info),
+                    "arch_family": _get_arch_family(dev_asic_family_id),
                     "vgpu": dev_compute_partition is not None,
-                    "card_id": dev_card_id,
                 }
+                if dev_bdf:
+                    dev_appendix["bdf"] = dev_bdf
+                if dev_card_id is not None:
+                    dev_appendix["card_id"] = dev_card_id
+                if dev_renderd_id is not None:
+                    dev_appendix["renderd_id"] = dev_renderd_id
 
                 with contextlib.suppress(pyamdsmi.AmdSmiException):
                     dev_xgmi = pyamdsmi.amdsmi_get_xgmi_info(dev)
-                    for k in [
-                        "xgmi_lanes",
-                        "xgmi_hive_id",
-                        "xgmi_node_id",
-                    ]:
-                        if value := dev_xgmi.get(k):
-                            dev_appendix[k] = value
-
-                with contextlib.suppress(pyamdsmi.AmdSmiException):
-                    dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
-                    dev_appendix["bdf"] = dev_bdf
+                    if xgmi_lanes := dev_xgmi.get("xgmi_lanes", None):
+                        dev_appendix["xgmi_lanes"] = xgmi_lanes
+                        dev_appendix["xgmi_hive_id"] = dev_xgmi.get("xgmi_hive_id")
+                        dev_appendix["xgmi_node_id"] = dev_xgmi.get("xgmi_node_id")
 
                 ret.append(
                     Device(
@@ -410,15 +409,20 @@ class AMDDetector(Detector):
         return topology
 
 
-def _get_arch_family(
-    dev_gpudev_info: pyamdgpu.c_amdgpu_gpu_info | None,
-) -> str | None:
-    if not dev_gpudev_info:
-        return None
+def _get_arch_family(dev_family_id: int | None) -> str:
+    """
+    Get the architecture family name from the device family ID.
 
-    family_id = dev_gpudev_info.family_id
-    if family_id is None:
-        return None
+    Args:
+        dev_family_id:
+            The device family ID.
+
+    Returns:
+        The architecture family as string.
+
+    """
+    if dev_family_id is None:
+        return "Unknown"
 
     arch_family = {
         pyamdgpu.AMDGPU_FAMILY_SI: "Southern Islands",
@@ -439,4 +443,29 @@ def _get_arch_family(
         pyamdgpu.AMDGPU_FAMILY_GC_12_0_0: "GC 12.0.0",
     }
 
-    return arch_family.get(family_id, "Unknown")
+    return arch_family.get(dev_family_id, "Unknown")
+
+
+def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
+    """
+    Get the card ID and renderD ID for a given device bdf.
+
+    Args:
+        dev_bdf:
+            The device bdf.
+
+    Returns:
+        A tuple of (card_id, renderd_id).
+
+    """
+    card_id = None
+    renderd_id = None
+    drm_path = Path(f"/sys/module/amdgpu/drivers/pci:amdgpu/{dev_bdf}/drm")
+    if drm_path.exists():
+        for dir_path in drm_path.iterdir():
+            if dir_path.name.startswith("card"):
+                card_id = int(dir_path.name[4:])
+            elif dir_path.name.startswith("renderD"):
+                renderd_id = int(dir_path.name[7:])
+
+    return card_id, renderd_id

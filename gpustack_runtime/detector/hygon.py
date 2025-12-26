@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import Topology, pyhsa, pyrocmcore, pyrocmsmi
+from . import Topology, pyamdgpu, pyhsa, pyrocmcore, pyrocmsmi
 from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
 from .__utils__ import (
     PCIDevice,
@@ -91,13 +91,14 @@ class HygonDetector(Detector):
             pyrocmsmi.rsmi_init()
 
             sys_driver_ver = None
-            sys_driver_ver_path = Path("/sys/module/hydcu/version")
-            if sys_driver_ver_path.exists():
-                try:
-                    with sys_driver_ver_path.open(encoding="utf-8") as f:
-                        sys_driver_ver = f.read().strip()
-                except OSError:
-                    pass
+            for path in [
+                Path("/sys/module/hycu/version"),
+                Path("/sys/module/hydcu/version"),
+            ]:
+                if path.exists():
+                    with contextlib.suppress(Exception):
+                        sys_driver_ver = path.read_text().strip()
+                    break
 
             sys_runtime_ver_original = pyrocmcore.getROCmVersion()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
@@ -109,18 +110,34 @@ class HygonDetector(Detector):
                 dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
                 dev_hsa_agent = hsa_agents.get(dev_uuid)
 
-                if dev_hsa_agent:
-                    dev_name = dev_hsa_agent.name
-                    if not dev_name:
-                        dev_name = pyrocmsmi.rsmi_dev_name_get(dev_idx)
-                    dev_cc = dev_hsa_agent.compute_capability
-                    dev_cores = dev_hsa_agent.compute_units
-                else:
+                dev_name = dev_hsa_agent.name
+                if not dev_name:
                     dev_name = pyrocmsmi.rsmi_dev_name_get(dev_idx)
-                    dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
-                    dev_cores = None
+
+                dev_cc = dev_hsa_agent.compute_capability
+                if not dev_cc:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
+
+                dev_bdf = None
+                dev_card_id = None
+                dev_renderd_id = None
+                with contextlib.suppress(Exception):
+                    dev_bdf = pyrocmsmi.rsmi_dev_pci_id_get(dev_idx)
+                    dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
+
+                dev_cores = dev_hsa_agent.compute_units
+                if not dev_cores and dev_card_id is not None:
+                    with contextlib.suppress(pyamdgpu.AMDGPUError):
+                        _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(
+                            dev_card_id,
+                        )
+                        dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
+                        pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
+                        dev_cores = dev_gpudev_info.cu_active_number
 
                 dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
+                dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
                 if dev_cores_util is None:
                     debug_log_warning(
                         logger,
@@ -136,18 +153,18 @@ class HygonDetector(Detector):
                     pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                 )
 
-                dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
-
                 dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                 dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
                 dev_appendix = {
                     "vgpu": False,
                 }
-
-                with contextlib.suppress(Exception):
-                    dev_bdf = pyrocmsmi.rsmi_dev_pci_id_get(dev_idx)
+                if dev_bdf is not None:
                     dev_appendix["bdf"] = dev_bdf
+                if dev_card_id is not None:
+                    dev_appendix["card_id"] = dev_card_id
+                if dev_renderd_id is not None:
+                    dev_appendix["renderd_id"] = dev_renderd_id
 
                 ret.append(
                     Device(
@@ -316,3 +333,33 @@ class HygonDetector(Detector):
             raise
 
         return topology
+
+
+def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
+    """
+    Get the card ID and renderD ID for a given device bdf.
+
+    Args:
+        dev_bdf:
+            The device bdf.
+
+    Returns:
+        A tuple of (card_id, renderd_id).
+
+    """
+    card_id = None
+    renderd_id = None
+
+    for path in [
+        Path(f"/sys/module/hycu/drivers/pci:hycu/{dev_bdf}/drm"),
+        Path(f"/sys/module/hydcu/drivers/pci:hydcu/{dev_bdf}/drm"),
+    ]:
+        if path.exists():
+            for dir_path in path.iterdir():
+                if dir_path.name.startswith("card"):
+                    card_id = int(dir_path.name[4:])
+                elif dir_path.name.startswith("renderD"):
+                    renderd_id = int(dir_path.name[7:])
+            break
+
+    return card_id, renderd_id

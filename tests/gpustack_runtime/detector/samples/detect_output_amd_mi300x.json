@@ -1,0 +1,52 @@
+[
+  {
+    "manufacturer": "amd",
+    "index": 0,
+    "name": "AMD Instinct MI300X OAM",
+    "uuid": "GPU-0cee36ddc4255115",
+    "driver_version": "6.10.5",
+    "runtime_version": "7.0",
+    "runtime_version_original": "7.0.2",
+    "compute_capability": "gfx942",
+    "cores": 304,
+    "cores_utilization": 0,
+    "memory": 196592,
+    "memory_used": 284,
+    "memory_utilization": 0.14,
+    "temperature": 34,
+    "power": 750,
+    "power_used": 132,
+    "appendix": {
+      "arch_family": "Arctic Islands",
+      "vgpu": true,
+      "bdf": "0000:26:00.0",
+      "card_id": 9,
+      "renderd_id": 136
+    }
+  },
+  {
+    "manufacturer": "amd",
+    "index": 1,
+    "name": "AMD Instinct MI300X OAM",
+    "uuid": "GPU-cfb3160d6c053160",
+    "driver_version": "6.10.5",
+    "runtime_version": "7.0",
+    "runtime_version_original": "7.0.2",
+    "compute_capability": "gfx942",
+    "cores": 304,
+    "cores_utilization": 0,
+    "memory": 196592,
+    "memory_used": 284,
+    "memory_utilization": 0.14,
+    "temperature": 44,
+    "power": 750,
+    "power_used": 141,
+    "appendix": {
+      "arch_family": "Arctic Islands",
+      "vgpu": true,
+      "bdf": "0000:46:00.0",
+      "card_id": 17,
+      "renderd_id": 144
+    }
+  }
+]
