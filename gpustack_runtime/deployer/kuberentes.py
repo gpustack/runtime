@@ -985,7 +985,7 @@ class KubernetesDeployer(Deployer):
                 resources: dict[str, str] = {}
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
                 r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                vd_env, vd_values = self.visible_devices_env_values()
+                vd_env, vd_values = self.get_visible_devices_env_values()
                 for r_k, r_v in c.resources.items():
                     if r_k in ("cpu", "memory"):
                         resources[r_k] = str(r_v)

@@ -297,6 +297,46 @@ class Topology:
             ]
         return devices_info
 
+    def get_affinities(
+        self,
+        device_indexes: list[int] | int,
+        deduplicate: bool = True,
+    ) -> tuple[list[str], list[str]]:
+        """
+        Get the CPU and NUMA affinities for the given device indexes.
+
+        Args:
+            device_indexes:
+                A list of device indexes or a single device index.
+                If an empty list is provided, return all affinities.
+            deduplicate:
+                Whether to deduplicate the affinities.
+                If True, the returned lists will contain unique affinities only.
+
+        Returns:
+            A tuple containing:
+            - A list contains the CPU affinities for the given device indexes.
+            - A list contains the NUMA affinities for the given device indexes.
+
+        """
+        if isinstance(device_indexes, int):
+            device_indexes = [device_indexes]
+
+        cpu_affinities: list[str] = []
+        numa_affinities: list[str] = []
+        if not device_indexes:
+            cpu_affinities.extend(self.devices_cpu_affinities)
+            numa_affinities.extend(self.devices_numa_affinities)
+        else:
+            for index in sorted(set(device_indexes)):
+                cpu_affinities.append(self.devices_cpu_affinities[index])
+                numa_affinities.append(self.devices_numa_affinities[index])
+
+        if deduplicate:
+            cpu_affinities = list(set(cpu_affinities))
+            numa_affinities = list(set(numa_affinities))
+        return cpu_affinities, numa_affinities
+
 
 class TopologyDistanceEnum(int, Enum):
     """

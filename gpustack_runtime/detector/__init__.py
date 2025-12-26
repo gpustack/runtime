@@ -139,22 +139,27 @@ def get_devices_topologies(
         fast:
             If True, return topologies from the first supported detector.
             Otherwise, return topologies from all supported detectors.
+            Only works when `devices` is None.
 
     Returns:
         A list of Topology objects for each manufacturer group.
 
     """
-    if devices is None:
+    group = False
+    if not devices:
         devices = detect_devices(fast=fast)
-
-    topologies: list[Topology] = []
+        if not devices:
+            return []
+        group = True and not fast
 
     # Group devices by manufacturer.
-    group_devices = group_devices_by_manufacturer(devices)
-    if not group_devices:
-        return topologies
+    if group:
+        group_devices = group_devices_by_manufacturer(devices)
+    else:
+        group_devices = {devices[0].manufacturer: devices}
 
     # Get topology for each group.
+    topologies: list[Topology] = []
     for manu, devs in group_devices.items():
         det = _DETECTORS_MAP.get(manu)
         if det is not None:
@@ -163,7 +168,6 @@ def get_devices_topologies(
                 topologies.append(topo)
             if fast and topologies:
                 return topologies
-
     return topologies
 
 

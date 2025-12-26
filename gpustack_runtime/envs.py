@@ -182,6 +182,15 @@ if TYPE_CHECKING:
     When detected devices are considered to be partially mapped (starting from a non-zero value or not contiguous),
     alignment is performed to ensure they are correctly identified.
     """
+    GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY: bool = False
+    """
+    Enable CPU affinity for deployed workloads.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY: bool = False
+    """
+    Enable NUMA affinity for deployed workloads.
+    When enabled, `GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY` is also implied.
+    """
 
     # Deployer
 
@@ -391,6 +400,12 @@ variables: dict[str, Callable[[], Any]] = {
             "ASCEND_RT_VISIBLE_DEVICES,NPU_VISIBLE_DEVICES",
         ),
         sep=",",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY", "0"),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY", "0"),
     ),
     # Deployer
     ## Docker

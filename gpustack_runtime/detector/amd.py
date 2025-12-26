@@ -278,7 +278,8 @@ class AMDDetector(Detector):
 
         def get_device_handle(dev: Device):
             if bdf := dev.appendix.get("bdf", None):
-                return pyamdsmi.amdsmi_get_processor_handle_from_bdf(bdf)
+                with contextlib.suppress(pyamdsmi.AmdSmiException):
+                    return pyamdsmi.amdsmi_get_processor_handle_from_bdf(bdf)
             nonlocal devs_mapping
             if devs_mapping is None:
                 devs = pyamdsmi.amdsmi_get_processor_handles()

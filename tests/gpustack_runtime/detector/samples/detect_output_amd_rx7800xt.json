@@ -9,18 +9,19 @@
     "runtime_version_original": "7.1.1",
     "compute_capability": "gfx1101",
     "cores": 60,
-    "cores_utilization": 0,
+    "cores_utilization": 19,
     "memory": 16368,
-    "memory_used": 5713,
-    "memory_utilization": 34.9,
-    "temperature": 37,
+    "memory_used": 206,
+    "memory_utilization": 1.26,
+    "temperature": 34,
     "power": 236,
-    "power_used": 7,
+    "power_used": 17,
     "appendix": {
       "arch_family": "GC 11.0.0",
       "vgpu": false,
+      "bdf": "0000:03:00.0",
       "card_id": 1,
-      "bdf": "0000:03:00.0"
+      "renderd_id": 128
     }
   }
 ]

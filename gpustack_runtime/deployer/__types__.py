@@ -14,9 +14,10 @@ from dataclasses_json import dataclass_json
 
 from .. import envs
 from ..detector import (
-    Devices,
-    ManufacturerEnum,
+    Topology,
     detect_devices,
+    get_devices_topologies,
+    group_devices_by_manufacturer,
     manufacturer_to_backend,
 )
 from .__utils__ import (
@@ -1279,6 +1280,17 @@ class Deployer(ABC):
         "AMD_VISIBLE_DEVICES": ["0", "1"]
     }.
     """
+    _visible_devices_topologies: dict[str, Topology] | None = None
+    """
+    Recorded visible devices topologies,
+    the key is the runtime visible devices env name,
+    the value is the corresponding topology.
+    For example:
+    {
+        "NVIDIA_VISIBLE_DEVICES": Topology(...),
+        "AMD_VISIBLE_DEVICES": Topology(...)
+    }.
+    """
     _backend_visible_devices_values_alignment: dict[str, dict[str, str]] | None = None
     """
     Recorded backend visible devices values alignment,
@@ -1326,25 +1338,27 @@ class Deployer(ABC):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def _fetch_visible_devices_env_values(self):
+    def _prepare(self):
         """
-        Fetch the visible devices environment variables and values.
+        Detect devices once, and construct critical elements for post processing, including:
+        - Prepare visible devices environment variables mapping.
+        - Prepare visible devices values mapping.
+        - Prepare topology.
         """
         if self._visible_devices_env:
             return
 
         self._visible_devices_env = {}
         self._visible_devices_values = {}
+        self._visible_devices_topologies = {}
         self._backend_visible_devices_values_alignment = {}
 
-        devices: dict[ManufacturerEnum, Devices] = {}
-        for dev in detect_devices(fast=False):
-            if dev.manufacturer not in devices:
-                devices[dev.manufacturer] = []
-            devices[dev.manufacturer].append(dev)
+        group_devices = group_devices_by_manufacturer(
+            detect_devices(fast=False),
+        )
 
-        if devices:
-            for manu, devs in devices.items():
+        if group_devices:
+            for manu, devs in group_devices.items():
                 backend = manufacturer_to_backend(manu)
                 rk = envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
                 ren = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.get(
@@ -1377,6 +1391,13 @@ class Deployer(ABC):
                             self._backend_visible_devices_values_alignment[ben_item] = (
                                 dev_indexes_alignment
                             )
+                    if (
+                        envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
+                        or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
+                    ):
+                        topos = get_devices_topologies(devices=devs)
+                        if topos:
+                            self._visible_devices_topologies[ren] = topos[0]
 
             if self._visible_devices_env:
                 return
@@ -1385,7 +1406,7 @@ class Deployer(ABC):
         self._visible_devices_env["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = []
         self._visible_devices_values["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = ["all"]
 
-    def visible_devices_env_values(
+    def get_visible_devices_env_values(
         self,
     ) -> (dict[str, list[str]], dict[str, list[str]]):
         """
@@ -1410,8 +1431,43 @@ class Deployer(ABC):
               to lists of device indexes or UUIDs.
 
         """
-        self._fetch_visible_devices_env_values()
+        self._prepare()
         return self._visible_devices_env, self._visible_devices_values
+
+    def get_visible_devices_affinities(
+        self,
+        runtime_env: list[str],
+        resource_value: str,
+    ) -> tuple[str, str]:
+        """
+        Get the CPU and NUMA affinities for the given runtime environment and resource value.
+
+        Args:
+            runtime_env:
+                The list of runtime visible devices environment variable names.
+            resource_value:
+                The resource value, which can be "all" or a comma-separated list of device indexes
+
+        Returns:
+            A tuple containing:
+            - A comma-separated string of CPU affinities.
+            - A comma-separated string of NUMA affinities.
+
+        """
+        dev_indexes = []
+        if resource_value != "all":
+            dev_indexes = [int(v.strip()) for v in resource_value.split(",")]
+
+        cpus_set: list[str] = []
+        numas_set: list[str] = []
+        for re_ in runtime_env:
+            topo = self._visible_devices_topologies.get(re_)
+            if topo:
+                cs, ns = topo.get_affinities(dev_indexes, deduplicate=False)
+                cpus_set.extend(cs)
+                numas_set.extend(ns)
+
+        return ",".join(set(cpus_set)), ",".join(set(numas_set))
 
     def align_backend_visible_devices_env_values(
         self,
@@ -1440,7 +1496,7 @@ class Deployer(ABC):
             not in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
         ):
             return resource_key_values
-        self._fetch_visible_devices_env_values()
+        self._prepare()
         alignments = self._backend_visible_devices_values_alignment.get(
             backend_visible_devices_env,
         )

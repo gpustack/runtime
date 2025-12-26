@@ -944,7 +944,7 @@ class DockerDeployer(Deployer):
             if c.resources:
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
                 r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                vd_env, vd_values = self.visible_devices_env_values()
+                vd_env, vd_values = self.get_visible_devices_env_values()
                 for r_k, r_v in c.resources.items():
                     match r_k:
                         case "cpu":
@@ -1022,6 +1022,20 @@ class DockerDeployer(Deployer):
                                             str(r_v),
                                         )
                                     )
+
+                            # Configure affinity if applicable.
+                            if (
+                                envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
+                                or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
+                            ):
+                                cpus, numas = self.get_visible_devices_affinities(
+                                    runtime_env,
+                                    r_v,
+                                )
+                                if cpus:
+                                    create_options["cpuset_cpus"] = cpus
+                                if numas and envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY:
+                                    create_options["cpuset_mems"] = numas
 
             # Parameterize mounts.
             self._append_container_mounts(
