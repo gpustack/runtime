@@ -125,13 +125,6 @@ class NVIDIADetector(Detector):
             for dev_idx in range(dev_count):
                 dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
 
-                dev_is_vgpu = False
-                dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
-                for addr in [dev_pci_info.busIdLegacy, dev_pci_info.busId]:
-                    if addr in pci_devs:
-                        dev_is_vgpu = _is_vgpu(pci_devs[addr].config)
-                        break
-
                 dev_index = dev_idx
                 if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
                     if dev_files is None:
@@ -194,6 +187,13 @@ class NVIDIADetector(Detector):
 
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
+
+                dev_is_vgpu = False
+                dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
+                for addr in [dev_pci_info.busIdLegacy, dev_pci_info.busId]:
+                    if addr in pci_devs:
+                        dev_is_vgpu = _is_vgpu(pci_devs[addr].config)
+                        break
 
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_cc_t),
@@ -412,10 +412,9 @@ class NVIDIADetector(Detector):
             if devices is None:
                 return None
 
-        devices_count = len(devices)
-        topology = Topology(
+        ret = Topology(
             manufacturer=self.manufacturer,
-            devices_count=devices_count,
+            devices_count=len(devices),
         )
 
         try:
@@ -426,14 +425,14 @@ class NVIDIADetector(Detector):
 
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
-                    topology.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )
-                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        topology.devices_numa_affinities[i],
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
                     )
                 # Otherwise, get affinity via NVML.
-                if not topology.devices_cpu_affinities[i]:
+                if not ret.devices_cpu_affinities[i]:
                     # Get NUMA affinity.
                     try:
                         dev_i_memset = pynvml.nvmlDeviceGetMemoryAffinity(
@@ -441,7 +440,7 @@ class NVIDIADetector(Detector):
                             get_numa_nodeset_size(),
                             pynvml.NVML_AFFINITY_SCOPE_NODE,
                         )
-                        topology.devices_numa_affinities[i] = bitmask_to_str(
+                        ret.devices_numa_affinities[i] = bitmask_to_str(
                             list(dev_i_memset),
                         )
                     except pynvml.NVMLError:
@@ -451,16 +450,13 @@ class NVIDIADetector(Detector):
                             dev_i.index,
                         )
                     # Get CPU affinity.
-                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        topology.devices_numa_affinities[i],
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
                     )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
-                    if (
-                        dev_i.index == dev_j.index
-                        or topology.devices_distances[i][j] != 0
-                    ):
+                    if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
 
                     dev_j_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
@@ -482,8 +478,8 @@ class NVIDIADetector(Detector):
                             dev_j.index,
                         )
 
-                    topology.devices_distances[i][j] = distance
-                    topology.devices_distances[j][i] = distance
+                    ret.devices_distances[i][j] = distance
+                    ret.devices_distances[j][i] = distance
         except pynvml.NVMLError:
             debug_log_exception(logger, "Failed to fetch topology")
             raise
@@ -493,7 +489,7 @@ class NVIDIADetector(Detector):
         finally:
             pynvml.nvmlShutdown()
 
-        return topology
+        return ret
 
 
 def _get_arch_family(dev_cc_t: list[int]) -> str:

@@ -28,7 +28,7 @@ from .__utils__ import (
 logger = logging.getLogger(__name__)
 slogger = logger.getChild("internal")
 
-_TOPO_TYPE_DISTANCE_MAPPING: dict[int, int] = {
+_TOPOLOGY_DISTANCE_MAPPING: dict[int, int] = {
     pydcmi.DCMI_TOPO_TYPE_SELF: TopologyDistanceEnum.SELF,
     pydcmi.DCMI_TOPO_TYPE_HCCS: TopologyDistanceEnum.LINK,  # Traversing via high-speed interconnect, RoCE, etc.
     pydcmi.DCMI_TOPO_TYPE_PIX: TopologyDistanceEnum.PIX,  # Traversing via a single PCIe bridge.
@@ -261,10 +261,9 @@ class AscendDetector(Detector):
             if devices is None:
                 return None
 
-        devices_count = len(devices)
-        topology = Topology(
+        ret = Topology(
             manufacturer=self.manufacturer,
-            devices_count=devices_count,
+            devices_count=len(devices),
         )
 
         try:
@@ -276,21 +275,21 @@ class AscendDetector(Detector):
 
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
-                    topology.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )
-                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        topology.devices_numa_affinities[i],
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
                     )
                 # Otherwise, get affinity via DCMI.
-                if not topology.devices_cpu_affinities[i]:
+                if not ret.devices_cpu_affinities[i]:
                     # Get CPU affinity.
                     try:
                         cpu_affinity = pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
                             dev_i.appendix["card_id"],
                             dev_i.appendix["device_id"],
                         )
-                        topology.devices_cpu_affinities[i] = cpu_affinity
+                        ret.devices_cpu_affinities[i] = cpu_affinity
                     except pydcmi.DCMIError:
                         debug_log_exception(
                             slogger,
@@ -298,16 +297,13 @@ class AscendDetector(Detector):
                             dev_i.index,
                         )
                     # Get NUMA affinity.
-                    topology.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
-                        topology.devices_cpu_affinities[i],
+                    ret.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
+                        ret.devices_cpu_affinities[i],
                     )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
-                    if (
-                        dev_i.index == dev_j.index
-                        or topology.devices_distances[i][j] != 0
-                    ):
+                    if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
 
                     dev_j_card_id = dev_j.appendix["card_id"]
@@ -320,13 +316,13 @@ class AscendDetector(Detector):
 
                     distance = TopologyDistanceEnum.UNK
                     try:
-                        topo_type = pydcmi.dcmi_get_topo_info_by_device_id(
+                        topo = pydcmi.dcmi_get_topo_info_by_device_id(
                             dev_i_card_id,
                             dev_i_device_id,
                             dev_j_card_id,
                             dev_j_device_id,
                         )
-                        distance = _TOPO_TYPE_DISTANCE_MAPPING.get(topo_type, distance)
+                        distance = _TOPOLOGY_DISTANCE_MAPPING.get(topo, distance)
                     except pydcmi.DCMIError:
                         debug_log_exception(
                             slogger,
@@ -335,13 +331,13 @@ class AscendDetector(Detector):
                             dev_j.index,
                         )
 
-                    topology.devices_distances[i][j] = distance
-                    topology.devices_distances[j][i] = distance
+                    ret.devices_distances[i][j] = distance
+                    ret.devices_distances[j][i] = distance
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
 
-        return topology
+        return ret
 
 
 def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:

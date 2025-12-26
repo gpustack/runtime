@@ -7,13 +7,24 @@ from functools import lru_cache
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 from . import pyixml
-from .__types__ import Detector, Device, Devices, ManufacturerEnum
+from .__types__ import (
+    Detector,
+    Device,
+    Devices,
+    ManufacturerEnum,
+    Topology,
+    TopologyDistanceEnum,
+)
 from .__utils__ import (
     PCIDevice,
+    bitmask_to_str,
     byte_to_mebibyte,
     get_brief_version,
+    get_numa_node_by_bdf,
+    get_numa_nodeset_size,
     get_pci_devices,
     get_utilization,
+    map_numa_node_to_cpu_affinity,
     support_command,
 )
 
@@ -101,7 +112,6 @@ class IluvatarDetector(Detector):
             for dev_idx in range(dev_count):
                 dev = pyixml.nvmlDeviceGetHandleByIndex(dev_idx)
 
-                dev_is_vgpu = False
                 dev_index = dev_idx
                 dev_uuid = pyixml.nvmlDeviceGetUUID(dev)
                 dev_name = pyixml.nvmlDeviceGetName(dev)
@@ -155,8 +165,12 @@ class IluvatarDetector(Detector):
                     if dev_cc_t:
                         dev_cc = ".".join(map(str, dev_cc_t))
 
+                dev_is_vgpu = False
+                dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
+
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
+                    "bdf": str(dev_pci_info.busIdLegacy).lower(),
                 }
 
                 ret.append(
@@ -180,9 +194,106 @@ class IluvatarDetector(Detector):
                         appendix=dev_appendix,
                     ),
                 )
-
+        except pyixml.NVMLError:
+            debug_log_exception(logger, "Failed to fetch devices")
+            raise
         except Exception:
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
+        finally:
+            pyixml.nvmlShutdown()
+
+        return ret
+
+    def get_topology(self, devices: Devices | None = None) -> Topology | None:
+        """
+        Get the Topology object between NVIDIA GPUs.
+
+        Args:
+            devices:
+                The list of detected NVIDIA devices.
+                If None, detect topology for all available devices.
+
+        Returns:
+            The Topology object, or None if not supported.
+
+        """
+        if devices is None:
+            devices = self.detect()
+            if devices is None:
+                return None
+
+        ret = Topology(
+            manufacturer=self.manufacturer,
+            devices_count=len(devices),
+        )
+
+        try:
+            for i, dev_i in enumerate(devices):
+                dev_i_handle = pyixml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
+
+                # Get affinity with PCIe BDF if possible.
+                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                        dev_i_bdf,
+                    )
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
+                    )
+                # Otherwise, get affinity via IXML.
+                if not ret.devices_cpu_affinities[i]:
+                    # Get NUMA affinity.
+                    try:
+                        dev_i_memset = pyixml.nvmlDeviceGetMemoryAffinity(
+                            dev_i_handle,
+                            get_numa_nodeset_size(),
+                            pyixml.NVML_AFFINITY_SCOPE_NODE,
+                        )
+                        ret.devices_numa_affinities[i] = bitmask_to_str(
+                            list(dev_i_memset),
+                        )
+                    except pyixml.NVMLError:
+                        debug_log_exception(
+                            logger,
+                            "Failed to get NUMA affinity for device %d",
+                            dev_i.index,
+                        )
+                    # Get CPU affinity.
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
+                    )
+
+                # Get distances to other devices.
+                for j, dev_j in enumerate(devices):
+                    if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
+                        continue
+
+                    dev_j_handle = pyixml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
+
+                    distance = TopologyDistanceEnum.UNK
+                    try:
+                        distance = pyixml.nvmlDeviceGetTopologyCommonAncestor(
+                            dev_i_handle,
+                            dev_j_handle,
+                        )
+                        # TODO(thxCode): Support LINK distance.
+                    except pyixml.NVMLError:
+                        debug_log_exception(
+                            logger,
+                            "Failed to get distance between device %d and %d",
+                            dev_i.index,
+                            dev_j.index,
+                        )
+
+                    ret.devices_distances[i][j] = distance
+                    ret.devices_distances[j][i] = distance
+        except pyixml.NVMLError:
+            debug_log_exception(logger, "Failed to fetch topology")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process topology fetching")
+            raise
+        finally:
+            pyixml.nvmlShutdown()
 
         return ret

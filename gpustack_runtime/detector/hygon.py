@@ -214,10 +214,9 @@ class HygonDetector(Detector):
             if devices is None:
                 return None
 
-        devices_count = len(devices)
-        topology = Topology(
+        ret = Topology(
             manufacturer=self.manufacturer,
-            devices_count=devices_count,
+            devices_count=len(devices),
         )
 
         try:
@@ -253,20 +252,20 @@ class HygonDetector(Detector):
             for i, dev_i in enumerate(devices):
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
-                    topology.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )
-                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        topology.devices_numa_affinities[i],
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
                     )
                 # Otherwise, get affinity via ROCM SMI.
-                if not topology.devices_numa_affinities[i]:
+                if not ret.devices_numa_affinities[i]:
                     # Get NUMA affinity.
                     try:
                         dev_i_numa_node = pyrocmsmi.rsmi_topo_get_numa_node_number(
                             dev_i.index,
                         )
-                        topology.devices_numa_affinities[i] = str(dev_i_numa_node)
+                        ret.devices_numa_affinities[i] = str(dev_i_numa_node)
                     except pyrocmsmi.ROCMSMIError:
                         debug_log_exception(
                             logger,
@@ -274,17 +273,14 @@ class HygonDetector(Detector):
                             dev_i.index,
                         )
                     # Get CPU affinity.
-                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        topology.devices_numa_affinities[i],
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
                     )
 
             # Get distances to other devices.
             for i, dev_i in enumerate(devices):
                 for j, dev_j in enumerate(devices):
-                    if (
-                        dev_i.index == dev_j.index
-                        or topology.devices_distances[i][j] != 0
-                    ):
+                    if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
 
                     distance = TopologyDistanceEnum.UNK
@@ -300,8 +296,8 @@ class HygonDetector(Detector):
                                 distance = TopologyDistanceEnum.LINK
                             case pyrocmsmi.ROCMSMI_IOLINK_TYPE_PCIE:
                                 dev_i_numa, dev_j_numa = (
-                                    topology.devices_numa_affinities[i],
-                                    topology.devices_numa_affinities[j],
+                                    ret.devices_numa_affinities[i],
+                                    ret.devices_numa_affinities[j],
                                 )
                                 if dev_i_numa and dev_i_numa == dev_j_numa:
                                     distance = distance_pci_devices(
@@ -323,8 +319,8 @@ class HygonDetector(Detector):
                             dev_j.index,
                         )
 
-                    topology.devices_distances[i][j] = distance
-                    topology.devices_distances[j][i] = distance
+                    ret.devices_distances[i][j] = distance
+                    ret.devices_distances[j][i] = distance
         except pyrocmsmi.ROCMSMIError:
             debug_log_exception(logger, "Failed to fetch topology")
             raise
@@ -332,7 +328,7 @@ class HygonDetector(Detector):
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
 
-        return topology
+        return ret
 
 
 def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:

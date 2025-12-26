@@ -269,10 +269,9 @@ class AMDDetector(Detector):
             if devices is None:
                 return None
 
-        devices_count = len(devices)
-        topology = Topology(
+        ret = Topology(
             manufacturer=self.manufacturer,
-            devices_count=devices_count,
+            devices_count=len(devices),
         )
 
         devs_mapping = None
@@ -319,14 +318,14 @@ class AMDDetector(Detector):
             for i, dev_i in enumerate(devices):
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
-                    topology.devices_numa_affinities[i] = get_numa_node_by_bdf(
+                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )
-                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        topology.devices_numa_affinities[i],
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
                     )
                 # Otherwise, get affinity via AMD SMI.
-                if not topology.devices_cpu_affinities[i]:
+                if not ret.devices_cpu_affinities[i]:
                     dev_i_handle = get_device_handle(dev_i)
 
                     # Get NUMA affinity.
@@ -334,7 +333,7 @@ class AMDDetector(Detector):
                         dev_i_numa_node = pyamdsmi.amdsmi_topo_get_numa_node_number(
                             dev_i_handle,
                         )
-                        topology.devices_numa_affinities[i] = str(dev_i_numa_node)
+                        ret.devices_numa_affinities[i] = str(dev_i_numa_node)
                     except pyamdsmi.AmdSmiException:
                         debug_log_exception(
                             logger,
@@ -342,8 +341,8 @@ class AMDDetector(Detector):
                             dev_i.index,
                         )
                     # Get CPU affinity.
-                    topology.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        topology.devices_numa_affinities[i],
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
                     )
 
             # Get distances to other devices.
@@ -351,10 +350,7 @@ class AMDDetector(Detector):
                 dev_i_handle = get_device_handle(dev_i)
 
                 for j, dev_j in enumerate(devices):
-                    if (
-                        dev_i.index == dev_j.index
-                        or topology.devices_distances[i][j] != 0
-                    ):
+                    if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
 
                     dev_j_handle = get_device_handle(dev_j)
@@ -372,8 +368,8 @@ class AMDDetector(Detector):
                                 distance = TopologyDistanceEnum.SELF
                             case pyamdsmi.AMDSMI_LINK_TYPE_PCIE:
                                 dev_i_numa, dev_j_numa = (
-                                    topology.devices_numa_affinities[i],
-                                    topology.devices_numa_affinities[j],
+                                    ret.devices_numa_affinities[i],
+                                    ret.devices_numa_affinities[j],
                                 )
                                 if dev_i_numa and dev_i_numa == dev_j_numa:
                                     distance = distance_pci_devices(
@@ -395,8 +391,8 @@ class AMDDetector(Detector):
                             dev_j.index,
                         )
 
-                    topology.devices_distances[i][j] = distance
-                    topology.devices_distances[j][i] = distance
+                    ret.devices_distances[i][j] = distance
+                    ret.devices_distances[j][i] = distance
         except pyamdsmi.AmdSmiException:
             debug_log_exception(logger, "Failed to fetch topology")
             raise
@@ -406,7 +402,7 @@ class AMDDetector(Detector):
         finally:
             pyamdsmi.amdsmi_shut_down()
 
-        return topology
+        return ret
 
 
 def _get_arch_family(dev_family_id: int | None) -> str:

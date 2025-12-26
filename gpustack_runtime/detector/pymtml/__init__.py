@@ -68,6 +68,14 @@ MTML_GPU_ENGINE_COMPUTE = 3
 MTML_DEVICE_MPC_DISABLE = 0
 MTML_DEVICE_MPC_ENABLE = 1
 
+## Enums ##
+MTML_TOPOLOGY_INTERNAL = 0
+MTML_TOPOLOGY_SINGLE = 1
+MTML_TOPOLOGY_MULTIPLE = 2
+MTML_TOPOLOGY_HOSTBRIDGE = 3
+MTML_TOPOLOGY_NODE = 4
+MTML_TOPOLOGY_SYSTEM = 5
+
 ## Error Codes ##
 MTML_SUCCESS = 0
 MTML_ERROR_DRIVER_NOT_LOADED = 1
@@ -743,3 +751,20 @@ def mtmlDeviceGetMpcMode(device):
     ret = fn(device, byref(c_mode))
     _mtmlCheckReturn(ret)
     return c_mode.value
+
+
+def mtmlDeviceGetMemoryAffinityWithinNode(device, nodeSetSize):
+    affinity_array = c_ulonglong * nodeSetSize
+    c_affinity = affinity_array()
+    fn = _mtmlGetFunctionPointer("mtmlDeviceGetMemoryAffinityWithinNode")
+    ret = fn(device, nodeSetSize, byref(c_affinity))
+    _mtmlCheckReturn(ret)
+    return c_affinity
+
+
+def mtmlDeviceGetTopologyLevel(device1, device2):
+    c_level = c_uint()
+    fn = _mtmlGetFunctionPointer("mtmlDeviceGetTopologyLevel")
+    ret = fn(device1, device2, byref(c_level))
+    _mtmlCheckReturn(ret)
+    return c_level.value
