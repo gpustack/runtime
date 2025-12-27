@@ -163,11 +163,15 @@ def get_devices_topologies(
     for manu, devs in group_devices.items():
         det = _DETECTORS_MAP.get(manu)
         if det is not None:
-            topo = det.get_topology(devs)
-            if topo:
-                topologies.append(topo)
-            if fast and topologies:
-                return topologies
+            try:
+                topo = det.get_topology(devs)
+                if topo:
+                    topologies.append(topo)
+            except Exception:
+                detect_target = envs.GPUSTACK_RUNTIME_DETECT.lower()
+                if detect_target == det.name:
+                    raise
+                debug_log_exception(logger, "Failed to get topology for %s", det.name)
     return topologies
 
 
