@@ -11,13 +11,14 @@
     "cores": null,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 59300,
-    "memory_utilization": 90.48,
-    "temperature": 36,
+    "memory_used": 59276,
+    "memory_utilization": 90.45,
+    "temperature": 35,
     "power": 350,
-    "power_used": 73,
+    "power_used": 72,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:0c:00.0"
     }
   },
   {
@@ -32,13 +33,14 @@
     "cores": null,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 58806,
-    "memory_utilization": 89.73,
-    "temperature": 34,
+    "memory_used": 58784,
+    "memory_utilization": 89.7,
+    "temperature": 33,
     "power": 350,
-    "power_used": 69,
+    "power_used": 68,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:32:00.0"
     }
   },
   {
@@ -53,13 +55,14 @@
     "cores": null,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 58806,
-    "memory_utilization": 89.73,
-    "temperature": 33,
+    "memory_used": 58784,
+    "memory_utilization": 89.7,
+    "temperature": 32,
     "power": 350,
     "power_used": 70,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:45:00.0"
     }
   },
   {
@@ -74,13 +77,14 @@
     "cores": null,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 58806,
-    "memory_utilization": 89.73,
-    "temperature": 35,
+    "memory_used": 58784,
+    "memory_utilization": 89.7,
+    "temperature": 34,
     "power": 350,
     "power_used": 68,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:58:00.0"
     }
   },
   {
@@ -97,11 +101,12 @@
     "memory": 65536,
     "memory_used": 858,
     "memory_utilization": 1.31,
-    "temperature": 32,
+    "temperature": 31,
     "power": 350,
-    "power_used": 60,
+    "power_used": 59,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:84:00.0"
     }
   },
   {
@@ -122,7 +127,8 @@
     "power": 350,
     "power_used": 56,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:ac:00.0"
     }
   },
   {
@@ -139,11 +145,12 @@
     "memory": 65536,
     "memory_used": 858,
     "memory_utilization": 1.31,
-    "temperature": 33,
+    "temperature": 32,
     "power": 350,
     "power_used": 57,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:c0:00.0"
     }
   },
   {
@@ -158,13 +165,14 @@
     "cores": null,
     "cores_utilization": 0,
     "memory": 65536,
-    "memory_used": 3178,
-    "memory_utilization": 4.85,
-    "temperature": 33,
+    "memory_used": 4014,
+    "memory_utilization": 6.12,
+    "temperature": 32,
     "power": 350,
     "power_used": 69,
     "appendix": {
-      "vgpu": false
+      "vgpu": false,
+      "bdf": "0000:d4:00.0"
     }
   }
 ]
