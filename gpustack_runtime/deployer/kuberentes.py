@@ -1611,7 +1611,7 @@ class KubernetesDeployer(Deployer):
             core_api.delete_collection_namespaced_pod(
                 namespace=namespace,
                 label_selector=f"{_LABEL_WORKLOAD}={name}",
-                propagation_policy="Foreground",
+                propagation_policy=envs.GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY,
             )
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e)}"
@@ -1622,7 +1622,7 @@ class KubernetesDeployer(Deployer):
             core_api.delete_collection_namespaced_service(
                 namespace=namespace,
                 label_selector=f"{_LABEL_WORKLOAD}={name}",
-                propagation_policy="Foreground",
+                propagation_policy=envs.GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY,
             )
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e)}"
@@ -1633,7 +1633,7 @@ class KubernetesDeployer(Deployer):
             core_api.delete_collection_namespaced_config_map(
                 namespace=namespace,
                 label_selector=f"{_LABEL_WORKLOAD}={name}",
-                propagation_policy="Foreground",
+                propagation_policy=envs.GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY,
             )
         except kubernetes.client.exceptions.ApiException as e:
             msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e)}"

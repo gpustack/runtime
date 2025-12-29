@@ -243,6 +243,10 @@ if TYPE_CHECKING:
     """
     Whether to use quorum read for Kubernetes services.
     """
+    GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY: str | None = None
+    """
+    Deletion propagation policy for Kubernetes resources (e.g., Foreground, Background, Orphan).
+    """
 
 # --8<-- [start:env-vars-definition]
 
@@ -458,6 +462,14 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ", "0"),
+    ),
+    "GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY": lambda: choice(
+        getenv(
+            "GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY",
+            "Foreground",
+        ),
+        options=["Foreground", "Background", "Orphan"],
+        default="Background",
     ),
 }
 
