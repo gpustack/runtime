@@ -469,7 +469,7 @@ variables: dict[str, Callable[[], Any]] = {
             "Foreground",
         ),
         options=["Foreground", "Background", "Orphan"],
-        default="Background",
+        default="Foreground",
     ),
 }
 

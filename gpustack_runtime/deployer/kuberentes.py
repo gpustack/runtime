@@ -1161,9 +1161,7 @@ class KubernetesDeployer(Deployer):
                 # Delete the existing Pod first, then create a new one.
                 with watch(
                     core_api.list_namespaced_pod,
-                    resource_version=(
-                        None if envs.GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ else "0"
-                    ),
+                    resource_version=_get_quorum_read_resource_version(),
                     namespace=workload.namespace,
                 ) as es:
                     core_api.delete_namespaced_pod(
@@ -1537,9 +1535,7 @@ class KubernetesDeployer(Deployer):
 
         list_options = {
             "label_selector": f"{_LABEL_WORKLOAD}={name}",
-            "resource_version": (
-                None if envs.GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ else "0"
-            ),
+            "resource_version": _get_quorum_read_resource_version(),
         }
 
         core_api = kubernetes.client.CoreV1Api(self._client)
@@ -1604,40 +1600,94 @@ class KubernetesDeployer(Deployer):
         if not workload:
             return None
 
+        resource_version = _get_quorum_read_resource_version()
+        label_selector = f"{_LABEL_WORKLOAD}={name}"
+        propagation_policy = envs.GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY
+
         core_api = kubernetes.client.CoreV1Api(self._client)
 
         # Remove all Pods with the workload label.
         try:
             core_api.delete_collection_namespaced_pod(
                 namespace=namespace,
-                label_selector=f"{_LABEL_WORKLOAD}={name}",
-                propagation_policy=envs.GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY,
+                label_selector=label_selector,
+                propagation_policy=propagation_policy,
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
+            if e.status != 405:
+                msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e)}"
+                raise OperationError(msg) from e
+            try:
+                pods = core_api.list_namespaced_pod(
+                    namespace=namespace,
+                    label_selector=label_selector,
+                    resource_version=resource_version,
+                )
+                for pod in pods.items or []:
+                    core_api.delete_namespaced_pod(
+                        name=pod.metadata.name,
+                        namespace=namespace,
+                        propagation_policy=propagation_policy,
+                    )
+            except kubernetes.client.exceptions.ApiException as e2:
+                msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e2)}"
+                raise OperationError(msg) from e2
 
         # Remove all Services with the workload label.
         try:
             core_api.delete_collection_namespaced_service(
                 namespace=namespace,
-                label_selector=f"{_LABEL_WORKLOAD}={name}",
-                propagation_policy=envs.GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY,
+                label_selector=label_selector,
+                propagation_policy=propagation_policy,
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
+            # If method not allowed(405),
+            # list services with the label and delete them one by one.
+            if e.status != 405:
+                msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e)}"
+                raise OperationError(msg) from e
+            try:
+                services = core_api.list_namespaced_service(
+                    namespace=namespace,
+                    label_selector=label_selector,
+                    resource_version=resource_version,
+                )
+                for svc in services.items or []:
+                    core_api.delete_namespaced_service(
+                        name=svc.metadata.name,
+                        namespace=namespace,
+                        propagation_policy=propagation_policy,
+                    )
+            except kubernetes.client.exceptions.ApiException as e2:
+                msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e2)}"
+                raise OperationError(msg) from e2
 
         # Remove all ConfigMaps with the workload label.
         try:
             core_api.delete_collection_namespaced_config_map(
                 namespace=namespace,
-                label_selector=f"{_LABEL_WORKLOAD}={name}",
-                propagation_policy=envs.GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY,
+                label_selector=label_selector,
+                propagation_policy=propagation_policy,
             )
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
+            if e.status != 405:
+                msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e)}"
+                raise OperationError(msg) from e
+            try:
+                configmaps = core_api.list_namespaced_config_map(
+                    namespace=namespace,
+                    label_selector=label_selector,
+                    resource_version=resource_version,
+                )
+                for cm in configmaps.items or []:
+                    core_api.delete_namespaced_config_map(
+                        name=cm.metadata.name,
+                        namespace=namespace,
+                        propagation_policy=propagation_policy,
+                    )
+            except kubernetes.client.exceptions.ApiException as e2:
+                msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e2)}"
+                raise OperationError(msg) from e2
 
         return workload
 
@@ -1679,9 +1729,7 @@ class KubernetesDeployer(Deployer):
                     _LABEL_WORKLOAD,
                 ],
             ),
-            "resource_version": (
-                None if envs.GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ else "0"
-            ),
+            "resource_version": _get_quorum_read_resource_version(),
         }
 
         core_api = kubernetes.client.CoreV1Api(self._client)
@@ -2136,3 +2184,11 @@ def _detail_api_call_error(err: kubernetes.client.exceptions.ApiException) -> st
         msg += f": status code {err.status}"
 
     return msg
+
+
+def _get_quorum_read_resource_version() -> str | None:
+    """
+    Get the resource version for quorum read based on environment settings.
+
+    """
+    return None if envs.GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ else "0"
