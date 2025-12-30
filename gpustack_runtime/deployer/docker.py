@@ -175,7 +175,7 @@ class DockerWorkloadStatus(WorkloadStatus):
 
     @staticmethod
     def parse_state(
-        d_containers: list[docker.models.containers],
+        d_containers: list[docker.models.containers.Container],
     ) -> WorkloadStatusStateEnum:
         """
         Parse the state of the workload based on the status of its containers.
@@ -221,7 +221,7 @@ class DockerWorkloadStatus(WorkloadStatus):
                 d_run_state = WorkloadStatusStateEnum.PENDING
             else:
                 health = cr.attrs["State"].get("Health", {})
-                if health and health.get("Status", "healthy") != "healthy":
+                if health and health.get("Status", "healthy") not in ["healthy", ""]:
                     return WorkloadStatusStateEnum.UNHEALTHY
 
         d_init_state = None
@@ -252,7 +252,7 @@ class DockerWorkloadStatus(WorkloadStatus):
     def __init__(
         self,
         name: WorkloadName,
-        d_containers: list[docker.models.containers],
+        d_containers: list[docker.models.containers.Container],
         **kwargs,
     ):
         created_at = d_containers[0].attrs["Created"]
@@ -352,10 +352,10 @@ class DockerDeployer(Deployer):
                 contextlib.redirect_stdout(dev_null),
                 contextlib.redirect_stderr(dev_null),
             ):
-                if Path("/var/run/docker.sock").exists():
-                    client = docker.DockerClient(base_url="unix://var/run/docker.sock")
-                else:
-                    client = docker.from_env()
+                os_env = os.environ.copy()
+                if envs.GPUSTACK_RUNTIME_DOCKER_HOST:
+                    os_env["DOCKER_HOST"] = envs.GPUSTACK_RUNTIME_DOCKER_HOST
+                client = docker.from_env(environment=os_env)
         except docker.errors.DockerException:
             debug_log_exception(logger, "Failed to get Docker client")
 
@@ -760,7 +760,7 @@ class DockerDeployer(Deployer):
                 else:
                     continue
 
-                if m.mode == ContainerMountModeEnum.ROX:
+                if m.mode != ContainerMountModeEnum.RWX:
                     binding["ReadOnly"] = True
 
                 mount_binding.append(binding)
@@ -1204,7 +1204,7 @@ class DockerDeployer(Deployer):
             # Always filter out Docker Socket mount.
             m
             for m in (self_container.attrs["Mounts"] or [])
-            if m.get("Destination") != "/var/run/docker.sock"
+            if not m.get("Destination").endswith("/docker.sock")
         ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_mounts = [
@@ -1593,7 +1593,7 @@ class DockerDeployer(Deployer):
         # Remove all containers with the workload label.
         try:
             d_containers = getattr(workload, "_d_containers", [])
-            for c in d_containers:
+            for c in reversed(d_containers):
                 c.remove(
                     force=True,
                 )
@@ -1860,7 +1860,7 @@ class DockerDeployer(Deployer):
         }
 
         try:
-            result = container.exec_run(
+            _, output = container.exec_run(
                 detach=False,
                 **exec_options,
             )
@@ -1869,8 +1869,8 @@ class DockerDeployer(Deployer):
             raise OperationError(msg) from e
         else:
             if not attach:
-                return result.output
-            return DockerWorkloadExecStream(result.output)
+                return output
+            return DockerWorkloadExecStream(output)
 
 
 def _has_restart_policy(

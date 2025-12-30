@@ -195,6 +195,12 @@ if TYPE_CHECKING:
     # Deployer
 
     ## Docker
+    GPUSTACK_RUNTIME_DOCKER_HOST: str | None = None
+    """
+    Host for Docker connection.
+    Used to override the default Docker host.
+    Default is `http+unix:///var/run/docker.sock`.
+    """
     GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS: dict[str, str] | None = None
     """
     Filter labels for selecting the mirrored deployer container in Docker.
@@ -207,11 +213,11 @@ if TYPE_CHECKING:
     """
     GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE: str | None = None
     """
-    Docker image used for the pause container.
+    Container image used for the pause container in Docker.
     """
     GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE: str | None = None
     """
-    Docker image used for unhealthy restart container.
+    Container image used for unhealthy restart container in Docker.
     """
     GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR: Path | None = None
     """
@@ -219,7 +225,7 @@ if TYPE_CHECKING:
     """
     GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK: bool = True
     """
-    Mute the original healthcheck of the container.
+    Mute the original healthcheck of the container in Docker.
     """
     ## Kubernetes
     GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME: str | None = None
@@ -432,11 +438,24 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     # Deployer
     ## Docker
+    "GPUSTACK_RUNTIME_DOCKER_HOST": lambda: trim_str(
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_DOCKER_HOST",
+                # Fallback to standard Docker environment variable.
+                "DOCKER_HOST",
+            ],
+            default="http+unix:///var/run/docker.sock",
+        ),
+    ),
     "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS": lambda: to_dict(
         getenv(
             "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS",
         ),
         sep=";",
+    ),
+    "GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION": lambda: to_bool(
+        getenv("GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION", "0"),
     ),
     "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE": lambda: getenv(
         "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE",
@@ -454,9 +473,6 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK", "1"),
-    ),
-    "GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION", "0"),
     ),
     ## Kubernetes
     "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME": lambda: getenv(
