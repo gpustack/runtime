@@ -1020,11 +1020,11 @@ class WorkloadPlan(WorkloadSecurity):
                 c.execution.command_script = None
             # Add default registry if needed.
             if (
-                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY
-                and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY
+                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY
+                and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY
                 not in ["docker.io", "index.docker.io"]
             ):
-                image_registry = envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE
+                image_registry = envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE
                 image_split = c.image.split("/")
                 if len(image_split) == 1:
                     c.image = f"{image_registry}/library/{c.image}"

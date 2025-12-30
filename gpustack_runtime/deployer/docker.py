@@ -139,7 +139,7 @@ class DockerWorkloadPlan(WorkloadPlan):
         super().validate_and_default()
 
         # Adjust default image namespace if needed.
-        if namespace := envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE:
+        if namespace := envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE:
             self.pause_image = replace_image_with(
                 image=self.pause_image,
                 namespace=namespace,
@@ -463,12 +463,12 @@ class DockerDeployer(Deployer):
             tag = tag or "latest"
             auth_config = None
             if (
-                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME
-                and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD
+                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME
+                and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD
             ):
                 auth_config = {
-                    "username": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME,
-                    "password": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD,
+                    "username": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME,
+                    "password": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD,
                 }
 
             logs = self._client.api.pull(

@@ -1206,16 +1206,16 @@ class KubernetesDeployer(Deployer):
 
         # Create image pull secrets if default registry credentials are set.
         if not self._image_pull_secret and (
-            envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME
-            and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD
+            envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME
+            and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD
         ):
             registry = (
-                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY or "index.docker.io"
+                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY or "index.docker.io"
             )
             self._image_pull_secret = self._apply_image_pull_secret(
                 registry=f"https://{registry}/v1/",
-                username=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME,
-                password=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD,
+                username=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME,
+                password=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD,
             )
 
         # Prepare mirrored deployment if enabled.
