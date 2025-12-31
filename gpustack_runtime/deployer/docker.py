@@ -489,8 +489,10 @@ class DockerDeployer(Deployer):
             msg = f"Failed to pull image {image}, invalid response"
             raise OperationError(msg) from e
         except docker.errors.APIError as e:
-            msg = f"Failed to pull image {image}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
+            if "no unqualified-search registries are defined" not in str(e):
+                msg = f"Failed to pull image {image}{_detail_api_call_error(e)}"
+                raise OperationError(msg) from e
+            return self._pull_image(f"docker.io/{image}")
 
     def _get_image(
         self,
@@ -659,6 +661,14 @@ class DockerDeployer(Deployer):
             # TODO(thxCode): check if the container matches the spec
             return d_container
 
+        host_socket_path = None
+        if envs.GPUSTACK_RUNTIME_DOCKER_HOST.startswith("http+unix://"):
+            host_socket_path = envs.GPUSTACK_RUNTIME_DOCKER_HOST[len("http+unix://") :]
+        elif envs.GPUSTACK_RUNTIME_DOCKER_HOST.startswith("unix://"):
+            host_socket_path = envs.GPUSTACK_RUNTIME_DOCKER_HOST[len("unix://") :]
+        if host_socket_path and not host_socket_path.startswith("/"):
+            host_socket_path = f"/{host_socket_path}"
+
         create_options: dict[str, Any] = {
             "name": container_name,
             "restart_policy": {"Name": "always"},
@@ -670,10 +680,17 @@ class DockerDeployer(Deployer):
             "environment": [
                 f"AUTOHEAL_CONTAINER_LABEL={_LABEL_COMPONENT_HEAL_PREFIX}-{workload.name}",
             ],
-            "volumes": [
-                "/var/run/docker.sock:/var/run/docker.sock",
-            ],
         }
+        if host_socket_path:
+            create_options["volumes"] = (
+                [
+                    f"{host_socket_path}:/var/run/docker.sock",
+                ],
+            )
+        elif envs.GPUSTACK_RUNTIME_DOCKER_HOST:
+            create_options["environment"].append(
+                f"DOCKER_SOCK={envs.GPUSTACK_RUNTIME_DOCKER_HOST}",
+            )
 
         if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
             clogger.info(
@@ -842,6 +859,7 @@ class DockerDeployer(Deployer):
         workload: DockerWorkloadPlan,
         ephemeral_filename_mapping: dict[tuple[int, str] : str],
         ephemeral_volume_name_mapping: dict[str, str],
+        pause_container: docker.models.containers.Container,
     ) -> (
         list[docker.models.containers.Container],
         list[docker.models.containers.Container],
@@ -861,7 +879,7 @@ class DockerDeployer(Deployer):
         d_init_containers: list[docker.models.containers.Container] = []
         d_run_containers: list[docker.models.containers.Container] = []
 
-        pause_container_namespace = f"container:{workload.name}-pause"
+        pause_container_namespace = f"container:{pause_container.id}"
         for ci, c in enumerate(workload.containers):
             container_name = f"{workload.name}-{c.profile.lower()}-{ci}"
             try:
@@ -1492,6 +1510,7 @@ class DockerDeployer(Deployer):
             workload,
             ephemeral_filename_mapping,
             ephemeral_volume_name_mapping,
+            pause_container,
         )
 
         # Create unhealthy restart container if needed.
