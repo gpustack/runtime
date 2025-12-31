@@ -606,6 +606,9 @@ class DockerDeployer(Deployer):
         elif workload.shm_size:
             create_options["shm_size"] = workload.shm_size
 
+        create_options["mem_limit"] = os.environ.get("GPUSTACK_RUNTIME_DEPLOY_PAUSE_MEM", "100m")
+        create_options["cpu_shares"] = os.environ.get("GPUSTACK_RUNTIME_DEPLOY_PAUSE_CPU_SHARES", 768)
+
         if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
             clogger.info(
                 f"Creating pause container %s with options:{os.linesep}%s",
@@ -854,6 +857,69 @@ class DockerDeployer(Deployer):
 
         return healthcheck
 
+    @staticmethod
+    def _setCpuSharesOption(create_options: dict[str, Any], r_v: Any) -> None:
+        """
+        设置 Docker 容器的 CPU 份额选项
+        
+        Args:
+            create_options: Docker 创建选项字典
+            r_v: CPU 份额值，可以是数字或数字字符串
+        """
+        cpu_shares = None
+        
+        # 处理数字类型
+        if isinstance(r_v, (int, float)):
+            cpu_shares = r_v
+        # 处理字符串类型
+        elif isinstance(r_v, str):
+            # 检查是否是纯数字（整数）
+            if r_v.isdigit():
+                cpu_shares = float(r_v)
+            # 检查是否是浮点数格式
+            elif re.match(r'^\d+\.?\d*$', r_v.strip()):
+                try:
+                    cpu_shares = float(r_v)
+                except ValueError:
+                    pass
+        
+        # 如果有有效的 CPU 份额值，进行处理
+        if cpu_shares is not None:
+            # 确保值在合理范围内（Docker 要求 >= 2）
+            if cpu_shares < 2:
+                cpu_shares = 2
+            
+            # 转换为 Docker 的 cpu_shares 格式（乘以 1024 并向上取整）
+            create_options["cpu_shares"] = math.ceil(cpu_shares * 1024)
+        else:
+            # 无效的输入值，可以选择抛出异常或使用默认值
+            raise ValueError(f"Invalid cpu_shares value: {r_v}. Must be a number.")
+
+    @staticmethod
+    def _setMemoryOption(create_options: dict[str, Any], r_v: Any,reservOn: bool) -> None:
+        """
+        设置 Docker 容器的内存相关选项
+        Args:
+            create_options: Docker 创建选项字典
+            r_v: 内存值，可以是 int（字节数）或 str（如 '512m', '2g'）
+            reservOn: 是否设置 mem_reservation
+        """
+        if isinstance(r_v, int):
+            mem_value = r_v
+        elif isinstance(r_v, str):
+            # 兼容字符串末尾带 'i' 的情况，如 '512Mi'
+            mem_value = r_v.strip().lower().removesuffix('i')
+            # 可选：进一步校验格式
+        else:
+            raise ValueError(f"Invalid memory value: {r_v}. Must be int or str.")
+
+        create_options["mem_limit"] = mem_value
+        create_options["memswap_limit"] = mem_value
+        if reservOn:
+            # 只有在 mem_reservation 未设置时才赋值
+            if create_options.get("mem_reservation") is None:
+                create_options["mem_reservation"] = mem_value
+
     def _create_containers(
         self,
         workload: DockerWorkloadPlan,
@@ -956,8 +1022,25 @@ class DockerDeployer(Deployer):
                     create_options["cap_add"] = cap.add
                     create_options["cap_drop"] = cap.drop
 
+            # 处理环境变量，确保为 dict 类型
+            env_dict = {e.name: e.value for e in c.envs} if c.envs is not None else {}
+            cpu = env_dict.pop("ENV_CPU", None)
+            if cpu is not None:
+                cpu = os.environ.get("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CPU", None)
+            if cpu is not None:
+                self._setCpuSharesOption(create_options, cpu)
+
+            mem_reservation = env_dict.pop("mem_reservation", None)
+            if mem_reservation is not None:
+                create_options["mem_reservation"] = mem_reservation
+            mem = env_dict.pop("ENV_MEM", None)
+            if mem is None:
+                mem = os.environ.get("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_MEM", None)
+            if mem is not None:
+                self._setMemoryOption(create_options, mem, False)
+
             # Parameterize environment variables.
-            create_options["environment"] = {e.name: e.value for e in c.envs or []}
+            create_options["environment"] = env_dict
 
             # Parameterize resources.
             if c.resources:
@@ -967,20 +1050,9 @@ class DockerDeployer(Deployer):
                 for r_k, r_v in c.resources.items():
                     match r_k:
                         case "cpu":
-                            if isinstance(r_v, int | float):
-                                create_options["cpu_shares"] = ceil(r_v * 1024)
-                            elif isinstance(r_v, str) and r_v.isdigit():
-                                create_options["cpu_shares"] = ceil(float(r_v) * 1024)
+                            self._setCpuSharesOption(create_options, r_v)
                         case "memory":
-                            if isinstance(r_v, int):
-                                create_options["mem_limit"] = r_v
-                                create_options["mem_reservation"] = r_v
-                                create_options["memswap_limit"] = r_v
-                            elif isinstance(r_v, str):
-                                v = r_v.lower().removesuffix("i")
-                                create_options["mem_limit"] = v
-                                create_options["mem_reservation"] = v
-                                create_options["memswap_limit"] = v
+                            self._setMemoryOption(create_options, r_v, True)
                         case _:
                             if r_k in r_k_runtime_env:
                                 # Set env if resource key is mapped.
