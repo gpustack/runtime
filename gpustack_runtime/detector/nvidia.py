@@ -76,7 +76,7 @@ class NVIDIADetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.NVIDIA)
 
-    def detect(self) -> Devices | None:  # noqa: PLR0915
+    def detect(self) -> Devices | None:
         """
         Detect NVIDIA GPUs using pynvml.
 

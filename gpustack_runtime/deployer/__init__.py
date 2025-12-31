@@ -41,6 +41,11 @@ from .kuberentes import (
     KubernetesWorkloadPlan,
     KubernetesWorkloadStatus,
 )
+from .podman import (
+    PodmanDeployer,
+    PodmanWorkloadPlan,
+    PodmanWorkloadStatus,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
@@ -50,6 +55,7 @@ if TYPE_CHECKING:
 _DEPLOYERS: list[Deployer] = [
     DockerDeployer(),
     KubernetesDeployer(),
+    PodmanDeployer(),
 ]
 """
 List of all deployers.
@@ -64,7 +70,8 @@ _NO_AVAILABLE_DEPLOYER_MSG = (
     "No available deployer. "
     "Please provide a container runtime, e.g. "
     "bind mount the host `/var/run/docker.sock` on Docker, "
-    "or allow (in-)cluster access on Kubernetes."
+    "or allow (in-)cluster access on Kubernetes, "
+    "or bind mount the host `/run/podman/podman.sock` on Podman."
 )
 
 
@@ -389,6 +396,9 @@ __all__ = [
     "KubernetesWorkloadPlan",
     "KubernetesWorkloadStatus",
     "OperationError",
+    "PodmanDeployer",
+    "PodmanWorkloadPlan",
+    "PodmanWorkloadStatus",
     "UnsupportedError",
     "WorkloadExecStream",
     "WorkloadOperationToken",

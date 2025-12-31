@@ -20,6 +20,8 @@ classifiers = [
 dependencies = [
     "docker>=7.1.0",
     "kubernetes>=33.1.0",
+    # NB(thxCode): Pin to this Podman version for a custom patch. See gpustack_runtime/deployer/__patches__.py.
+    "podman==5.6.0",
     "pyyaml",
     "gpustack-runner>=0.1.22.post4",
     "nvidia-ml-py>=13.580.65",

@@ -1269,6 +1269,17 @@ class Deployer(ABC):
         "AMD_VISIBLE_DEVICES": ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]
     }.
     """
+    _visible_devices_cdis: dict[str, str] | None = None
+    """
+    Recorded visible devices envs to CDI mapping,
+    the key is the runtime visible devices env name,
+    the value is the corresponding CDI key.
+    For example:
+    {
+        "NVIDIA_VISIBLE_DEVICES": "nvidia.com/gpu",
+        "AMD_VISIBLE_DEVICES": "amd.com/gpu"
+    }.
+    """
     _visible_devices_values: dict[str, list[str]] | None = None
     """
     Recorded visible devices values,
@@ -1349,6 +1360,7 @@ class Deployer(ABC):
             return
 
         self._visible_devices_env = {}
+        self._visible_devices_cdis = {}
         self._visible_devices_values = {}
         self._visible_devices_topologies = {}
         self._backend_visible_devices_values_alignment = {}
@@ -1364,33 +1376,33 @@ class Deployer(ABC):
                 ren = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.get(
                     rk,
                 )
-                ben = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES.get(
+                ben_list = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES.get(
                     rk,
                 )
-                if ren and ben:
+                cdi = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES.get(
+                    rk,
+                )
+                if ren and ben_list:
+                    valued_uuid = (
+                        ren
+                        in envs.GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID
+                    )
                     dev_uuids: list[str] = []
                     dev_indexes: list[str] = []
-                    for dev in devs:
+                    dev_indexes_alignment: dict[str, str] = {}
+                    for dev_i, dev in enumerate(devs):
                         dev_uuids.append(dev.uuid)
                         dev_indexes.append(str(dev.index))
-                    dev_indexes_alignment: dict[str, str] = {
-                        dev_indexes[i]: str(i) for i in range(len(devs))
-                    }
-                    self._visible_devices_env[ren] = ben
+                        dev_indexes_alignment[str(dev.index)] = str(dev_i)
+                    # Map runtime visible devices env <-> backend visible devices env list.
+                    self._visible_devices_env[ren] = ben_list
+                    # Map runtime visible devices env <-> CDI key.
+                    self._visible_devices_cdis[ren] = cdi
+                    # Map runtime visible devices env <-> device indexes or uuids.
                     self._visible_devices_values[ren] = (
-                        dev_uuids
-                        if ren
-                        in envs.GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID
-                        else dev_indexes
+                        dev_uuids if valued_uuid else dev_indexes
                     )
-                    for ben_item in ben:
-                        if (
-                            ben_item
-                            in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
-                        ):
-                            self._backend_visible_devices_values_alignment[ben_item] = (
-                                dev_indexes_alignment
-                            )
+                    # Map runtime visible devices env <-> topology.
                     if (
                         envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
                         or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
@@ -1398,6 +1410,17 @@ class Deployer(ABC):
                         topos = get_devices_topologies(devices=devs)
                         if topos:
                             self._visible_devices_topologies[ren] = topos[0]
+                    # Map backend visible devices env <-> devices alignment.
+                    if not valued_uuid:
+                        for ben in ben_list:
+                            valued_alignment = (
+                                ben
+                                in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
+                            )
+                            if valued_alignment:
+                                self._backend_visible_devices_values_alignment[ben] = (
+                                    dev_indexes_alignment
+                                )
 
             if self._visible_devices_env:
                 return
@@ -1406,17 +1429,21 @@ class Deployer(ABC):
         self._visible_devices_env["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = []
         self._visible_devices_values["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = ["all"]
 
-    def get_visible_devices_env_values(
+    def get_visible_devices_values(
         self,
-    ) -> (dict[str, list[str]], dict[str, list[str]]):
+    ) -> (dict[str, list[str]], dict[str, str], dict[str, list[str]]):
         """
-        Return the visible devices environment variables and values mappings.
+        Return the visible devices environment variables, cdis and values mappings.
         For example:
         (
             {
                 "NVIDIA_VISIBLE_DEVICES": ["CUDA_VISIBLE_DEVICES"],
                 "AMD_VISIBLE_DEVICES": ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]
-            }.
+            },
+            {
+                "NVIDIA_VISIBLE_DEVICES": "nvidia.com/gpu",
+                "AMD_VISIBLE_DEVICES": "amd.com/gpu"
+            },
             {
                 "NVIDIA_VISIBLE_DEVICES": ["0"],
                 "AMD_VISIBLE_DEVICES": ["0", "1"]
@@ -1428,11 +1455,17 @@ class Deployer(ABC):
             - The first dictionary maps runtime visible devices environment variable names
               to lists of backend visible devices environment variable names.
             - The second dictionary maps runtime visible devices environment variable names
+              to corresponding CDI keys.
+            - The last dictionary maps runtime visible devices environment variable names
               to lists of device indexes or UUIDs.
 
         """
         self._prepare()
-        return self._visible_devices_env, self._visible_devices_values
+        return (
+            self._visible_devices_env,
+            self._visible_devices_cdis,
+            self._visible_devices_values,
+        )
 
     def get_visible_devices_affinities(
         self,

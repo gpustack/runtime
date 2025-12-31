@@ -321,6 +321,11 @@ class KubernetesDeployer(Deployer):
                 version_api = kubernetes.client.VersionApi(client)
                 version_info = version_api.get_code()
                 supported = version_info is not None
+                if envs.GPUSTACK_RUNTIME_LOG_EXCEPTION:
+                    logger.debug(
+                        "Connected to Kubernetes API server: %s",
+                        version_info,
+                    )
             except kubernetes.client.exceptions.ApiException:
                 debug_log_exception(
                     logger,
@@ -984,7 +989,7 @@ class KubernetesDeployer(Deployer):
                 resources: dict[str, str] = {}
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
                 r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                vd_env, vd_values = self.get_visible_devices_env_values()
+                vd_env, _, vd_values = self.get_visible_devices_values()
                 for r_k, r_v in c.resources.items():
                     if r_k in ("cpu", "memory"):
                         resources[r_k] = str(r_v)
@@ -1023,12 +1028,12 @@ class KubernetesDeployer(Deployer):
                             # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
                             # and mount corresponding libs if needed.
                             for re in runtime_env:
-                                # Set to "all" if no specific devices detected,
-                                # maybe the container backend can handle it.
+                                # Request device via visible devices env.
+                                rv = ",".join(vd_values.get(re) or ["all"])
                                 container.env.append(
                                     kubernetes.client.V1EnvVar(
                                         name=re,
-                                        value=",".join(vd_values.get(re, [])) or "all",
+                                        value=rv,
                                     ),
                                 )
                         else:
@@ -1037,18 +1042,15 @@ class KubernetesDeployer(Deployer):
                             # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
                             # and mount corresponding libs if needed.
                             for re in runtime_env:
-                                # Set to "all" if no specific devices detected,
-                                # maybe the container backend can handle it.
+                                # Request device via visible devices env.
+                                if not privileged:
+                                    rv = str(r_v)
+                                else:
+                                    rv = ",".join(vd_values.get(re) or ["all"])
                                 container.env.append(
                                     kubernetes.client.V1EnvVar(
                                         name=re,
-                                        value=(
-                                            str(r_v)
-                                            if not privileged
-                                            else (
-                                                ",".join(vd_values.get(re, [])) or "all"
-                                            )
-                                        ),
+                                        value=rv,
                                     ),
                                 )
 

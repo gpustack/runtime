@@ -12,19 +12,22 @@ from functools import lru_cache, reduce
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
-import docker
-import docker.errors
-import docker.models.containers
-import docker.models.images
-import docker.models.volumes
-import docker.types
+import podman
+import podman.domain
+import podman.domain.containers
+import podman.domain.images
+import podman.domain.volumes
+import podman.errors
 from dataclasses_json import dataclass_json
-from docker.utils import parse_repository_tag
+from podman.api import parse_repository
+from podman.domain.containers_create import CreateMixin
 from tqdm import tqdm
 
 from .. import envs
 from ..logging import debug_log_exception
+from .__patches__ import patch_render_payload
 from .__types__ import (
     Container,
     ContainerCheck,
@@ -61,9 +64,9 @@ _LABEL_COMPONENT_HEAL_PREFIX = f"{_LABEL_COMPONENT}-heal"
 
 @dataclass_json
 @dataclass
-class DockerWorkloadPlan(WorkloadPlan):
+class PodmanWorkloadPlan(WorkloadPlan):
     """
-    Workload plan implementation for Docker containers.
+    Workload plan implementation for Podman containers.
 
     Attributes:
         pause_image (str):
@@ -110,11 +113,11 @@ class DockerWorkloadPlan(WorkloadPlan):
 
     """
 
-    pause_image: str = envs.GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE
+    pause_image: str = envs.GPUSTACK_RUNTIME_PODMAN_PAUSE_IMAGE
     """
     Image used for the pause container.
     """
-    unhealthy_restart_image: str = envs.GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE
+    unhealthy_restart_image: str = envs.GPUSTACK_RUNTIME_PODMAN_UNHEALTHY_RESTART_IMAGE
     """
     Image used for unhealthy restart container.
     """
@@ -152,12 +155,12 @@ class DockerWorkloadPlan(WorkloadPlan):
 
 @dataclass_json
 @dataclass
-class DockerWorkloadStatus(WorkloadStatus):
+class PodmanWorkloadStatus(WorkloadStatus):
     """
-    Workload status implementation for Docker containers.
+    Workload status implementation for Podman containers.
     """
 
-    _d_containers: list[docker.models.containers.Container] | None = field(
+    _d_containers: list[podman.domain.containers.Container] | None = field(
         default=None,
         repr=False,
         metadata={
@@ -169,27 +172,27 @@ class DockerWorkloadStatus(WorkloadStatus):
         },
     )
     """
-    List of Docker containers in the workload,
+    List of Podman containers in the workload,
     internal use only.
     """
 
     @staticmethod
     def parse_state(
-        d_containers: list[docker.models.containers.Container],
+        d_containers: list[podman.domain.containers.Container],
     ) -> WorkloadStatusStateEnum:
         """
         Parse the state of the workload based on the status of its containers.
 
         Args:
             d_containers:
-                List of Docker containers in the workload.
+                List of Podman containers in the workload.
 
         Returns:
             The state of the workload.
 
         """
-        d_init_containers: list[docker.models.containers.Container] = []
-        d_run_containers: list[docker.models.containers.Container] = []
+        d_init_containers: list[podman.domain.containers.Container] = []
+        d_run_containers: list[podman.domain.containers.Container] = []
         for c in d_containers:
             if c.labels.get(_LABEL_COMPONENT) == "init":
                 d_init_containers.append(c)
@@ -252,7 +255,7 @@ class DockerWorkloadStatus(WorkloadStatus):
     def __init__(
         self,
         name: WorkloadName,
-        d_containers: list[docker.models.containers.Container],
+        d_containers: list[podman.domain.containers.Container],
         **kwargs,
     ):
         created_at = d_containers[0].attrs["Created"]
@@ -288,20 +291,20 @@ class DockerWorkloadStatus(WorkloadStatus):
         self.state = self.parse_state(d_containers)
 
 
-_NAME = "docker"
+_NAME = "podman"
 """
-Name of the Docker deployer.
+Name of the Podman deployer.
 """
 
 
-class DockerDeployer(Deployer):
+class PodmanDeployer(Deployer):
     """
-    Deployer implementation for Docker containers.
+    Deployer implementation for Podman containers.
     """
 
-    _client: docker.DockerClient | None = None
+    _client: podman.PodmanClient | None = None
     """
-    Client for interacting with the Docker daemon.
+    Client for interacting with the Podman daemon.
     """
     _container_ephemeral_files_dir: Path | None = None
     """
@@ -316,7 +319,7 @@ class DockerDeployer(Deployer):
     @lru_cache
     def is_supported() -> bool:
         """
-        Check if Docker is supported in the current environment.
+        Check if Podman is supported in the current environment.
 
         Returns:
             True if supported, False otherwise.
@@ -326,28 +329,28 @@ class DockerDeployer(Deployer):
         if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", _NAME):
             return supported
 
-        client = DockerDeployer._get_client()
+        client = PodmanDeployer._get_client()
         if client:
             try:
                 supported = client.ping()
                 if envs.GPUSTACK_RUNTIME_LOG_EXCEPTION:
                     version_info = client.version()
                     logger.debug(
-                        "Connected to Docker API server: %s",
+                        "Connected to Podman API server: %s",
                         version_info,
                     )
-            except docker.errors.APIError:
-                debug_log_exception(logger, "Failed to connect to Docker API server")
+            except podman.errors.APIError:
+                debug_log_exception(logger, "Failed to connect to Podman API server")
 
         return supported
 
     @staticmethod
-    def _get_client() -> docker.DockerClient | None:
+    def _get_client() -> podman.PodmanClient | None:
         """
-        Return a Docker client.
+        Return a Podman client.
 
         Returns:
-            A Docker client if available, None otherwise.
+            A Podman client if available, None otherwise.
 
         """
         client = None
@@ -359,25 +362,25 @@ class DockerDeployer(Deployer):
                 contextlib.redirect_stderr(dev_null),
             ):
                 os_env = os.environ.copy()
-                if envs.GPUSTACK_RUNTIME_DOCKER_HOST:
-                    os_env["DOCKER_HOST"] = envs.GPUSTACK_RUNTIME_DOCKER_HOST
-                client = docker.from_env(environment=os_env)
-        except docker.errors.DockerException as e:
+                if envs.GPUSTACK_RUNTIME_PODMAN_HOST:
+                    os_env["CONTAINER_HOST"] = envs.GPUSTACK_RUNTIME_PODMAN_HOST
+                client = podman.from_env(environment=os_env)
+        except podman.errors.DockerException as e:
             if "FileNotFoundError" not in str(e):
-                debug_log_exception(logger, "Failed to get Docker client")
+                debug_log_exception(logger, "Failed to get Podman client")
 
         return client
 
     @staticmethod
     def _supported(func):
         """
-        Decorator to check if Docker is supported in the current environment.
+        Decorator to check if Podman is supported in the current environment.
 
         """
 
         def wrapper(self, *args, **kwargs):
             if not self.is_supported():
-                msg = "Docker is not supported in the current environment."
+                msg = "Podman is not supported in the current environment."
                 raise UnsupportedError(msg)
             return func(self, *args, **kwargs)
 
@@ -385,7 +388,7 @@ class DockerDeployer(Deployer):
 
     @staticmethod
     def _create_ephemeral_files(
-        workload: DockerWorkloadPlan,
+        workload: PodmanWorkloadPlan,
     ) -> dict[tuple[int, str], str]:
         """
         Create ephemeral files as local file for the workload.
@@ -413,7 +416,7 @@ class DockerDeployer(Deployer):
         # Create ephemeral files directory if not exists.
         try:
             for fn, fc, fm in ephemeral_files:
-                fp = envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.joinpath(fn)
+                fp = envs.GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR.joinpath(fn)
                 with fp.open("w", encoding="utf-8") as f:
                     f.write(fc)
                     f.flush()
@@ -425,7 +428,7 @@ class DockerDeployer(Deployer):
 
         return ephemeral_filename_mapping
 
-    def _create_ephemeral_volumes(self, workload: DockerWorkloadPlan) -> dict[str, str]:
+    def _create_ephemeral_volumes(self, workload: PodmanWorkloadPlan) -> dict[str, str]:
         """
         Create ephemeral volumes for the workload.
 
@@ -456,17 +459,17 @@ class DockerDeployer(Deployer):
                     labels=workload.labels,
                 )
                 logger.debug("Created volume %s", n)
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to create ephemeral volumes{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         return ephemeral_volume_name_mapping
 
-    def _pull_image(self, image: str) -> docker.models.images.Image:
+    def _pull_image(self, image: str) -> podman.domain.images.Image:
         try:
             logger.info("Pulling image %s", image)
 
-            repo, tag = parse_repository_tag(image)
+            repo, tag = parse_repository(image)
             tag = tag or "latest"
             auth_config = None
             if (
@@ -494,17 +497,15 @@ class DockerDeployer(Deployer):
         except json.decoder.JSONDecodeError as e:
             msg = f"Failed to pull image {image}, invalid response"
             raise OperationError(msg) from e
-        except docker.errors.APIError as e:
-            if "no unqualified-search registries are defined" not in str(e):
-                msg = f"Failed to pull image {image}{_detail_api_call_error(e)}"
-                raise OperationError(msg) from e
-            return self._pull_image(f"docker.io/{image}")
+        except podman.errors.APIError as e:
+            msg = f"Failed to pull image {image}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
 
     def _get_image(
         self,
         image: str,
         policy: ContainerImagePullPolicyEnum | None = None,
-    ) -> docker.models.images.Image:
+    ) -> podman.domain.images.Image:
         """
         Get image.
 
@@ -529,24 +530,24 @@ class DockerDeployer(Deployer):
         try:
             if policy == ContainerImagePullPolicyEnum.ALWAYS:
                 return self._pull_image(image)
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to get image {image}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         try:
             return self._client.images.get(image)
-        except docker.errors.ImageNotFound:
+        except podman.errors.ImageNotFound:
             if policy == ContainerImagePullPolicyEnum.NEVER:
                 raise
             return self._pull_image(image)
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to get image {image}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
     def _create_pause_container(
         self,
-        workload: DockerWorkloadPlan,
-    ) -> docker.models.containers.Container:
+        workload: PodmanWorkloadPlan,
+    ) -> podman.domain.containers.Container:
         """
         Create the pause container for the workload.
 
@@ -561,9 +562,9 @@ class DockerDeployer(Deployer):
         container_name = f"{workload.name}-pause"
         try:
             container = self._client.containers.get(container_name)
-        except docker.errors.NotFound:
+        except podman.errors.NotFound:
             pass
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to confirm whether container {container_name} exists{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
@@ -575,9 +576,6 @@ class DockerDeployer(Deployer):
             for c in workload.containers
             if c.profile == ContainerProfileEnum.RUN and c.execution
         )
-        security_opt = [
-            "no-new-privileges",
-        ]
 
         create_options: dict[str, Any] = {
             "name": container_name,
@@ -586,7 +584,7 @@ class DockerDeployer(Deployer):
             "ipc_mode": "shareable",
             "oom_score_adj": -998,
             "privileged": privileged,
-            "security_opt": security_opt,
+            "no_new_privileges": True,
             "labels": {
                 **workload.labels,
                 _LABEL_COMPONENT: "pause",
@@ -625,7 +623,7 @@ class DockerDeployer(Deployer):
                 detach=True,
                 **create_options,
             )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to create container {container_name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
@@ -633,8 +631,8 @@ class DockerDeployer(Deployer):
 
     def _create_unhealthy_restart_container(
         self,
-        workload: DockerWorkloadPlan,
-    ) -> docker.models.containers.Container | None:
+        workload: PodmanWorkloadPlan,
+    ) -> podman.domain.containers.Container | None:
         """
         Create the unhealthy restart container for the workload if needed.
 
@@ -658,9 +656,9 @@ class DockerDeployer(Deployer):
         container_name = f"{workload.name}-unhealthy-restart"
         try:
             d_container = self._client.containers.get(container_name)
-        except docker.errors.NotFound:
+        except podman.errors.NotFound:
             pass
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to confirm whether container {container_name} exists{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
@@ -668,10 +666,10 @@ class DockerDeployer(Deployer):
             return d_container
 
         host_socket_path = None
-        if envs.GPUSTACK_RUNTIME_DOCKER_HOST.startswith("http+unix://"):
-            host_socket_path = envs.GPUSTACK_RUNTIME_DOCKER_HOST[len("http+unix://") :]
-        elif envs.GPUSTACK_RUNTIME_DOCKER_HOST.startswith("unix://"):
-            host_socket_path = envs.GPUSTACK_RUNTIME_DOCKER_HOST[len("unix://") :]
+        if envs.GPUSTACK_RUNTIME_PODMAN_HOST.startswith("http+unix://"):
+            host_socket_path = envs.GPUSTACK_RUNTIME_PODMAN_HOST[len("http+unix://") :]
+        elif envs.GPUSTACK_RUNTIME_PODMAN_HOST.startswith("unix://"):
+            host_socket_path = envs.GPUSTACK_RUNTIME_PODMAN_HOST[len("unix://") :]
         if host_socket_path and not host_socket_path.startswith("/"):
             host_socket_path = f"/{host_socket_path}"
 
@@ -693,9 +691,9 @@ class DockerDeployer(Deployer):
                     f"{host_socket_path}:/var/run/docker.sock",
                 ],
             )
-        elif envs.GPUSTACK_RUNTIME_DOCKER_HOST:
+        elif envs.GPUSTACK_RUNTIME_PODMAN_HOST:
             create_options["environment"].append(
-                f"DOCKER_SOCK={envs.GPUSTACK_RUNTIME_DOCKER_HOST}",
+                f"DOCKER_SOCK={envs.GPUSTACK_RUNTIME_PODMAN_HOST}",
             )
 
         if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
@@ -711,7 +709,7 @@ class DockerDeployer(Deployer):
                 detach=True,
                 **create_options,
             )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to create container {container_name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
@@ -728,15 +726,15 @@ class DockerDeployer(Deployer):
         """
         Append (bind) mounts into the create_options.
         """
-        mount_binding: list[docker.types.Mount] = []
+        mount_binding: list[dict] = []
 
         if files := c.files:
             for f in files:
-                binding = docker.types.Mount(
-                    type="bind",
-                    source="",
-                    target="",
-                )
+                binding = {
+                    "type": "bind",
+                    "source": "",
+                    "target": "",
+                }
 
                 if f.content is not None:
                     # Ephemeral file, use from local ephemeral files directory.
@@ -746,46 +744,46 @@ class DockerDeployer(Deployer):
                     path = str(
                         self._container_ephemeral_files_dir.joinpath(fn),
                     )
-                    binding["Source"] = path
-                    binding["Target"] = f"/{f.path.lstrip('/')}"
+                    binding["source"] = path
+                    binding["target"] = f"/{f.path.lstrip('/')}"
                 elif f.path:
                     # Host file, bind directly.
-                    binding["Source"] = f.path
-                    binding["Target"] = f.path
+                    binding["source"] = f.path
+                    binding["target"] = f.path
                 else:
                     continue
 
                 if f.mode < 0o600:
-                    binding["ReadOnly"] = True
+                    binding["read_only"] = True
 
                 mount_binding.append(binding)
 
         if mounts := c.mounts:
             for m in mounts:
-                binding = docker.types.Mount(
-                    type="volume",
-                    source="",
-                    target="",
-                )
+                binding = {
+                    "type": "volume",
+                    "source": "",
+                    "target": "",
+                }
 
                 if m.volume:
                     # Ephemeral volume, use the created volume.
-                    binding["Source"] = ephemeral_volume_name_mapping.get(
+                    binding["source"] = ephemeral_volume_name_mapping.get(
                         m.volume,
                         m.volume,
                     )
-                    binding["Target"] = f"/{m.path.lstrip('/')}"
+                    binding["target"] = f"/{m.path.lstrip('/')}"
                     # TODO(thxCode): support subpath.
                 elif m.path:
                     # Host path, bind directly.
-                    binding["Type"] = "bind"
-                    binding["Source"] = m.path
-                    binding["Target"] = m.path
+                    binding["type"] = "bind"
+                    binding["source"] = m.path
+                    binding["target"] = m.path
                 else:
                     continue
 
                 if m.mode != ContainerMountModeEnum.RWX:
-                    binding["ReadOnly"] = True
+                    binding["read_only"] = True
 
                 mount_binding.append(binding)
 
@@ -862,13 +860,13 @@ class DockerDeployer(Deployer):
 
     def _create_containers(
         self,
-        workload: DockerWorkloadPlan,
+        workload: PodmanWorkloadPlan,
         ephemeral_filename_mapping: dict[tuple[int, str] : str],
         ephemeral_volume_name_mapping: dict[str, str],
-        pause_container: docker.models.containers.Container,
+        pause_container: podman.domain.containers.Container,
     ) -> (
-        list[docker.models.containers.Container],
-        list[docker.models.containers.Container],
+        list[podman.domain.containers.Container],
+        list[podman.domain.containers.Container],
     ):
         """
         Create init and run containers for the workload.
@@ -882,17 +880,20 @@ class DockerDeployer(Deployer):
                 If the containers fail to create.
 
         """
-        d_init_containers: list[docker.models.containers.Container] = []
-        d_run_containers: list[docker.models.containers.Container] = []
+        d_init_containers: list[podman.domain.containers.Container] = []
+        d_run_containers: list[podman.domain.containers.Container] = []
 
-        pause_container_namespace = f"container:{pause_container.id}"
+        pause_container_namespace = {
+            "nsmode": "container",
+            "value": pause_container.id,
+        }
         for ci, c in enumerate(workload.containers):
             container_name = f"{workload.name}-{c.profile.lower()}-{ci}"
             try:
                 d_container = self._client.containers.get(container_name)
-            except docker.errors.NotFound:
+            except podman.errors.NotFound:
                 pass
-            except docker.errors.APIError as e:
+            except podman.errors.APIError as e:
                 msg = f"Failed to confirm whether container {container_name} exists{_detail_api_call_error(e)}"
                 raise OperationError(msg) from e
             else:
@@ -967,11 +968,6 @@ class DockerDeployer(Deployer):
 
             # Parameterize resources.
             if c.resources:
-                cdi = (
-                    envs.GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY.lower()
-                    == "cdi"
-                )
-
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
                 r_k_backend_env = workload.resource_key_backend_env_mapping or {}
                 vd_env, vd_cdis, vd_values = self.get_visible_devices_values()
@@ -1025,24 +1021,13 @@ class DockerDeployer(Deployer):
                                 # and mount corresponding libs if needed.
                                 for re in runtime_env:
                                     # Request device via CDI.
-                                    if cdi:
-                                        rv = [
-                                            f"{vd_cdis[re]}={v}"
-                                            for v in (vd_values.get(re) or ["all"])
-                                        ]
-                                        if "device_requests" not in create_options:
-                                            create_options["device_requests"] = []
-                                        create_options["device_requests"].append(
-                                            docker.types.DeviceRequest(
-                                                driver="cdi",
-                                                count=0,
-                                                device_ids=rv,
-                                            ),
-                                        )
-                                        continue
-                                    # Request device via visible devices env.
-                                    rv = ",".join(vd_values.get(re) or ["all"])
-                                    create_options["environment"][re] = rv
+                                    rv = [
+                                        f"{vd_cdis[re]}={v}"
+                                        for v in (vd_values.get(re) or ["all"])
+                                    ]
+                                    if "devices" not in create_options:
+                                        create_options["devices"] = []
+                                    create_options["devices"].extend(rv)
                             else:
                                 # Set env to the allocated device IDs if no privileged,
                                 # otherwise, set container backend visible devices env to all devices,
@@ -1050,33 +1035,19 @@ class DockerDeployer(Deployer):
                                 # and mount corresponding libs if needed.
                                 for re in runtime_env:
                                     # Request device via CDI.
-                                    if cdi:
-                                        if not privileged:
-                                            rv = [
-                                                f"{vd_cdis[re]}={v.strip()}"
-                                                for v in r_v.split(",")
-                                            ]
-                                        else:
-                                            rv = [
-                                                f"{vd_cdis[re]}={v}"
-                                                for v in (vd_values.get(re) or ["all"])
-                                            ]
-                                        if "device_requests" not in create_options:
-                                            create_options["device_requests"] = []
-                                        create_options["device_requests"].append(
-                                            docker.types.DeviceRequest(
-                                                driver="cdi",
-                                                count=0,
-                                                device_ids=rv,
-                                            ),
-                                        )
-                                        continue
-                                    # Request device via visible devices env.
                                     if not privileged:
-                                        rv = str(r_v)
+                                        rv = [
+                                            f"{vd_cdis[re]}={v.strip()}"
+                                            for v in r_v.split(",")
+                                        ]
                                     else:
-                                        rv = ",".join(vd_values.get(re) or ["all"])
-                                    create_options["environment"][re] = rv
+                                        rv = [
+                                            f"{vd_cdis[re]}={v}"
+                                            for v in (vd_values.get(re) or ["all"])
+                                        ]
+                                    if "devices" not in create_options:
+                                        create_options["devices"] = []
+                                    create_options["devices"].extend(rv)
 
                             # Configure runtime device access environment variables.
                             if r_v != "all" and privileged:
@@ -1111,7 +1082,7 @@ class DockerDeployer(Deployer):
                 ephemeral_volume_name_mapping,
             )
 
-            if envs.GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK:
+            if envs.GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK:
                 create_options["healthcheck"] = {
                     "test": [
                         "NONE",
@@ -1119,7 +1090,7 @@ class DockerDeployer(Deployer):
                 }
 
             # Parameterize health checks.
-            # Since Docker only support one complete check,
+            # Since Podman only support one complete check,
             # we always pick the first check as target.
             if c.profile == ContainerProfileEnum.RUN and c.checks:
                 # If the first check is teardown-enabled,
@@ -1144,12 +1115,17 @@ class DockerDeployer(Deployer):
                         safe_json(create_options, indent=2),
                     )
 
-                d_container = self._client.containers.create(
-                    image=self._get_image(c.image, c.image_pull_policy),
-                    detach=detach,
-                    **create_options,
-                )
-            except docker.errors.APIError as e:
+                with patch.object(
+                    CreateMixin,
+                    "_render_payload",
+                    staticmethod(patch_render_payload),
+                ):
+                    d_container = self._client.containers.create(
+                        image=self._get_image(c.image, c.image_pull_policy),
+                        detach=detach,
+                        **create_options,
+                    )
+            except podman.errors.APIError as e:
                 msg = f"Failed to create container {container_name}{_detail_api_call_error(e)}"
                 raise OperationError(msg) from e
             else:
@@ -1162,8 +1138,8 @@ class DockerDeployer(Deployer):
 
     @staticmethod
     def _start_containers(
-        container: docker.models.containers.Container
-        | list[docker.models.containers.Container],
+        container: podman.domain.containers.Container
+        | list[podman.domain.containers.Container],
         force: bool = True,
     ):
         """
@@ -1171,24 +1147,24 @@ class DockerDeployer(Deployer):
 
         Args:
             container:
-                A Docker container or a list of Docker containers to start or restart.
+                A Podman container or a list of Podman containers to start or restart.
             force:
                 To force restart or unpause the container if it's in exited or paused status.
 
         Raises:
-            docker.errors.APIError:
+            podman.errors.APIError:
                 If the container fails to start or restart.
 
         """
         if isinstance(container, list):
             for c in container:
-                DockerDeployer._start_containers(c)
+                PodmanDeployer._start_containers(c)
             return
 
         match container.status:
             case "created":
                 container.start()
-            case "exited" | "dead":
+            case "exited" | "stopped":
                 if force:
                     container.restart()
             case "paused":
@@ -1199,7 +1175,7 @@ class DockerDeployer(Deployer):
         super().__init__(_NAME)
         self._client = self._get_client()
         self._container_ephemeral_files_dir = (
-            envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR
+            envs.GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR
         )
 
     def _prepare_create(self):
@@ -1231,7 +1207,7 @@ class DockerDeployer(Deployer):
                 self_container.id[:12],
             )
             self_image = self_container.image
-        except docker.errors.APIError:
+        except podman.errors.APIError:
             logger.exception(
                 "Mirrored deployment enabled, but failed to get self Container %s, skipping",
                 self_container_id,
@@ -1266,10 +1242,10 @@ class DockerDeployer(Deployer):
             }
         ## - Container customized mounts
         mirrored_mounts: list[dict[str, Any]] = [
-            # Always filter out Docker Socket mount.
+            # Always filter out Podman Socket mount.
             m
             for m in (self_container.attrs["Mounts"] or [])
-            if not m.get("Destination").endswith("/docker.sock")
+            if not m.get("Destination").endswith("/podman.sock")
         ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_mounts = [
@@ -1290,9 +1266,7 @@ class DockerDeployer(Deployer):
                 if d.get("PathInContainer") not in igs
             ]
         ## - Container customized device requests
-        mirrored_device_requests: list[dict[str, Any]] = (
-            self_container.attrs["HostConfig"].get("DeviceRequests") or []
-        )
+        (self_container.attrs["HostConfig"].get("DeviceRequests") or [])
         ## - Container capabilities
         mirrored_capabilities: dict[str, list[str]] = {}
         if cap := self_container.attrs["HostConfig"].get("CapAdd"):
@@ -1338,13 +1312,13 @@ class DockerDeployer(Deployer):
                         m.get("Propagation") if m.get("Propagation", "") else None
                     )
                     c_mounts.append(
-                        docker.types.Mount(
-                            type=type_,
-                            source=source,
-                            target=target,
-                            read_only=read_only,
-                            propagation=propagation,
-                        ),
+                        {
+                            "type": type_,
+                            "source": source,
+                            "target": target,
+                            "read_only": read_only,
+                            "propagation": propagation,
+                        },
                     )
                     c_mounts_paths.add(target)
                 create_options["mounts"] = c_mounts
@@ -1370,44 +1344,6 @@ class DockerDeployer(Deployer):
                     f"{d['PathOnHost']}:{d['PathInContainer']}:{d['CgroupPermissions']}"
                     for d in c_devices
                 ]
-
-            if mirrored_device_requests:
-                c_device_requests: list[dict[str, Any]] = (
-                    create_options.get("device_requests") or []
-                )
-                c_device_requests_ids = {
-                    f"{r.get('Driver')}:{did}"
-                    for r in c_device_requests
-                    for did in r.get("DeviceIDs") or []
-                }
-                for r in mirrored_device_requests:
-                    dri = r.get("Driver")
-                    count = r.get("Count")
-                    caps = r.get("Capabilities")
-                    opts = r.get("Options")
-                    orig_ids = r.get("DeviceIDs") or []
-
-                    if count == -1:
-                        final_ids = []
-                    else:
-                        final_ids = [
-                            did
-                            for did in orig_ids
-                            if f"{dri}:{did}" not in c_device_requests_ids
-                        ]
-                        if not final_ids:
-                            continue
-
-                    c_device_requests.append(
-                        docker.types.DeviceRequest(
-                            driver=dri,
-                            count=count,
-                            device_ids=final_ids,
-                            capabilities=caps,
-                            options=opts,
-                        ),
-                    )
-                create_options["device_requests"] = c_device_requests
 
             if mirrored_capabilities:
                 if "cap_add" in mirrored_capabilities:
@@ -1436,7 +1372,7 @@ class DockerDeployer(Deployer):
 
         # Extract ephemeral files dir mutation if any.
         if mirrored_mounts:
-            e_target = str(envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR)
+            e_target = str(envs.GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR)
             b_source = ""
             b_target = ""
             for m in mirrored_mounts:
@@ -1456,16 +1392,16 @@ class DockerDeployer(Deployer):
     def _find_self_container(
         self,
         self_container_id: str,
-    ) -> docker.models.containers.Container:
+    ) -> podman.domain.containers.Container:
         """
-        Find the current container if running inside a Docker container.
+        Find the current container if running inside a Podman container.
 
         Args:
             self_container_id:
                 The container name or ID to find.
 
         Returns:
-            The Docker container if found, None otherwise.
+            The Podman container if found, None otherwise.
 
         Raises:
             If failed to find itself.
@@ -1476,8 +1412,8 @@ class DockerDeployer(Deployer):
             return self._client.containers.get(self_container_id)
 
         # Find containers that matches the hostname.
-        containers: list[docker.models.containers.Container] = []
-        for c in self._client.containers.list():
+        containers: list[podman.domain.containers.Container] = []
+        for c in self._client.containers.list(compatible=True):
             # Ignore workload containers with host network enabled.
             if _LABEL_WORKLOAD in c.labels:
                 continue
@@ -1485,9 +1421,9 @@ class DockerDeployer(Deployer):
             if c.attrs["Config"].get("Hostname", "") != self_container_id:
                 continue
             # Ignore containers that do not match the filter labels.
-            if envs.GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS and any(
+            if envs.GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS and any(
                 c.labels.get(k) != v
-                for k, v in envs.GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS.items()
+                for k, v in envs.GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS.items()
             ):
                 continue
             containers.append(c)
@@ -1500,14 +1436,14 @@ class DockerDeployer(Deployer):
                 else f"Not found Container with hostname {self_container_id}, "
                 "please use `--env GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=...` to specify the exact container name"
             )
-            raise docker.errors.NotFound(msg)
+            raise podman.errors.NotFound(msg)
 
         return containers[0]
 
     @_supported
     def _create(self, workload: WorkloadPlan):
         """
-        Deploy a Docker workload.
+        Deploy a Podman workload.
 
         Args:
             workload:
@@ -1515,23 +1451,23 @@ class DockerDeployer(Deployer):
 
         Raises:
             TypeError:
-                If the Docker workload type is invalid.
+                If the Podman workload type is invalid.
             ValueError:
-                If the Docker workload fails to validate.
+                If the Podman workload fails to validate.
             UnsupportedError:
-                If Docker is not supported in the current environment.
+                If Podman is not supported in the current environment.
             OperationError:
-                If the Docker workload fails to deploy.
+                If the Podman workload fails to deploy.
 
         """
-        if not isinstance(workload, DockerWorkloadPlan | WorkloadPlan):
+        if not isinstance(workload, PodmanWorkloadPlan | WorkloadPlan):
             msg = f"Invalid workload type: {type(workload)}"
             raise TypeError(msg)
 
         self._prepare_create()
 
         if isinstance(workload, WorkloadPlan):
-            workload = DockerWorkloadPlan(**workload.__dict__)
+            workload = PodmanWorkloadPlan(**workload.__dict__)
         workload.validate_and_default()
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Creating workload:\n%s", workload.to_yaml())
@@ -1569,7 +1505,7 @@ class DockerDeployer(Deployer):
             self._start_containers(run_containers)
             if unhealthy_restart_container:
                 self._start_containers(unhealthy_restart_container)
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = (
                 f"Failed to create workload {workload.name}{_detail_api_call_error(e)}"
             )
@@ -1582,7 +1518,7 @@ class DockerDeployer(Deployer):
         namespace: WorkloadNamespace | None = None,  # noqa: ARG002
     ) -> WorkloadStatus | None:
         """
-        Get the status of a Docker workload.
+        Get the status of a Podman workload.
 
         Args:
             name:
@@ -1595,33 +1531,32 @@ class DockerDeployer(Deployer):
 
         Raises:
             UnsupportedError:
-                If Docker is not supported in the current environment.
+                If Podman is not supported in the current environment.
             OperationError:
-                If the Docker workload fails to get.
+                If the Podman workload fails to get.
 
         """
         list_options = {
-            "filters": {
-                "label": [
-                    f"{_LABEL_WORKLOAD}={name}",
-                    _LABEL_COMPONENT,
-                ],
-            },
+            "filters": [
+                f"label={_LABEL_WORKLOAD}={name}",
+                f"label={_LABEL_COMPONENT}",
+            ],
         }
 
         try:
             d_containers = self._client.containers.list(
+                compatible=True,
                 all=True,
                 **list_options,
             )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to list containers for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         if not d_containers:
             return None
 
-        return DockerWorkloadStatus(
+        return PodmanWorkloadStatus(
             name=name,
             d_containers=d_containers,
         )
@@ -1633,7 +1568,7 @@ class DockerDeployer(Deployer):
         namespace: WorkloadNamespace | None = None,
     ) -> WorkloadStatus | None:
         """
-        Delete a Docker workload.
+        Delete a Podman workload.
 
         Args:
             name:
@@ -1646,9 +1581,9 @@ class DockerDeployer(Deployer):
 
         Raises:
             UnsupportedError:
-                If Docker is not supported in the current environment.
+                If Podman is not supported in the current environment.
             OperationError:
-                If the Docker workload fails to delete.
+                If the Podman workload fails to delete.
 
         """
         # Check if the workload exists.
@@ -1671,20 +1606,20 @@ class DockerDeployer(Deployer):
                     c.remove(
                         force=True,
                     )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to delete containers for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Remove all ephemeral volumes with the workload label.
         try:
             list_options = {
-                "filters": {
-                    "label": [
-                        f"{_LABEL_WORKLOAD}={name}",
-                    ],
-                },
+                "filters": [
+                    f"label={_LABEL_WORKLOAD}={name}",
+                ],
             }
+
             d_volumes = self._client.volumes.list(
+                compatible=True,
                 **list_options,
             )
 
@@ -1692,13 +1627,13 @@ class DockerDeployer(Deployer):
                 v.remove(
                     force=True,
                 )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to delete volumes for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Remove all ephemeral files for the workload.
         try:
-            for fp in envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.glob(
+            for fp in envs.GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR.glob(
                 f"{name}-*",
             ):
                 if fp.is_file():
@@ -1716,7 +1651,7 @@ class DockerDeployer(Deployer):
         labels: dict[str, str] | None = None,
     ) -> list[WorkloadStatus]:
         """
-        List all Docker workloads.
+        List all Podman workloads.
 
         Args:
             namespace:
@@ -1729,42 +1664,41 @@ class DockerDeployer(Deployer):
 
         Raises:
             UnsupportedError:
-                If Docker is not supported in the current environment.
+                If Podman is not supported in the current environment.
             OperationError:
-                If the Docker workloads fail to list.
+                If the Podman workloads fail to list.
 
         """
         list_options = {
-            "filters": {
-                "label": [
-                    *[
-                        f"{k}={v}"
-                        for k, v in (labels or {}).items()
-                        if k
-                        not in (
-                            _LABEL_WORKLOAD,
-                            _LABEL_COMPONENT,
-                            _LABEL_COMPONENT_INDEX,
-                        )
-                    ],
-                    _LABEL_WORKLOAD,
-                    _LABEL_COMPONENT,
+            "filters": [
+                *[
+                    f"label={k}={v}"
+                    for k, v in (labels or {}).items()
+                    if k
+                    not in (
+                        _LABEL_WORKLOAD,
+                        _LABEL_COMPONENT,
+                        _LABEL_COMPONENT_INDEX,
+                    )
                 ],
-            },
+                f"label={_LABEL_WORKLOAD}",
+                f"label={_LABEL_COMPONENT}",
+            ],
         }
 
         try:
             d_containers = self._client.containers.list(
+                compatible=True,
                 all=True,
                 **list_options,
             )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to list workloads' containers{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
         # Group containers by workload name,
-        # <workload name>: [docker.models.containers.Container, ...]
-        workload_mapping: dict[str, list[docker.models.containers.Container]] = {}
+        # <workload name>: [podman.domain.containers.Container, ...]
+        workload_mapping: dict[str, list[podman.domain.containers.Container]] = {}
         for c in d_containers:
             n = c.labels.get(_LABEL_WORKLOAD, None)
             if not n:
@@ -1774,7 +1708,7 @@ class DockerDeployer(Deployer):
             workload_mapping[n].append(c)
 
         return [
-            DockerWorkloadStatus(
+            PodmanWorkloadStatus(
                 name=name,
                 d_containers=d_containers,
             )
@@ -1793,7 +1727,7 @@ class DockerDeployer(Deployer):
         follow: bool = False,
     ) -> Generator[bytes | str, None, None] | bytes | str:
         """
-        Get logs of a Docker workload or a specific container.
+        Get logs of a Podman workload or a specific container.
 
         Args:
             name:
@@ -1817,9 +1751,9 @@ class DockerDeployer(Deployer):
 
         Raises:
             UnsupportedError:
-                If Docker is not supported in the current environment.
+                If Podman is not supported in the current environment.
             OperationError:
-                If the Docker workload fails to fetch logs.
+                If the Podman workload fails to fetch logs.
 
         """
         workload = self.get(name=name, namespace=namespace)
@@ -1858,7 +1792,7 @@ class DockerDeployer(Deployer):
                 stream=follow,
                 **logs_options,
             )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to fetch logs for container {container.name} of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
@@ -1875,7 +1809,7 @@ class DockerDeployer(Deployer):
         args: list[str] | None = None,
     ) -> WorkloadExecStream | bytes | str:
         """
-        Execute a command in a Docker workload or a specific container.
+        Execute a command in a Podman workload or a specific container.
 
         Args:
             name:
@@ -1898,9 +1832,9 @@ class DockerDeployer(Deployer):
 
         Raises:
             UnsupportedError:
-                If Docker is not supported in the current environment.
+                If Podman is not supported in the current environment.
             OperationError:
-                If the Docker workload fails to execute the command.
+                If the Podman workload fails to execute the command.
 
         """
         workload = self.get(name=name, namespace=namespace)
@@ -1934,30 +1868,30 @@ class DockerDeployer(Deployer):
         }
 
         try:
-            _, output = container.exec_run(
+            _status_code, output = container.exec_run(
                 detach=False,
                 **exec_options,
             )
-        except docker.errors.APIError as e:
+        except podman.errors.APIError as e:
             msg = f"Failed to exec command in container {container.name} of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             if not attach:
                 return output
-            return DockerWorkloadExecStream(output)
+            return PodmanWorkloadExecStream(output)
 
 
 def _has_restart_policy(
-    container: docker.models.containers.Container,
+    container: podman.domain.containers.Container,
 ) -> bool:
     return (
         container.attrs["HostConfig"].get("RestartPolicy", {}).get("Name", "no") != "no"
     )
 
 
-class DockerWorkloadExecStream(WorkloadExecStream):
+class PodmanWorkloadExecStream(WorkloadExecStream):
     """
-    A WorkloadExecStream implementation for Docker exec socket streams.
+    A WorkloadExecStream implementation for Podman exec socket streams.
     """
 
     _sock: socket.SocketIO | None = None
@@ -1989,14 +1923,14 @@ class DockerWorkloadExecStream(WorkloadExecStream):
         self._sock.close()
 
 
-def _detail_api_call_error(err: docker.errors.APIError) -> str:
+def _detail_api_call_error(err: podman.errors.APIError) -> str:
     """
-    Explain a Docker API error in a concise way,
+    Explain a Podman API error in a concise way,
     if the envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL is enabled.
 
     Args:
         err:
-            The Docker API error.
+            The Podman API error.
 
     Returns:
         A concise explanation of the error.
@@ -2005,7 +1939,7 @@ def _detail_api_call_error(err: docker.errors.APIError) -> str:
     if not envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL:
         return ""
 
-    msg = f": Docker {'Client' if err.is_client_error() else 'Server'} Error"
+    msg = f": Podman {'Client' if err.is_client_error() else 'Server'} Error"
     if err.explanation:
         msg += f": {err.explanation}"
     elif err.response.reason:
@@ -2018,11 +1952,11 @@ def _detail_api_call_error(err: docker.errors.APIError) -> str:
 
 def _print_pull_logs(logs, image, tag):
     """
-    Display Docker image pull logs.
+    Display Podman image pull logs.
 
     Args:
         logs:
-            The logs from Docker image pull.
+            The logs from Podman image pull.
         image:
             The image being pulled.
         tag:
@@ -2030,7 +1964,7 @@ def _print_pull_logs(logs, image, tag):
 
     """
     if (
-        not envs.GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION
+        not envs.GPUSTACK_RUNTIME_PODMAN_IMAGE_NO_PULL_VISUALIZATION
         and sys.stderr.isatty()
     ):
         _visualize_pull_logs(logs, tag)
@@ -2040,11 +1974,11 @@ def _print_pull_logs(logs, image, tag):
 
 def _visualize_pull_logs(logs, tag):
     """
-    Display Docker image pull logs as progress bars.
+    Display Podman image pull logs as progress bars.
 
     Args:
         logs:
-            The logs from Docker image pull.
+            The logs from Podman image pull.
         tag:
             The image tag being pulled.
 
@@ -2100,11 +2034,11 @@ def _visualize_pull_logs(logs, tag):
 
 def _textualize_pull_logs(logs, image, tag):
     """
-    Display Docker image pull logs as plain text.
+    Display Podman image pull logs as plain text.
 
     Args:
         logs:
-            The logs from Docker image pull.
+            The logs from Podman image pull.
         image:
             The image being pulled.
         tag:

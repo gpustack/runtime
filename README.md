@@ -19,6 +19,7 @@ GPUStack Runtime enables GPU workload management on the following platforms:
 
 - Docker
 - Kubernetes
+- Podman (>=4.9, Experimental support via `CONTAINER_HOST=http+unix:///path/to/podman/socket` environment variable)
 
 ## License
 

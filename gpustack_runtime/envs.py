@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     ## Deployer
     GPUSTACK_RUNTIME_DEPLOY: str | None = None
     """
-    Deployer to use (options: Auto, Docker, Kubernetes).
+    Deployer to use (options: Auto, Docker, Kubernetes, Podman).
     """
     GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL: bool = True
     """
@@ -70,7 +70,7 @@ if TYPE_CHECKING:
     """
     Enable printing the conversion during deployment.
     GPUStack Runtime provides a unified Workload definition API,
-    which will be converted to the specific Container Runtime API calls(e.g., Docker SDK, Kubernetes API).
+    which will be converted to the specific Container Runtime API calls(e.g., Docker SDK, Kubernetes API, Podman SDK).
     Enabling this option will print the final converted API calls in INFO log for debugging purposes.
     """
     GPUSTACK_RUNTIME_DEPLOY_ASYNC: bool = True
@@ -152,12 +152,21 @@ if TYPE_CHECKING:
     which is used to tell deployer do a device detection and get the corresponding resource key before mapping.
     e.g., "gpustack.ai/devices".
     """
+    GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES: (
+        dict[str, str] | None
+    ) = None
+    """
+    Manual mapping of container device interfaces,
+    which is used to tell the Container Runtime which devices to inject into the container,
+    e.g., `{"nvidia.com/devices": "nvidia.com/gpu", "amd.com/devices": "amd.com/gpu"}`.
+    The key is the resource key, and the value is the Container Device Interface(CDI) key.
+    """
     GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES: (
         dict[str, str] | None
     ) = None
     """
     Manual mapping of runtime visible devices environment variables,
-    which is used to tell the Container Runtime which GPUs to mount into the container,
+    which is used to tell the Container Runtime which devices to inject into the container,
     e.g., `{"nvidia.com/devices": "NVIDIA_VISIBLE_DEVICES", "amd.com/devices": "AMD_VISIBLE_DEVICES"}`.
     The key is the resource key, and the value is the environment variable name.
     """
@@ -166,7 +175,7 @@ if TYPE_CHECKING:
     ) = None
     """
     Manual mapping of backend visible devices environment variables,
-    which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container,
+    which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which devices to use inside the container,
     e.g., `{"nvidia.com/devices": ["CUDA_VISIBLE_DEVICES"], "amd.com/devices": ["ROCR_VISIBLE_DEVICES"]}`.
     The key is the resource key, and the value is a list of environment variable names.
     """
@@ -227,6 +236,12 @@ if TYPE_CHECKING:
     """
     Mute the original healthcheck of the container in Docker.
     """
+    GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY: str | None = None
+    """
+    Resource injection policy for the Docker deployer (e.g., Env, CDI).
+    `Env`: Injects resources using standard environment variable, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`.
+    `CDI`: Injects resources using CDI, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES`.
+    """
     ## Kubernetes
     GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME: str | None = None
     """
@@ -252,6 +267,45 @@ if TYPE_CHECKING:
     GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY: str | None = None
     """
     Deletion propagation policy for Kubernetes resources (e.g., Foreground, Background, Orphan).
+    """
+    ## Podman
+    GPUSTACK_RUNTIME_PODMAN_HOST: str | None = None
+    """
+    Host for Podman connection.
+    Used to override the default Podman host.
+    Default is `http+unix:///run/podman/podman.sock`.
+    """
+    GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS: dict[str, str] | None = None
+    """
+    Filter labels for selecting the mirrored deployer container in Podman.
+    Only works when `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME` is not set.
+    Normally, it should be injected automatically via CI without any manual configuration.
+    Default is same as `GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS`.
+    """
+    GPUSTACK_RUNTIME_PODMAN_IMAGE_NO_PULL_VISUALIZATION: bool = False
+    """
+    Disable image pull visualization in Podman deployer.
+    Default is same as `GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION`.
+    """
+    GPUSTACK_RUNTIME_PODMAN_PAUSE_IMAGE: str | None = None
+    """
+    Container image used for the pause container in Podman.
+    Default is same as `GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE`.
+    """
+    GPUSTACK_RUNTIME_PODMAN_UNHEALTHY_RESTART_IMAGE: str | None = None
+    """
+    Container image used for unhealthy restart container in Podman.
+    Default is same as `GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE`.
+    """
+    GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR: Path | None = None
+    """
+    Directory for storing ephemeral files for Podman.
+    Default is same as `GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR`.
+    """
+    GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK: bool = True
+    """
+    Mute the original healthcheck of the container in Podman.
+    Default is same as `GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK`.
     """
 
 # --8<-- [start:env-vars-definition]
@@ -350,13 +404,7 @@ variables: dict[str, Callable[[], Any]] = {
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE": lambda: trim_str(
-        getenvs(
-            keys=[
-                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE",
-                # TODO(thxCode): Backward compatibility, remove in v0.1.45 later.
-                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_NAMESPACE",
-            ],
-        ),
+        getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE"),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME": lambda: trim_str(
         getenvs(
@@ -389,6 +437,19 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY",
         "gpustack.ai/devices",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES": lambda: to_dict(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES",
+            "amd.com/devices=amd.com/gpu;"
+            "huawei.com/devices=huawei.com/npu;"
+            "cambricon.com/devices=cambricon.com/mlu;"
+            "hygon.com/devices=hygon.com/dcu;"
+            "iluvatar.ai/devices=iluvatar.com/gpu;"
+            "metax-tech.com/devices=metax-tech.com/gpu;"
+            "mthreads.com/devices=mthreads.com/gpu;"
+            "nvidia.com/devices=nvidia.com/gpu;",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES": lambda: to_dict(
         getenv(
@@ -474,6 +535,14 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK", "1"),
     ),
+    "GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY": lambda: choice(
+        getenv(
+            "GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY",
+            "Env",
+        ),
+        options=["Env", "CDI"],
+        default="Env",
+    ),
     ## Kubernetes
     "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME": lambda: getenv(
         "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME",
@@ -505,6 +574,73 @@ variables: dict[str, Callable[[], Any]] = {
         ),
         options=["Foreground", "Background", "Orphan"],
         default="Foreground",
+    ),
+    ## Podman
+    "GPUSTACK_RUNTIME_PODMAN_HOST": lambda: trim_str(
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_PODMAN_HOST",
+                # Fallback to standard Podman environment variable.
+                "CONTAINER_HOST",
+            ],
+            default="http+unix:///run/podman/podman.sock",
+        ),
+    ),
+    "GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS": lambda: to_dict(
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS",
+                # Fallback to Docker's setting.
+                "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS",
+            ],
+        ),
+        sep=";",
+    ),
+    "GPUSTACK_RUNTIME_PODMAN_IMAGE_NO_PULL_VISUALIZATION": lambda: to_bool(
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_PODMAN_IMAGE_NO_PULL_VISUALIZATION",
+                # Fallback to Docker's setting.
+                "GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION",
+            ],
+            default="0",
+        ),
+    ),
+    "GPUSTACK_RUNTIME_PODMAN_PAUSE_IMAGE": lambda: getenvs(
+        keys=[
+            "GPUSTACK_RUNTIME_PODMAN_PAUSE_IMAGE",
+            # Fallback to Docker's setting.
+            "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE",
+        ],
+        default="gpustack/runtime:pause",
+    ),
+    "GPUSTACK_RUNTIME_PODMAN_UNHEALTHY_RESTART_IMAGE": lambda: getenvs(
+        keys=[
+            "GPUSTACK_RUNTIME_PODMAN_UNHEALTHY_RESTART_IMAGE",
+            # Fallback to Docker's setting.
+            "GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE",
+        ],
+        default="gpustack/runtime:health",
+    ),
+    "GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR": lambda: mkdir_path(
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR",
+                # Fallback to Docker's setting.
+                "GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR",
+            ],
+            default=expand_path("~/.cache/gpustack-runtime"),
+        ),
+    ),
+    "GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK",
+                # Fallback to Docker's setting.
+                "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK",
+            ],
+            default="1",
+        ),
     ),
 }
 
