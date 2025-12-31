@@ -356,8 +356,9 @@ class DockerDeployer(Deployer):
                 if envs.GPUSTACK_RUNTIME_DOCKER_HOST:
                     os_env["DOCKER_HOST"] = envs.GPUSTACK_RUNTIME_DOCKER_HOST
                 client = docker.from_env(environment=os_env)
-        except docker.errors.DockerException:
-            debug_log_exception(logger, "Failed to get Docker client")
+        except docker.errors.DockerException as e:
+            if "FileNotFoundError" not in str(e):
+                debug_log_exception(logger, "Failed to get Docker client")
 
         return client
 
