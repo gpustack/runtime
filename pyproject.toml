@@ -18,8 +18,8 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "docker",
-    "kubernetes",
+    "docker>=7.1.0",
+    "kubernetes>=33.1.0",
     "pyyaml",
     "gpustack-runner>=0.1.22.post4",
     "nvidia-ml-py>=13.580.65",

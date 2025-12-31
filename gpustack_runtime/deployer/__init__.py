@@ -64,7 +64,7 @@ _NO_AVAILABLE_DEPLOYER_MSG = (
     "No available deployer. "
     "Please provide a container runtime, e.g. "
     "bind mount the host `/var/run/docker.sock` on Docker, "
-    "or allow (in-)cluster access on Kubernetes"
+    "or allow (in-)cluster access on Kubernetes."
 )
 
 
