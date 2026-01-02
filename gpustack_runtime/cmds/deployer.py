@@ -92,238 +92,6 @@ _IGNORE_SENSITIVE_ENVS_SUFFIX = (
 )
 
 
-class CreateRunnerWorkloadSubCommand(SubCommand):
-    """
-    Command to create a runner workload deployment.
-    """
-
-    backend: str
-    device: str
-    command_script: str | None
-    port: int
-    host_network: bool
-    check: bool
-    namespace: str
-    service: str
-    version: str
-    name: str
-    volume: str
-    extra_args: list[str]
-
-    @staticmethod
-    def register(parser: _SubParsersAction):
-        deploy_parser = parser.add_parser(
-            "create-runner",
-            help="Create a runner workload deployment",
-        )
-
-        deploy_parser.add_argument(
-            "--backend",
-            type=str,
-            help="Backend to use (default: detect from current environment)",
-            choices=supported_backends(),
-        )
-
-        deploy_parser.add_argument(
-            "--device",
-            type=str,
-            help="Device to use, multiple devices join by comma (default: all devices)",
-            default="all",
-        )
-
-        deploy_parser.add_argument(
-            "--command-script-file",
-            type=str,
-            help="Path of command script for the workload",
-        )
-
-        deploy_parser.add_argument(
-            "--port",
-            type=int,
-            help="Port to expose",
-        )
-
-        deploy_parser.add_argument(
-            "--host-network",
-            action="store_true",
-            help="Use host network (default: False)",
-            default=False,
-        )
-
-        deploy_parser.add_argument(
-            "--check",
-            action="store_true",
-            help="Enable health check, needs --port (default: False)",
-            default=False,
-        )
-
-        deploy_parser.add_argument(
-            "--namespace",
-            type=str,
-            help="Namespace of the runner",
-        )
-
-        deploy_parser.add_argument(
-            "service",
-            type=str,
-            help="Service of the runner",
-        )
-
-        deploy_parser.add_argument(
-            "version",
-            type=str,
-            help="Version of the runner",
-        )
-
-        deploy_parser.add_argument(
-            "volume",
-            type=str,
-            help="Volume to mount",
-        )
-
-        deploy_parser.add_argument(
-            "extra_args",
-            nargs=REMAINDER,
-            help="Extra arguments for the runner",
-        )
-
-        deploy_parser.set_defaults(func=CreateRunnerWorkloadSubCommand)
-
-    def __init__(self, args: Namespace):
-        self.backend = args.backend
-        self.device = args.device
-        self.command_script = None
-        self.port = args.port
-        self.host_network = args.host_network
-        self.check = args.check
-        self.namespace = args.namespace
-        self.service = args.service
-        self.version = args.version
-        self.name = f"{args.service}-{args.version}".lower().replace(".", "-")
-        self.volume = args.volume
-        self.extra_args = args.extra_args
-
-        if not self.name or not self.volume:
-            msg = "The name and volume arguments are required."
-            raise ValueError(msg)
-
-        if args.command_script_file:
-            command_script_file = Path(args.command_script_file)
-            if not command_script_file.is_file():
-                msg = f"The command script file '{command_script_file}' does not exist."
-                raise ValueError(msg)
-            self.command_script = command_script_file.read_text(
-                encoding="utf-8",
-            ).strip()
-
-    def run(self):
-        env = [
-            ContainerEnv(
-                name=name,
-                value=value,
-            )
-            for name, value in os.environ.items()
-            if not name.startswith(_IGNORE_ENVS_PREFIX)
-            and not name.endswith(_IGNORE_ENVS_SUFFIX)
-        ]
-        if self.backend:
-            resources = ContainerResources(
-                **{
-                    v: self.device
-                    for k, v in envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.items()
-                    if k == self.backend
-                },
-            )
-        else:
-            resources = ContainerResources(
-                **{
-                    envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY: self.device,
-                },
-            )
-        mounts = [
-            ContainerMount(
-                path=self.volume,
-            ),
-        ]
-        execution = ContainerExecution(
-            command_script=self.command_script,
-            args=self.extra_args,
-        )
-        ports = (
-            [
-                ContainerPort(
-                    internal=self.port,
-                ),
-            ]
-            if self.port
-            else None
-        )
-        checks = (
-            [
-                ContainerCheck(
-                    delay=60,
-                    interval=10,
-                    timeout=5,
-                    retries=6,
-                    tcp=ContainerCheckTCP(port=self.port),
-                    teardown=True,
-                ),
-            ]
-            if self.check and self.port
-            else None
-        )
-        plan = WorkloadPlan(
-            name=self.name,
-            namespace=self.namespace,
-            host_network=self.host_network,
-            containers=[
-                Container(
-                    restart_policy=(
-                        ContainerRestartPolicyEnum.NEVER
-                        if not self.check
-                        else ContainerRestartPolicyEnum.ALWAYS
-                    ),
-                    image=f"gpustack/runner:{self.backend if self.backend else 'Host'}X.Y-{self.service}{self.version}",
-                    name=self.name,
-                    envs=env,
-                    resources=resources,
-                    mounts=mounts,
-                    execution=execution,
-                    ports=ports,
-                    checks=checks,
-                ),
-            ],
-        )
-        create_workload(plan)
-        print(f"Created workload '{self.name}'.")
-
-        while True:
-            st = get_workload(
-                name=self.name,
-                namespace=self.namespace,
-            )
-            if st and st.state not in (
-                WorkloadStatusStateEnum.PENDING,
-                WorkloadStatusStateEnum.INITIALIZING,
-            ):
-                break
-            time.sleep(1)
-
-        print("\033[2J\033[H", end="")
-
-        async def stream_logs():
-            logs_result = await async_logs_workload(
-                name=self.name,
-                namespace=self.namespace,
-                tail=-1,
-                follow=True,
-            )
-            async for line in logs_result:
-                print(line.decode("utf-8").rstrip())
-
-        asyncio.run(stream_logs())
-
-
 class CreateWorkloadSubCommand(SubCommand):
     """
     Command to create a workload deployment.
@@ -358,8 +126,7 @@ class CreateWorkloadSubCommand(SubCommand):
         deploy_parser.add_argument(
             "--device",
             type=str,
-            help="Device to use, multiple devices join by comma (default: all devices)",
-            default="all",
+            help="Device to use, multiple devices join by comma, all for all devices",
         )
 
         deploy_parser.add_argument(
@@ -456,20 +223,22 @@ class CreateWorkloadSubCommand(SubCommand):
             if not name.startswith(_IGNORE_ENVS_PREFIX)
             and not name.endswith(_IGNORE_ENVS_SUFFIX)
         ]
-        if self.backend:
-            resources = ContainerResources(
-                **{
-                    v: self.device
-                    for k, v in envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.items()
-                    if k == self.backend
-                },
-            )
-        else:
-            resources = ContainerResources(
-                **{
-                    envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY: self.device,
-                },
-            )
+        resources = None
+        if self.device:
+            if self.backend:
+                resources = ContainerResources(
+                    **{
+                        v: self.device
+                        for k, v in envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.items()
+                        if k == self.backend
+                    },
+                )
+            else:
+                resources = ContainerResources(
+                    **{
+                        envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY: self.device,
+                    },
+                )
         mounts = [
             ContainerMount(
                 path=self.volume,

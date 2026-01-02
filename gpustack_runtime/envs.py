@@ -228,10 +228,6 @@ if TYPE_CHECKING:
     """
     Container image used for unhealthy restart container in Docker.
     """
-    GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR: Path | None = None
-    """
-    Directory for storing ephemeral files for Docker.
-    """
     GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK: bool = True
     """
     Mute the original healthcheck of the container in Docker.
@@ -296,11 +292,6 @@ if TYPE_CHECKING:
     """
     Container image used for unhealthy restart container in Podman.
     Default is same as `GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE`.
-    """
-    GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR: Path | None = None
-    """
-    Directory for storing ephemeral files for Podman.
-    Default is same as `GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR`.
     """
     GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK: bool = True
     """
@@ -526,12 +517,6 @@ variables: dict[str, Callable[[], Any]] = {
         "GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE",
         "gpustack/runtime:health",
     ),
-    "GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR": lambda: mkdir_path(
-        getenv(
-            "GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR",
-            expand_path("~/.cache/gpustack-runtime"),
-        ),
-    ),
     "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK", "1"),
     ),
@@ -621,16 +606,6 @@ variables: dict[str, Callable[[], Any]] = {
             "GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE",
         ],
         default="gpustack/runtime:health",
-    ),
-    "GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR": lambda: mkdir_path(
-        getenvs(
-            keys=[
-                "GPUSTACK_RUNTIME_PODMAN_EPHEMERAL_FILES_DIR",
-                # Fallback to Docker's setting.
-                "GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR",
-            ],
-            default=expand_path("~/.cache/gpustack-runtime"),
-        ),
     ),
     "GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
         getenvs(

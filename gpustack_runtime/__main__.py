@@ -12,7 +12,6 @@ from . import deployer, detector
 from ._version import commit_id, version
 from .cmds import (
     CopyImagesSubCommand,
-    CreateRunnerWorkloadSubCommand,
     CreateWorkloadSubCommand,
     DeleteWorkloadsSubCommand,
     DeleteWorkloadSubCommand,
@@ -59,7 +58,6 @@ def main():
     subcommand_parser = parser.add_subparsers(
         help="gpustack-runtime command helpers",
     )
-    CreateRunnerWorkloadSubCommand.register(subcommand_parser)
     CreateWorkloadSubCommand.register(subcommand_parser)
     DeleteWorkloadSubCommand.register(subcommand_parser)
     DeleteWorkloadsSubCommand.register(subcommand_parser)

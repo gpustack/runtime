@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import logging
 import operator
 import os
 import socket
 import sys
+import tarfile
 from dataclasses import dataclass, field
 from functools import lru_cache, reduce
 from math import ceil
@@ -303,10 +305,6 @@ class DockerDeployer(Deployer):
     """
     Client for interacting with the Docker daemon.
     """
-    _container_ephemeral_files_dir: Path | None = None
-    """
-    Directory for ephemeral files inside containers, internal use only.
-    """
     _mutate_create_options: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     """
     Function to handle mirrored deployment, internal use only.
@@ -382,48 +380,6 @@ class DockerDeployer(Deployer):
             return func(self, *args, **kwargs)
 
         return wrapper
-
-    @staticmethod
-    def _create_ephemeral_files(
-        workload: DockerWorkloadPlan,
-    ) -> dict[tuple[int, str], str]:
-        """
-        Create ephemeral files as local file for the workload.
-
-        Returns:
-            A mapping from (container index, configured path) to actual filename.
-
-        Raises:
-            OperationError:
-                If the ephemeral files fail to create.
-
-        """
-        # Map (container index, configured path) to actual filename.
-        ephemeral_filename_mapping: dict[tuple[int, str], str] = {}
-        ephemeral_files: list[tuple[str, str, int]] = []
-        for ci, c in enumerate(workload.containers):
-            for fi, f in enumerate(c.files or []):
-                if f.content is not None:
-                    fn = f"{workload.name}-{ci}-{fi}"
-                    ephemeral_filename_mapping[(ci, f.path)] = fn
-                    ephemeral_files.append((fn, f.content, f.mode))
-        if not ephemeral_filename_mapping:
-            return ephemeral_filename_mapping
-
-        # Create ephemeral files directory if not exists.
-        try:
-            for fn, fc, fm in ephemeral_files:
-                fp = envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.joinpath(fn)
-                with fp.open("w", encoding="utf-8") as f:
-                    f.write(fc)
-                    f.flush()
-                fp.chmod(fm)
-                logger.debug("Created local file %s with mode %s", fp, oct(fm))
-        except OSError as e:
-            msg = "Failed to create ephemeral files"
-            raise OperationError(msg) from e
-
-        return ephemeral_filename_mapping
 
     def _create_ephemeral_volumes(self, workload: DockerWorkloadPlan) -> dict[str, str]:
         """
@@ -717,12 +673,10 @@ class DockerDeployer(Deployer):
         else:
             return d_container
 
+    @staticmethod
     def _append_container_mounts(
-        self,
         create_options: dict[str, Any],
         c: Container,
-        ci: int,
-        ephemeral_filename_mapping: dict[tuple[int, str] : str],
         ephemeral_volume_name_mapping: dict[str, str],
     ):
         """
@@ -738,17 +692,7 @@ class DockerDeployer(Deployer):
                     target="",
                 )
 
-                if f.content is not None:
-                    # Ephemeral file, use from local ephemeral files directory.
-                    if (ci, f.path) not in ephemeral_filename_mapping:
-                        continue
-                    fn = ephemeral_filename_mapping[(ci, f.path)]
-                    path = str(
-                        self._container_ephemeral_files_dir.joinpath(fn),
-                    )
-                    binding["Source"] = path
-                    binding["Target"] = f"/{f.path.lstrip('/')}"
-                elif f.path:
+                if f.content is None and f.path:
                     # Host file, bind directly.
                     binding["Source"] = f.path
                     binding["Target"] = f.path
@@ -860,10 +804,39 @@ class DockerDeployer(Deployer):
 
         return healthcheck
 
+    @staticmethod
+    def _upload_ephemeral_files(
+        c: Container,
+        container: docker.models.containers.Container,
+    ):
+        if not c.files:
+            return
+
+        f_tar = io.BytesIO()
+        with tarfile.open(fileobj=f_tar, mode="w") as tar:
+            for f in c.files:
+                if f.content is None or not f.path:
+                    continue
+                fc_bytes = f.content.encode("utf-8")
+                info = tarfile.TarInfo(name=f.path.lstrip("/"))
+                info.size = len(fc_bytes)
+                info.mode = f.mode
+                tar.addfile(tarinfo=info, fileobj=io.BytesIO(fc_bytes))
+        if f_tar.getbuffer().nbytes == 0:
+            return
+
+        f_tar.seek(0)
+        uploaded = container.put_archive(
+            path="/",
+            data=f_tar.getvalue(),
+        )
+        if not uploaded:
+            msg = f"Failed to upload ephemeral files to container {container.name}"
+            raise OperationError(msg)
+
     def _create_containers(
         self,
         workload: DockerWorkloadPlan,
-        ephemeral_filename_mapping: dict[tuple[int, str] : str],
         ephemeral_volume_name_mapping: dict[str, str],
         pause_container: docker.models.containers.Container,
     ) -> (
@@ -1106,8 +1079,6 @@ class DockerDeployer(Deployer):
             self._append_container_mounts(
                 create_options,
                 c,
-                ci,
-                ephemeral_filename_mapping,
                 ephemeral_volume_name_mapping,
             )
 
@@ -1149,6 +1120,10 @@ class DockerDeployer(Deployer):
                     detach=detach,
                     **create_options,
                 )
+
+                # Upload ephemeral files into the container.
+                self._upload_ephemeral_files(c, d_container)
+
             except docker.errors.APIError as e:
                 msg = f"Failed to create container {container_name}{_detail_api_call_error(e)}"
                 raise OperationError(msg) from e
@@ -1198,9 +1173,6 @@ class DockerDeployer(Deployer):
     def __init__(self):
         super().__init__(_NAME)
         self._client = self._get_client()
-        self._container_ephemeral_files_dir = (
-            envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR
-        )
 
     def _prepare_create(self):
         """
@@ -1434,25 +1406,6 @@ class DockerDeployer(Deployer):
 
         self._mutate_create_options = mutate_create_options
 
-        # Extract ephemeral files dir mutation if any.
-        if mirrored_mounts:
-            e_target = str(envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR)
-            b_source = ""
-            b_target = ""
-            for m in mirrored_mounts:
-                c_target = m.get("Destination", "///")
-                if (
-                    e_target == c_target or e_target.startswith(f"{c_target}/")
-                ) and len(c_target) >= len(b_target):
-                    b_source = m.get("Source")
-                    b_target = c_target
-            if b_source:
-                result = Path(b_source)
-                if e_target != b_target:
-                    b_subpath = e_target.removeprefix(b_target)
-                    result = result.joinpath(b_subpath.lstrip("/"))
-                self._container_ephemeral_files_dir = result
-
     def _find_self_container(
         self,
         self_container_id: str,
@@ -1536,12 +1489,6 @@ class DockerDeployer(Deployer):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Creating workload:\n%s", workload.to_yaml())
 
-        # Create ephemeral file if needed,
-        # (container index, configured path): <actual filename>
-        ephemeral_filename_mapping: dict[tuple[int, str] : str] = (
-            self._create_ephemeral_files(workload)
-        )
-
         # Create ephemeral volumes if needed,
         # <configured volume name>: <actual volume name>
         ephemeral_volume_name_mapping: dict[str, str] = self._create_ephemeral_volumes(
@@ -1554,7 +1501,6 @@ class DockerDeployer(Deployer):
         # Create init/run containers.
         init_containers, run_containers = self._create_containers(
             workload,
-            ephemeral_filename_mapping,
             ephemeral_volume_name_mapping,
             pause_container,
         )
@@ -1694,17 +1640,6 @@ class DockerDeployer(Deployer):
                 )
         except docker.errors.APIError as e:
             msg = f"Failed to delete volumes for workload {name}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
-
-        # Remove all ephemeral files for the workload.
-        try:
-            for fp in envs.GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR.glob(
-                f"{name}-*",
-            ):
-                if fp.is_file():
-                    fp.unlink(missing_ok=True)
-        except OSError as e:
-            msg = f"Failed to delete ephemeral files for workload {name}"
             raise OperationError(msg) from e
 
         return workload

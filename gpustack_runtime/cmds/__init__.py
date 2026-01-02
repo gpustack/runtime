@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from .deployer import (
-    CreateRunnerWorkloadSubCommand,
     CreateWorkloadSubCommand,
     DeleteWorkloadsSubCommand,
     DeleteWorkloadSubCommand,
@@ -23,7 +22,6 @@ from .images import (
 
 __all__ = [
     "CopyImagesSubCommand",
-    "CreateRunnerWorkloadSubCommand",
     "CreateWorkloadSubCommand",
     "DeleteWorkloadSubCommand",
     "DeleteWorkloadsSubCommand",
