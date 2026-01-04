@@ -46,7 +46,13 @@ from .__types__ import (
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
-from .__utils__ import _MiB, bytes_to_human_readable, replace_image_with, safe_json
+from .__utils__ import (
+    _MiB,
+    bytes_to_human_readable,
+    replace_image_with,
+    safe_json,
+    sensitive_env_var,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -1880,6 +1886,51 @@ class DockerDeployer(Deployer):
             if not attach:
                 return output
             return DockerWorkloadExecStream(output)
+
+    @_supported
+    def _inspect(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+    ) -> str | None:
+        """
+        Inspect a Docker workload.
+
+        Args:
+            name:
+                The name of the workload.
+            namespace:
+                The namespace of the workload.
+
+        Returns:
+            The inspection result as a JSON string. None if not found.
+
+        Raises:
+            UnsupportedError:
+                If Docker is not supported in the current environment.
+            OperationError:
+                If the Docker workload fails to inspect.
+
+        """
+        workload = self._get(name=name, namespace=namespace)
+        if not workload:
+            return None
+
+        d_containers = getattr(workload, "_d_containers", [])
+        if not d_containers:
+            return None
+
+        result = []
+        for c in d_containers:
+            c_attrs = c.attrs
+            # Mask sensitive environment variables
+            if "Env" in c_attrs["Config"]:
+                for i, env in enumerate(c_attrs["Config"]["Env"] or []):
+                    env_name, _ = env.split("=", maxsplit=1)
+                    if sensitive_env_var(env_name):
+                        c_attrs["Config"]["Env"][i] = f"{env_name}=******"
+            result.append(c_attrs)
+        return safe_json(result, indent=2)
 
 
 def _has_restart_policy(

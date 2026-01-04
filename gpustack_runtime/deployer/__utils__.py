@@ -42,6 +42,25 @@ Regex for RFC1035 domain name, which must:
     - start with an alphabetic character
     - end with an alphanumeric character
 """
+_SENSITIVE_ENVS_SUFFIX = (
+    "key",
+    "keys",
+    "token",
+    "tokens",
+    "secret",
+    "secrets",
+    "password",
+    "passwords",
+    "passwd",
+    "pass",
+    "credential",
+    "credentials",
+    "cred",
+    "auth",
+)
+"""
+Suffixes of environment variable names that are considered sensitive.
+"""
 
 
 @lru_cache
@@ -775,3 +794,18 @@ def make_image_with(
     else:
         image += f":{tag}"
     return image
+
+
+def sensitive_env_var(name: str) -> bool:
+    """
+    Check if the given environment variable name is considered sensitive.
+
+    Args:
+        name:
+            The environment variable name to check.
+
+    Returns:
+        True if the name is considered sensitive, False otherwise.
+
+    """
+    return name.lower().endswith(_SENSITIVE_ENVS_SUFFIX)

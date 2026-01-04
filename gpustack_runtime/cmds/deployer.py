@@ -28,9 +28,9 @@ from ..deployer import (
     delete_workload,
     exec_workload,
     get_workload,
+    inspect_workload,
     list_workloads,
 )
-from ..deployer.__utils__ import safe_json, safe_yaml
 from ..detector import supported_backends
 from .__types__ import SubCommand
 
@@ -76,19 +76,6 @@ _IGNORE_ENVS_SUFFIX = (
     "_VISIBLE_DEVICES",
     "_DISABLE_REQUIRE",
     "_DRIVER_CAPABILITIES",
-)
-
-_IGNORE_SENSITIVE_ENVS_SUFFIX = (
-    "_KEY",
-    "_key",
-    "_TOKEN",
-    "_token",
-    "_SECRET",
-    "_secret",
-    "_PASSWORD",
-    "_password",
-    "_PASS",
-    "_pass",
 )
 
 
@@ -784,35 +771,12 @@ class InspectWorkloadSubCommand(SubCommand):
             raise ValueError(msg)
 
     def run(self):
-        workload = get_workload(self.name, self.namespace)
-        if not workload:
+        result = inspect_workload(self.name, self.namespace)
+        if not result:
             print(f"Workload '{self.name}' not found.")
             return
 
-        if hasattr(workload, "_d_containers"):
-            result = []
-            for c in workload._d_containers:  # noqa: SLF001
-                c_attrs = c.attrs
-                # Mask sensitive environment variables
-                if "Env" in c_attrs["Config"]:
-                    for i, env in enumerate(c_attrs["Config"]["Env"] or []):
-                        env_name, _ = env.split("=", maxsplit=1)
-                        if env_name.endswith(_IGNORE_SENSITIVE_ENVS_SUFFIX):
-                            c_attrs["Config"]["Env"][i] = f"{env_name}=******"
-                result.append(c_attrs)
-            print(safe_json(result, indent=2))
-        elif hasattr(workload, "_k_pod"):
-            k_pod = workload._k_pod  # noqa: SLF001
-            # Remove managed fields to reduce output size
-            k_pod.metadata.managed_fields = None
-            # Mask sensitive environment variables
-            for c in k_pod.spec.containers:
-                for env in c.env or []:
-                    if env.name.endswith(_IGNORE_SENSITIVE_ENVS_SUFFIX):
-                        env.value = "******"
-            print(safe_yaml(k_pod, indent=2, sort_keys=False))
-        else:
-            print("No detailed inspection information available for this workload.")
+        print(result)
 
 
 def format_workloads_json(sts: list[WorkloadStatus]) -> str:

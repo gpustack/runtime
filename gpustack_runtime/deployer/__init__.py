@@ -373,6 +373,41 @@ def exec_workload(
     raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
 
 
+def inspect_workload(
+    name: WorkloadName,
+    namespace: WorkloadNamespace | None = None,
+) -> str:
+    """
+    Inspect the given workload.
+
+    Args:
+        name:
+            The name of the workload to inspect.
+        namespace:
+            The namespace of the workload.
+
+    Returns:
+        The inspection data as a dictionary.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to inspect the workload.
+
+    """
+    for dep in _DEPLOYERS:
+        if not dep.is_supported():
+            continue
+
+        return dep.inspect(
+            name=name,
+            namespace=namespace,
+        )
+
+    raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
+
+
 __all__ = [
     "Container",
     "ContainerCapabilities",
@@ -413,6 +448,7 @@ __all__ = [
     "delete_workload",
     "exec_workload",
     "get_workload",
+    "inspect_workload",
     "list_workloads",
     "logs_workload",
     "supported_list",

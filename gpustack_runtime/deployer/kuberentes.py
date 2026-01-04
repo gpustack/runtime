@@ -40,6 +40,7 @@ from .__utils__ import (
     fnv1a_32_hex,
     fnv1a_64_hex,
     safe_yaml,
+    sensitive_env_var,
     validate_rfc1123_domain_name,
 )
 
@@ -1930,6 +1931,49 @@ class KubernetesDeployer(Deployer):
             if not attach:
                 return result
             return KubernetesWorkloadExecStream(result)
+
+    @_supported
+    def _inspect(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+    ) -> str | None:
+        """
+        Inspect a Kubernetes workload.
+
+        Args:
+            name:
+                The name of the workload.
+            namespace:
+                The namespace of the workload.
+
+        Returns:
+            The inspection result as a YAML string if found, None otherwise.
+
+        Raises:
+            UnsupportedError:
+                If Kubernetes is not supported in the current environment.
+            OperationError:
+                If the Kubernetes workload fails to inspect.
+
+        """
+        workload = self._get(name=name, namespace=namespace)
+        if not workload:
+            return None
+
+        k_pod = getattr(workload, "_k_pod", None)
+        if not k_pod:
+            return None
+
+        # Remove managed fields to reduce output size
+        k_pod.metadata.managed_fields = None
+
+        # Mask sensitive environment variables
+        for c in k_pod.spec.containers:
+            for env in c.env or []:
+                if sensitive_env_var(env.name):
+                    env.value = "******"
+        return safe_yaml(k_pod, indent=2, sort_keys=False)
 
 
 def equal_config_maps(

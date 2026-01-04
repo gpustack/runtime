@@ -2132,3 +2132,74 @@ class Deployer(ABC):
 
         """
         raise NotImplementedError
+
+    @_default_args
+    def inspect(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+        async_mode: bool | None = None,
+    ) -> str | None:
+        """
+        Inspect a workload.
+
+        Args:
+            name:
+                The name of the workload.
+            namespace:
+                The namespace of the workload.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            The inspection result. None if not found.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to inspect.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._inspect,
+                    name,
+                    namespace,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous workload inspect failed."
+                raise OperationError(msg) from e
+        else:
+            return self._inspect(name, namespace)
+
+    @abstractmethod
+    def _inspect(
+        self,
+        name: WorkloadName,
+        namespace: WorkloadNamespace | None = None,
+    ) -> str | None:
+        """
+        Inspect a workload.
+
+        Args:
+            name:
+                The name of the workload.
+            namespace:
+                The namespace of the workload.
+
+        Returns:
+            The inspection result. None if not found.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the workload fails to inspect.
+
+        """
+        raise NotImplementedError
