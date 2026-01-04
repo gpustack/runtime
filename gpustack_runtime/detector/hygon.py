@@ -108,7 +108,7 @@ class HygonDetector(Detector):
                 dev_index = dev_idx
 
                 dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
-                dev_hsa_agent = hsa_agents.get(dev_uuid)
+                dev_hsa_agent = hsa_agents.get(dev_uuid, pyhsa.Agent())
 
                 dev_name = dev_hsa_agent.name
                 if not dev_name:

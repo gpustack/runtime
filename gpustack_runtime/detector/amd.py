@@ -108,7 +108,7 @@ class AMDDetector(Detector):
                     dev_uuid = f"GPU-{(asic_serial[2:]).lower()}"
                 else:
                     dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
-                dev_hsa_agent = hsa_agents.get(dev_uuid)
+                dev_hsa_agent = hsa_agents.get(dev_uuid, pyhsa.Agent())
 
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
                 dev_driver_ver = dev_gpu_driver_info.get("driver_version")
