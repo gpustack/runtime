@@ -1736,6 +1736,11 @@ class PodmanDeployer(EndoscopicDeployer):
             msg = f"Failed to fetch logs for container {container.name} of workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
+            if not follow:
+                result = bytearray()
+                for chunk in output:
+                    result.extend(chunk)
+                return result.decode("utf-8")
             return output
 
     @_supported
@@ -1941,6 +1946,11 @@ class PodmanDeployer(EndoscopicDeployer):
             msg = f"Failed to fetch logs for self Container {self_container.short_id}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
+            if not follow:
+                result = bytearray()
+                for chunk in output:
+                    result.extend(chunk)
+                return result.decode("utf-8")
             return output
 
     def _endoscopic_exec(
