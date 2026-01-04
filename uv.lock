@@ -258,16 +258,16 @@ wheels = [
 
 [[package]]
 name = "gpustack-runner"
-version = "0.1.23.post3"
+version = "0.1.23.post4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "argcomplete" },
     { name = "dataclasses-json" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/97/42/58754bbfad643ba4a30f9b3ed5e63d0a2218881917b95062b779e1025a6a/gpustack_runner-0.1.23.post3.tar.gz", hash = "sha256:adbd17dae15614b45bfb44417250ac4484200d6a03f926c3a73acee231c6cd19", size = 118133, upload-time = "2026-01-04T02:36:47.327Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/22/15ae68383ed311a1cfc795b35462d9dbcd09c9f9d69eb9e877c8cc031e1a/gpustack_runner-0.1.23.post4.tar.gz", hash = "sha256:79b49dbdfe3561ee305b904e28c19ce97cb618ed904915470044209a6c7103cb", size = 118216, upload-time = "2026-01-04T08:06:26.804Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/0b/dea53d2af8370152945ea563b5738ae3426835583b063ce1f7a6c7bff08c/gpustack_runner-0.1.23.post3-py3-none-any.whl", hash = "sha256:9a83b90d93d9f37274ea9c6b63d78251f4ff647eebafa3ccdcbe79d56863cf78", size = 25517, upload-time = "2026-01-04T02:36:46.092Z" },
+    { url = "https://files.pythonhosted.org/packages/01/5f/61453bbee9d6e46241b1dee426ab257f87060faad4b6366ab6e97c42abe4/gpustack_runner-0.1.23.post4-py3-none-any.whl", hash = "sha256:864fac24a2945c7b34079715eccff32341b796fa4f409e66103afc81c0117326", size = 25603, upload-time = "2026-01-04T08:06:25.641Z" },
 ]
 
 [[package]]
@@ -303,7 +303,7 @@ dev = [
 requires-dist = [
     { name = "argcomplete", specifier = ">=3.6.3" },
     { name = "docker", specifier = ">=7.1.0" },
-    { name = "gpustack-runner", specifier = ">=0.1.23.post3" },
+    { name = "gpustack-runner", specifier = ">=0.1.23.post4" },
     { name = "kubernetes", specifier = ">=33.1.0" },
     { name = "nvidia-ml-py", specifier = ">=13.580.65" },
     { name = "podman", specifier = "==5.6.0" },
