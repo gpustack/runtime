@@ -811,7 +811,7 @@ class LogsSelfSubCommand(SubCommand):
             help="Follow the logs in real-time",
         )
 
-        logs_parser.set_defaults(func=LogsWorkloadSubCommand)
+        logs_parser.set_defaults(func=LogsSelfSubCommand)
 
     def __init__(self, args: Namespace):
         self.tail = args.tail
@@ -864,7 +864,7 @@ class ExecSelfSubCommand(SubCommand):
             help="Command to execute in the workload",
         )
 
-        exec_parser.set_defaults(func=ExecWorkloadSubCommand)
+        exec_parser.set_defaults(func=ExecSelfSubCommand)
 
     def __init__(self, args: Namespace):
         self.interactive = args.interactive
@@ -936,7 +936,7 @@ class InspectSelfSubCommand(SubCommand):
             help="Inspect the deployer itself",
         )
 
-        inspect_parser.set_defaults(func=InspectWorkloadSubCommand)
+        inspect_parser.set_defaults(func=InspectSelfSubCommand)
 
     def __init__(self, args: Namespace):
         pass
