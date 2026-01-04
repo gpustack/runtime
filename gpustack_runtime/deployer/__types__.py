@@ -1247,6 +1247,25 @@ class WorkloadExecStream(ABC):
         raise NotImplementedError
 
 
+def _default_args(func):
+    """
+    Decorator to set default args for deployer methods.
+
+    """
+
+    def wrapper(self, *args, async_mode=None, **kwargs):
+        if async_mode is None:
+            async_mode = envs.GPUSTACK_RUNTIME_DEPLOY_ASYNC
+        return func(
+            self,
+            *args,
+            async_mode=async_mode,
+            **kwargs,
+        )
+
+    return wrapper
+
+
 class Deployer(ABC):
     """
     Base class for all deployers.
@@ -1327,20 +1346,6 @@ class Deployer(ABC):
 
         """
         raise NotImplementedError
-
-    @staticmethod
-    def _default_args(func):
-        def wrapper(self, *args, async_mode=None, **kwargs):
-            if async_mode is None:
-                async_mode = envs.GPUSTACK_RUNTIME_DEPLOY_ASYNC
-            return func(
-                self,
-                *args,
-                async_mode=async_mode,
-                **kwargs,
-            )
-
-        return wrapper
 
     def __init__(self, name: str):
         self._name = name
@@ -2200,6 +2205,237 @@ class Deployer(ABC):
                 If the deployer is not supported in the current environment.
             OperationError:
                 If the workload fails to inspect.
+
+        """
+        raise NotImplementedError
+
+
+class EndoscopicDeployer(Deployer):
+    """
+    Base class for endoscopic deployers.
+    """
+
+    @_default_args
+    def endoscopic_logs(
+        self,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+        async_mode: bool | None = None,
+    ) -> Generator[bytes | str, None, None] | bytes | str:
+        """
+        Get the logs of the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the deployer fails to get logs.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._endoscopic_logs,
+                    timestamps,
+                    tail,
+                    since,
+                    follow,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous endoscopic logs failed."
+                raise OperationError(msg) from e
+        else:
+            return self._endoscopic_logs(timestamps, tail, since, follow)
+
+    @abstractmethod
+    def _endoscopic_logs(
+        self,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+    ) -> Generator[bytes | str, None, None] | bytes | str:
+        """
+        Get the logs of the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the deployer fails to get logs.
+
+        """
+        raise NotImplementedError
+
+    @_default_args
+    def endoscopic_exec(
+        self,
+        detach: bool = True,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+        async_mode: bool | None = None,
+    ) -> WorkloadExecStream | bytes | str:
+        """
+        Execute a command in the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            detach:
+                Whether to detach from the command.
+            command:
+                The command to execute.
+                If not specified, use /bin/sh and implicitly attach.
+            args:
+                The arguments to pass to the command.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            If detach is False, return a WorkloadExecStream.
+            otherwise, return the output of the command as a byte string or string.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._endoscopic_exec,
+                    detach,
+                    command,
+                    args,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous endoscopic exec failed."
+                raise OperationError(msg) from e
+        else:
+            return self._endoscopic_exec(detach, command, args)
+
+    @abstractmethod
+    def _endoscopic_exec(
+        self,
+        detach: bool = True,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+    ) -> WorkloadExecStream | bytes | str:
+        """
+        Execute a command in the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            detach:
+                Whether to detach from the command.
+            command:
+                The command to execute.
+                If not specified, use /bin/sh and implicitly attach.
+            args:
+                The arguments to pass to the command.
+
+        Returns:
+            If detach is False, return a WorkloadExecStream.
+            otherwise, return the output of the command as a byte string or string.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
+
+        """
+        raise NotImplementedError
+
+    def endoscopic_inspect(
+        self,
+        async_mode: bool | None = None,
+    ) -> str | None:
+        """
+        Inspect the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            The inspection result. None if not supported.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
+
+        """
+        if async_mode:
+            try:
+                future = self.pool.submit(
+                    self._endoscopic_inspect,
+                )
+                return future.result()
+            except OperationError:
+                raise
+            except Exception as e:
+                msg = "Asynchronous endoscopic inspect failed."
+                raise OperationError(msg) from e
+        else:
+            return self._endoscopic_inspect()
+
+    @abstractmethod
+    def _endoscopic_inspect(self) -> str | None:
+        """
+        Inspect the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Returns:
+            The inspection result. None if not supported.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
 
         """
         raise NotImplementedError

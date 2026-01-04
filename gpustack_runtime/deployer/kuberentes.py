@@ -24,7 +24,7 @@ from .__types__ import (
     Container,
     ContainerPort,
     ContainerProfileEnum,
-    Deployer,
+    EndoscopicDeployer,
     UnsupportedError,
     WorkloadExecStream,
     WorkloadName,
@@ -278,7 +278,7 @@ Name of the Kubernetes deployer.
 """
 
 
-class KubernetesDeployer(Deployer):
+class KubernetesDeployer(EndoscopicDeployer):
     """
     Deployer implementation for Kubernetes.
     """
@@ -300,6 +300,11 @@ class KubernetesDeployer(Deployer):
     ) = None
     """
     Function to handle mirrored deployment, internal use only.
+    """
+    _pod: kubernetes.client.V1Pod | None = None
+    """
+    Pod object of the deployer itself, internal use only.
+    Works if mirrored deployment is enabled.
     """
 
     @staticmethod
@@ -371,6 +376,21 @@ class KubernetesDeployer(Deployer):
         def wrapper(self, *args, **kwargs):
             if not self.is_supported():
                 msg = "Kubernetes is not supported in the current environment."
+                raise UnsupportedError(msg)
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    @staticmethod
+    def _endoscopic_supported(func):
+        """
+        Decorator to check if endoscopic operations are supported in the current environment.
+
+        """
+
+        def wrapper(self, *args, **kwargs):
+            if getattr(self, "_pod", None) is None:
+                msg = "Endoscopy is not supported in the current environment."
                 raise UnsupportedError(msg)
             return func(self, *args, **kwargs)
 
@@ -1461,6 +1481,7 @@ class KubernetesDeployer(Deployer):
             return pod
 
         self._mutate_create_pod = mutate_create_pod
+        self._pod = self_pod
 
     @_supported
     def _create(self, workload: WorkloadPlan):
@@ -1967,12 +1988,170 @@ class KubernetesDeployer(Deployer):
 
         # Remove managed fields to reduce output size
         k_pod.metadata.managed_fields = None
-
         # Mask sensitive environment variables
         for c in k_pod.spec.containers:
             for env in c.env or []:
                 if sensitive_env_var(env.name):
                     env.value = "******"
+
+        return safe_yaml(k_pod, indent=2, sort_keys=False)
+
+    @_endoscopic_supported
+    def _endoscopic_logs(
+        self,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+    ) -> Generator[bytes | str, None, None] | bytes | str:
+        """
+        Get the logs of the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+            OperationError:
+                If the deployer fails to get logs.
+
+        """
+        logs_options = {
+            "timestamps": timestamps,
+            "tail_lines": tail if tail >= 0 else None,
+            "since_seconds": since,
+            "follow": follow,
+            "_preload_content": not follow,
+        }
+
+        self_pod_name = self._pod.metadata.name
+        self_pod_namespace = self._pod.metadata.namespace
+
+        core_api = kubernetes.client.CoreV1Api(self._client)
+
+        try:
+            output = core_api.read_namespaced_pod_log(
+                namespace=self_pod_namespace,
+                name=self_pod_name,
+                **logs_options,
+            )
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Failed to fetch logs for self Pod {self_pod_namespace}/{self_pod_name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+        else:
+            return output
+
+    @_endoscopic_supported
+    def _endoscopic_exec(
+        self,
+        detach: bool = True,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+    ) -> WorkloadExecStream | bytes | str:
+        """
+        Execute a command in the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            detach:
+                Whether to detach from the command.
+            command:
+                The command to execute.
+                If not specified, use /bin/sh and implicitly attach.
+            args:
+                The arguments to pass to the command.
+
+        Returns:
+            If detach is False, return a WorkloadExecStream.
+            otherwise, return the output of the command as a byte string or string.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
+
+        """
+        attach = not detach or not command
+        exec_options = {
+            "stdout": True,
+            "stderr": True,
+            "stdin": attach,
+            "tty": attach,
+            "command": [*command, *(args or [])] if command else ["/bin/sh"],
+            "_preload_content": not attach,
+        }
+
+        self_pod_name = self._pod.metadata.name
+        self_pod_namespace = self._pod.metadata.namespace
+
+        core_api = kubernetes.client.CoreV1Api(self._client)
+
+        try:
+            result = kubernetes.stream.stream(
+                core_api.connect_get_namespaced_pod_exec,
+                namespace=self_pod_namespace,
+                name=self_pod_name,
+                **exec_options,
+            )
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Failed to exec command in self Pod {self_pod_namespace}/{self_pod_name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+        else:
+            if not attach:
+                return result
+            return KubernetesWorkloadExecStream(result)
+
+    @_endoscopic_supported
+    def _endoscopic_inspect(self) -> str | None:
+        """
+        Inspect the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Returns:
+            The inspection result. None if not supported.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
+
+        """
+        self_pod_name = self._pod.metadata.name
+        self_pod_namespace = self._pod.metadata.namespace
+
+        core_api = kubernetes.client.CoreV1Api(self._client)
+
+        try:
+            k_pod = core_api.read_namespaced_pod(
+                name=self_pod_name,
+                namespace=self_pod_namespace,
+            )
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Failed to inspect self Pod {self_pod_namespace}/{self_pod_name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+
+        # Remove managed fields to reduce output size
+        k_pod.metadata.managed_fields = None
+        # Mask sensitive environment variables
+        for c in k_pod.spec.containers:
+            for env in c.env or []:
+                if sensitive_env_var(env.name):
+                    env.value = "******"
+
         return safe_yaml(k_pod, indent=2, sort_keys=False)
 
 

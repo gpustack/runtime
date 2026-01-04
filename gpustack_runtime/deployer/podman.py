@@ -37,7 +37,7 @@ from .__types__ import (
     ContainerMountModeEnum,
     ContainerProfileEnum,
     ContainerRestartPolicyEnum,
-    Deployer,
+    EndoscopicDeployer,
     OperationError,
     UnsupportedError,
     WorkloadExecStream,
@@ -305,7 +305,7 @@ Name of the Podman deployer.
 """
 
 
-class PodmanDeployer(Deployer):
+class PodmanDeployer(EndoscopicDeployer):
     """
     Deployer implementation for Podman containers.
     """
@@ -317,6 +317,11 @@ class PodmanDeployer(Deployer):
     _mutate_create_options: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     """
     Function to handle mirrored deployment, internal use only.
+    """
+    _container: podman.domain.containers.Container | None = None
+    """
+    Container object of the deployer itself, internal use only.
+    Works if mirrored deployment is enabled.
     """
 
     @staticmethod
@@ -385,6 +390,21 @@ class PodmanDeployer(Deployer):
         def wrapper(self, *args, **kwargs):
             if not self.is_supported():
                 msg = "Podman is not supported in the current environment."
+                raise UnsupportedError(msg)
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    @staticmethod
+    def _endoscopic_supported(func):
+        """
+        Decorator to check if endoscopic operations are supported in the current environment.
+
+        """
+
+        def wrapper(self, *args, **kwargs):
+            if getattr(self, "_self_container", None) is None:
+                msg = "Endoscopy is not supported in the current environment."
                 raise UnsupportedError(msg)
             return func(self, *args, **kwargs)
 
@@ -1182,7 +1202,7 @@ class PodmanDeployer(Deployer):
             self_container = self._find_self_container(self_container_id)
             logger.info(
                 "Mirrored deployment enabled, using self Container %s for options mirroring",
-                self_container.id[:12],
+                self_container.short_id,
             )
             self_image = self_container.image
         except podman.errors.APIError:
@@ -1347,6 +1367,7 @@ class PodmanDeployer(Deployer):
             return create_options
 
         self._mutate_create_options = mutate_create_options
+        self._container = self_container
 
     def _find_self_container(
         self,
@@ -1865,6 +1886,148 @@ class PodmanDeployer(Deployer):
                         c_attrs["Config"]["Env"][i] = f"{env_name}=******"
             result.append(c_attrs)
         return safe_json(result, indent=2)
+
+    @_endoscopic_supported
+    def _endoscopic_logs(
+        self,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+    ) -> Generator[bytes | str, None, None] | bytes | str:
+        """
+        Get the logs of the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+            OperationError:
+                If the deployer fails to get logs.
+
+        """
+        logs_options = {
+            "timestamps": timestamps,
+            "tail": tail if tail >= 0 else None,
+            "since": since,
+            "follow": follow,
+        }
+
+        self_container_id = self._container.short_id
+
+        try:
+            output = self._container.logs(
+                stream=follow,
+                **logs_options,
+            )
+        except podman.errors.APIError as e:
+            msg = f"Failed to fetch logs for self Container {self_container_id}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+        else:
+            return output
+
+    @_endoscopic_supported
+    def _endoscopic_exec(
+        self,
+        detach: bool = True,
+        command: list[str] | None = None,
+        args: list[str] | None = None,
+    ) -> WorkloadExecStream | bytes | str:
+        """
+        Execute a command in the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            detach:
+                Whether to detach from the command.
+            command:
+                The command to execute.
+                If not specified, use /bin/sh and implicitly attach.
+            args:
+                The arguments to pass to the command.
+
+        Returns:
+            If detach is False, return a WorkloadExecStream.
+            otherwise, return the output of the command as a byte string or string.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
+
+        """
+        attach = not detach or not command
+        exec_options = {
+            "stdout": True,
+            "stderr": True,
+            "stdin": attach,
+            "socket": attach,
+            "tty": attach,
+            "cmd": [*command, *(args or [])] if command else ["/bin/sh"],
+        }
+
+        self_container_id = self._container.short_id
+
+        try:
+            _, output = self._container.exec_run(
+                detach=False,
+                **exec_options,
+            )
+        except podman.errors.APIError as e:
+            msg = f"Failed to exec command in self Container {self_container_id}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+        else:
+            if not attach:
+                return output
+            return PodmanWorkloadExecStream(output)
+
+    @_endoscopic_supported
+    def _endoscopic_inspect(self) -> str | None:
+        """
+        Inspect the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Returns:
+            The inspection result. None if not supported.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+            OperationError:
+                If the deployer fails to execute the command.
+
+        """
+        self_container_id = self._container.short_id
+
+        try:
+            self_container = self._client.containers.get(self_container_id)
+        except podman.errors.APIError as e:
+            msg = f"Failed to inspect self Container {self_container_id}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+
+        c_attrs = self_container.attrs
+        # Mask sensitive environment variables
+        if "Env" in c_attrs["Config"]:
+            for i, env in enumerate(c_attrs["Config"]["Env"] or []):
+                env_name, _ = env.split("=", maxsplit=1)
+                if sensitive_env_var(env_name):
+                    c_attrs["Config"]["Env"][i] = f"{env_name}=******"
+
+        return safe_json(c_attrs, indent=2)
 
 
 def _has_restart_policy(
