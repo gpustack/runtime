@@ -119,24 +119,24 @@ if TYPE_CHECKING:
     """
     Correct the gpustack-runner image by rendering it with the host's detection.
     """
-    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY: str | None = None
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY: str | None = None
     """
     Default container registry for deployer to pull images from.
     If not set, it should be "docker.io".
     If the image name already contains a registry, this setting will be ignored.
     """
-    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE: str | None = None
-    """
-    Namespace for default runner images.
-    If not set, it should be "gpustack".
-    """
-    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME: str | None = None
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME: str | None = None
     """
     Username for the default container registry.
     """
-    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD: str | None = None
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD: str | None = None
     """
     Password for the default container registry.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE: str | None = None
+    """
+    Namespace for default runtime container images.
+    If not set, it should be "gpustack".
     """
     GPUSTACK_RUNTIME_DEPLOY_IMAGE_PULL_POLICY: str | None = None
     """
@@ -383,35 +383,47 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE": lambda: to_bool(
         getenv("GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE", "1"),
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY": lambda: trim_str(
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY": lambda: trim_str(
         getenvs(
             keys=[
-                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY",
+                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY",
                 # TODO(thxCode): Backward compatibility, remove in v0.1.45 later.
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY",
                 # Compatible with gpustack/gpustack.
                 "GPUSTACK_SYSTEM_DEFAULT_CONTAINER_REGISTRY",
+                # Legacy compatibility.
+                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY",
             ],
         ),
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE": lambda: trim_str(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE"),
-    ),
-    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME": lambda: trim_str(
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME": lambda: trim_str(
         getenvs(
             keys=[
-                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME",
+                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME",
                 # TODO(thxCode): Backward compatibility, remove in v0.1.45 later.
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME",
+                # Legacy compatibility.
+                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_USERNAME",
             ],
         ),
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD": lambda: getenvs(
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD": lambda: getenvs(
         keys=[
-            "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD",
+            "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD",
             # TODO(thxCode): Backward compatibility, remove in v0.1.45 later.
             "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD",
+            # Legacy compatibility.
+            "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_REGISTRY_PASSWORD",
         ],
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE": lambda: trim_str(
+        getenvs(
+            keys=[
+                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE",
+                # Legacy compatibility.
+                "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE",
+            ],
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_IMAGE_PULL_POLICY": lambda: choice(
         getenv(
