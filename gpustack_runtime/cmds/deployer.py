@@ -793,7 +793,7 @@ class LogsSelfSubCommand(SubCommand):
     @staticmethod
     def register(parser: _SubParsersAction):
         logs_parser = parser.add_parser(
-            "logs",
+            "logs-self",
             help="Get the logs of the deployer itself",
         )
 
@@ -847,7 +847,7 @@ class ExecSelfSubCommand(SubCommand):
     @staticmethod
     def register(parser: _SubParsersAction):
         exec_parser = parser.add_parser(
-            "exec",
+            "exec-self",
             help="Execute a command in the deployer itself",
         )
 
@@ -932,7 +932,7 @@ class InspectSelfSubCommand(SubCommand):
     @staticmethod
     def register(parser: _SubParsersAction):
         inspect_parser = parser.add_parser(
-            "inspect",
+            "inspect-self",
             help="Inspect the deployer itself",
         )
 

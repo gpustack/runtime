@@ -16,12 +16,15 @@ from .cmds import (
     DeleteWorkloadsSubCommand,
     DeleteWorkloadSubCommand,
     DetectDevicesSubCommand,
+    ExecSelfSubCommand,
     ExecWorkloadSubCommand,
     GetDevicesTopologySubCommand,
     GetWorkloadSubCommand,
+    InspectSelfSubCommand,
     InspectWorkloadSubCommand,
     ListImagesSubCommand,
     ListWorkloadsSubCommand,
+    LogsSelfSubCommand,
     LogsWorkloadSubCommand,
     SaveImagesSubCommand,
 )
@@ -71,6 +74,9 @@ def main():
     ListImagesSubCommand.register(subcommand_parser)
     SaveImagesSubCommand.register(subcommand_parser)
     CopyImagesSubCommand.register(subcommand_parser)
+    LogsSelfSubCommand.register(subcommand_parser)
+    ExecSelfSubCommand.register(subcommand_parser)
+    InspectSelfSubCommand.register(subcommand_parser)
 
     # Autocomplete
     argcomplete.autocomplete(parser)
