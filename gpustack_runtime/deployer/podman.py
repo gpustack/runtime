@@ -28,7 +28,7 @@ from podman.domain.containers_create import CreateMixin
 from tqdm import tqdm
 
 from .. import envs
-from ..logging import debug_log_exception
+from ..logging import debug_log_exception, debug_log_warning
 from .__patches__ import patch_render_payload
 from .__types__ import (
     Container,
@@ -318,11 +318,6 @@ class PodmanDeployer(EndoscopicDeployer):
     """
     Function to handle mirrored deployment, internal use only.
     """
-    _container: podman.domain.containers.Container | None = None
-    """
-    Container object of the deployer itself, internal use only.
-    Works if mirrored deployment is enabled.
-    """
 
     @staticmethod
     @lru_cache
@@ -390,21 +385,6 @@ class PodmanDeployer(EndoscopicDeployer):
         def wrapper(self, *args, **kwargs):
             if not self.is_supported():
                 msg = "Podman is not supported in the current environment."
-                raise UnsupportedError(msg)
-            return func(self, *args, **kwargs)
-
-        return wrapper
-
-    @staticmethod
-    def _endoscopic_supported(func):
-        """
-        Decorator to check if endoscopic operations are supported in the current environment.
-
-        """
-
-        def wrapper(self, *args, **kwargs):
-            if getattr(self, "_container", None) is None:
-                msg = "Endoscopy is not supported in the current environment."
                 raise UnsupportedError(msg)
             return func(self, *args, **kwargs)
 
@@ -1176,39 +1156,25 @@ class PodmanDeployer(EndoscopicDeployer):
         super().__init__(_NAME)
         self._client = self._get_client()
 
-    def _prepare_create(self):
+    def _prepare_mirrored_deployment(self):
         """
-        Prepare for creation.
+        Prepare for mirrored deployment.
 
         """
         # Prepare mirrored deployment if enabled.
         if self._mutate_create_options:
             return
         self._mutate_create_options = lambda o: o
-        if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
-            logger.debug("Mirrored deployment disabled")
-            return
 
         # Retrieve self-container info.
-        ## - Get Container name, default to hostname if not set.
-        self_container_id = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
-        if not self_container_id:
-            self_container_id = socket.gethostname()
-            logger.warning(
-                "Mirrored deployment enabled, but no Container name set, using hostname(%s) instead",
-                self_container_id,
-            )
         try:
-            self_container = self._find_self_container(self_container_id)
-            logger.info(
-                "Mirrored deployment enabled, using self Container %s for options mirroring",
-                self_container.short_id,
-            )
+            self_container = self._find_self_container()
+            if not self_container:
+                return
             self_image = self_container.image
         except podman.errors.APIError:
             logger.exception(
-                "Mirrored deployment enabled, but failed to get self Container %s, skipping",
-                self_container_id,
+                "Mirrored deployment enabled, but failed to get self Container, skipping",
             )
             return
 
@@ -1367,18 +1333,10 @@ class PodmanDeployer(EndoscopicDeployer):
             return create_options
 
         self._mutate_create_options = mutate_create_options
-        self._container = self_container
 
-    def _find_self_container(
-        self,
-        self_container_id: str,
-    ) -> podman.domain.containers.Container:
+    def _find_self_container(self) -> podman.domain.containers.Container | None:
         """
         Find the current container if running inside a Podman container.
-
-        Args:
-            self_container_id:
-                The container name or ID to find.
 
         Returns:
             The Podman container if found, None otherwise.
@@ -1387,38 +1345,58 @@ class PodmanDeployer(EndoscopicDeployer):
             If failed to find itself.
 
         """
-        if envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
-            # Directly get container by name or ID.
-            return self._client.containers.get(self_container_id)
+        if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
+            logger.debug("Mirrored deployment disabled")
+            return None
 
-        # Find containers that matches the hostname.
-        containers: list[podman.domain.containers.Container] = []
-        for c in self._client.containers.list(compatible=True):
-            # Ignore workload containers with host network enabled.
-            if _LABEL_WORKLOAD in c.labels:
-                continue
-            # Ignore containers that do not match the hostname.
-            if c.attrs["Config"].get("Hostname", "") != self_container_id:
-                continue
-            # Ignore containers that do not match the filter labels.
-            if envs.GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS and any(
-                c.labels.get(k) != v
-                for k, v in envs.GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS.items()
-            ):
-                continue
-            containers.append(c)
-
-        # Validate found containers.
-        if len(containers) != 1:
-            msg = (
-                f"Found multiple Containers with the same hostname {self_container_id}, "
-                if len(containers) > 1
-                else f"Not found Container with hostname {self_container_id}, "
-                "please use `--env GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=...` to specify the exact container name"
+        # Get container ID or hostname.
+        self_container_id = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
+        if not self_container_id:
+            self_container_id = socket.gethostname()
+            debug_log_warning(
+                logger,
+                "Mirrored deployment enabled, but no Container name set, using hostname(%s) instead",
+                self_container_id,
             )
-            raise podman.errors.NotFound(msg)
 
-        return containers[0]
+        if envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
+            # Directly get container.
+            self_container = self._client.containers.get(self_container_id)
+        else:
+            # Find containers that matches the hostname.
+            containers: list[podman.domain.containers.Container] = []
+            for c in self._client.containers.list(compatible=True):
+                # Ignore workload containers with host network enabled.
+                if _LABEL_WORKLOAD in c.labels:
+                    continue
+                # Ignore containers that do not match the hostname.
+                if c.attrs["Config"].get("Hostname", "") != self_container_id:
+                    continue
+                # Ignore containers that do not match the filter labels.
+                if envs.GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS and any(
+                    c.labels.get(k) != v
+                    for k, v in envs.GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS.items()
+                ):
+                    continue
+                containers.append(c)
+
+            # Validate found containers.
+            if len(containers) != 1:
+                msg = (
+                    f"Found multiple Containers with the same hostname {self_container_id}, "
+                    if len(containers) > 1
+                    else f"Not found Container with hostname {self_container_id}, "
+                    "please use `--env GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=...` to specify the exact Container name"
+                )
+                raise podman.errors.NotFound(msg)
+
+            self_container = containers[0]
+
+        logger.info(
+            "Mirrored deployment enabled, using self Container %s for options mirroring",
+            self_container.short_id,
+        )
+        return self_container
 
     @_supported
     def _create(self, workload: WorkloadPlan):
@@ -1444,7 +1422,7 @@ class PodmanDeployer(EndoscopicDeployer):
             msg = f"Invalid workload type: {type(workload)}"
             raise TypeError(msg)
 
-        self._prepare_create()
+        self._prepare_mirrored_deployment()
 
         if isinstance(workload, WorkloadPlan):
             workload = PodmanWorkloadPlan(**workload.__dict__)
@@ -1887,7 +1865,33 @@ class PodmanDeployer(EndoscopicDeployer):
             result.append(c_attrs)
         return safe_json(result, indent=2)
 
-    @_endoscopic_supported
+    def _find_self_container_for_endoscopy(self) -> podman.domain.containers.Container:
+        """
+        Find the self container for endoscopy.
+        Only works in mirrored deployment mode.
+
+        Returns:
+            The self container object.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+
+        """
+        try:
+            self_container = self._find_self_container()
+        except podman.errors.APIError as e:
+            msg = "Endoscopy is not supported in the current environment: Mirrored deployment enabled, but failed to get self Container"
+            raise UnsupportedError(msg) from e
+        except Exception as e:
+            msg = "Endoscopy is not supported in the current environment: Failed to get self Container"
+            raise UnsupportedError(msg) from e
+
+        if not self_container:
+            msg = "Endoscopy is not supported in the current environment: Mirrored deployment disabled"
+            raise UnsupportedError(msg)
+        return self_container
+
     def _endoscopic_logs(
         self,
         timestamps: bool = False,
@@ -1919,6 +1923,8 @@ class PodmanDeployer(EndoscopicDeployer):
                 If the deployer fails to get logs.
 
         """
+        self_container = self._find_self_container_for_endoscopy()
+
         logs_options = {
             "timestamps": timestamps,
             "tail": tail if tail >= 0 else None,
@@ -1926,20 +1932,17 @@ class PodmanDeployer(EndoscopicDeployer):
             "follow": follow,
         }
 
-        self_container_id = self._container.short_id
-
         try:
-            output = self._container.logs(
+            output = self_container.logs(
                 stream=follow,
                 **logs_options,
             )
         except podman.errors.APIError as e:
-            msg = f"Failed to fetch logs for self Container {self_container_id}{_detail_api_call_error(e)}"
+            msg = f"Failed to fetch logs for self Container {self_container.short_id}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             return output
 
-    @_endoscopic_supported
     def _endoscopic_exec(
         self,
         detach: bool = True,
@@ -1970,6 +1973,8 @@ class PodmanDeployer(EndoscopicDeployer):
                 If the deployer fails to execute the command.
 
         """
+        self_container = self._find_self_container_for_endoscopy()
+
         attach = not detach or not command
         exec_options = {
             "stdout": True,
@@ -1980,22 +1985,19 @@ class PodmanDeployer(EndoscopicDeployer):
             "cmd": [*command, *(args or [])] if command else ["/bin/sh"],
         }
 
-        self_container_id = self._container.short_id
-
         try:
-            _, output = self._container.exec_run(
+            _, output = self_container.exec_run(
                 detach=False,
                 **exec_options,
             )
         except podman.errors.APIError as e:
-            msg = f"Failed to exec command in self Container {self_container_id}{_detail_api_call_error(e)}"
+            msg = f"Failed to exec command in self Container {self_container.short_id}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
         else:
             if not attach:
                 return output
             return PodmanWorkloadExecStream(output)
 
-    @_endoscopic_supported
     def _endoscopic_inspect(self) -> str:
         """
         Inspect the deployer itself.
@@ -2011,13 +2013,7 @@ class PodmanDeployer(EndoscopicDeployer):
                 If the deployer fails to execute the command.
 
         """
-        self_container_id = self._container.short_id
-
-        try:
-            self_container = self._client.containers.get(self_container_id)
-        except podman.errors.APIError as e:
-            msg = f"Failed to inspect self Container {self_container_id}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
+        self_container = self._find_self_container_for_endoscopy()
 
         c_attrs = self_container.attrs
         # Mask sensitive environment variables

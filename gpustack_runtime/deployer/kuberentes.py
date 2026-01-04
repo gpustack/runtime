@@ -5,7 +5,6 @@ import json
 import logging
 import operator
 import os
-import socket
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache, reduce
@@ -301,11 +300,6 @@ class KubernetesDeployer(EndoscopicDeployer):
     """
     Function to handle mirrored deployment, internal use only.
     """
-    _pod: kubernetes.client.V1Pod | None = None
-    """
-    Pod object of the deployer itself, internal use only.
-    Works if mirrored deployment is enabled.
-    """
 
     @staticmethod
     @lru_cache
@@ -376,21 +370,6 @@ class KubernetesDeployer(EndoscopicDeployer):
         def wrapper(self, *args, **kwargs):
             if not self.is_supported():
                 msg = "Kubernetes is not supported in the current environment."
-                raise UnsupportedError(msg)
-            return func(self, *args, **kwargs)
-
-        return wrapper
-
-    @staticmethod
-    def _endoscopic_supported(func):
-        """
-        Decorator to check if endoscopic operations are supported in the current environment.
-
-        """
-
-        def wrapper(self, *args, **kwargs):
-            if getattr(self, "_pod", None) is None:
-                msg = "Endoscopy is not supported in the current environment."
                 raise UnsupportedError(msg)
             return func(self, *args, **kwargs)
 
@@ -1216,9 +1195,9 @@ class KubernetesDeployer(EndoscopicDeployer):
         self._client = self._get_client()
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
 
-    def _prepare_create(self):
+    def _prepare_mirrored_deployment(self):
         """
-        Prepare for creation.
+        Prepare for mirrored deployment.
 
         """
         # Get the first node name of the cluster if not configured.
@@ -1245,45 +1224,22 @@ class KubernetesDeployer(EndoscopicDeployer):
         if self._mutate_create_pod:
             return
         self._mutate_create_pod = lambda o: o
-        if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
-            logger.debug("Mirrored deployment disabled")
-            return
 
         # Retrieve self-pod info.
-        core_api = kubernetes.client.CoreV1Api(self._client)
-        ## - Get Pod name, default to hostname if not set.
-        self_pod_name = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
-        if not self_pod_name:
-            self_pod_name = socket.gethostname()
-            logger.warning(
-                "Mirrored deployment enabled, but no Pod name set, using hostname(%s) instead",
-                self_pod_name,
-            )
-        ## - Get Pod namespace, default to "default" if not found.
         try:
-            self_pod_namespace_f = Path(
-                "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
-            )
-            self_pod_namespace = self_pod_namespace_f.read_text(
-                encoding="utf-8",
-            ).strip()
-        except (FileNotFoundError, OSError):
-            self_pod_namespace = "default"
-            logger.warning(
-                "Mirrored deployment enabled, but no Pod namespace found, using 'default' instead",
-            )
-        try:
-            self_pod = core_api.read_namespaced_pod(
-                name=self_pod_name,
-                namespace=self_pod_namespace,
-            )
+            self_pod = self._find_self_pod()
+            if not self_pod:
+                return
         except kubernetes.client.exceptions.ApiException:
             logger.exception(
-                "Mirrored deployment enabled, but failed to get self Pod %s/%s, skipping",
-                self_pod_namespace,
-                self_pod_name,
+                "Mirrored deployment enabled, but failed to get self Pod, skipping",
             )
             return
+
+        self_pod_name = self_pod.metadata.name
+        self_pod_namespace = self_pod.metadata.namespace
+
+        # Retrieve self-container
         ## - Get the first Container, or the Container named "default" if exists.
         self_container = next(
             (c for c in self_pod.spec.containers if c.name == "default"),
@@ -1299,6 +1255,8 @@ class KubernetesDeployer(EndoscopicDeployer):
             self_container.name,
             f"{self_pod_namespace}/{self_pod_name}",
         )
+
+        core_api = kubernetes.client.CoreV1Api(self._client)
 
         # Preprocess mirrored deployment options.
         in_same_namespace = (
@@ -1481,7 +1439,51 @@ class KubernetesDeployer(EndoscopicDeployer):
             return pod
 
         self._mutate_create_pod = mutate_create_pod
-        self._pod = self_pod
+
+    def _find_self_pod(self) -> kubernetes.client.V1Pod | None:
+        """
+        Find the self Pod in the cluster.
+
+        Returns:
+            The self Pod object if found, None otherwise.
+
+        Raises:
+            If failed to find itself.
+
+        """
+        if not envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT:
+            logger.debug("Mirrored deployment disabled")
+            return None
+
+        # Get Pod name or hostname.
+        self_pod_name = envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME
+        if not self_pod_name:
+            msg = "Please use env `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME` to specify the exact Pod name"
+            raise kubernetes.client.exceptions.ApiException(
+                status=404,
+                reason=msg,
+            )
+
+        # Get Pod namespace, default to "default" if not found.
+        try:
+            self_pod_namespace_f = Path(
+                "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+            )
+            self_pod_namespace = self_pod_namespace_f.read_text(
+                encoding="utf-8",
+            ).strip()
+        except (FileNotFoundError, OSError):
+            self_pod_namespace = "default"
+            logger.warning(
+                "Mirrored deployment enabled, but no Pod namespace found, using 'default' instead",
+            )
+
+        core_api = kubernetes.client.CoreV1Api(self._client)
+
+        return core_api.read_namespaced_pod(
+            name=self_pod_name,
+            namespace=self_pod_namespace,
+        )
 
     @_supported
     def _create(self, workload: WorkloadPlan):
@@ -1507,7 +1509,7 @@ class KubernetesDeployer(EndoscopicDeployer):
             msg = f"Invalid workload plan type: {type(workload)}"
             raise TypeError(msg)
 
-        self._prepare_create()
+        self._prepare_mirrored_deployment()
 
         if isinstance(workload, WorkloadPlan):
             workload = KubernetesWorkloadPlan(**workload.__dict__)
@@ -1996,7 +1998,33 @@ class KubernetesDeployer(EndoscopicDeployer):
 
         return safe_yaml(k_pod, indent=2, sort_keys=False)
 
-    @_endoscopic_supported
+    def _find_self_pod_for_endoscopy(self) -> kubernetes.client.V1Pod:
+        """
+        Find the self Pod for endoscopy.
+        Only works in mirrored deployment mode.
+
+        Returns:
+            The self Pod object.
+
+        Raises:
+            UnsupportedError:
+                If endoscopy is not supported in the current environment.
+
+        """
+        try:
+            self_pod = self._find_self_pod()
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = "Endoscopy is not supported in the current environment: Mirrored deployment enabled, but failed to get self Pod"
+            raise UnsupportedError(msg) from e
+        except Exception as e:
+            msg = "Endoscopy is not supported in the current environment: Failed to get self Pod"
+            raise UnsupportedError(msg) from e
+
+        if not self_pod:
+            msg = "Endoscopy is not supported in the current environment: Mirrored deployment disabled"
+            raise UnsupportedError(msg)
+        return self_pod
+
     def _endoscopic_logs(
         self,
         timestamps: bool = False,
@@ -2028,6 +2056,8 @@ class KubernetesDeployer(EndoscopicDeployer):
                 If the deployer fails to get logs.
 
         """
+        self_pod = self._find_self_pod_for_endoscopy()
+
         logs_options = {
             "timestamps": timestamps,
             "tail_lines": tail if tail >= 0 else None,
@@ -2036,8 +2066,8 @@ class KubernetesDeployer(EndoscopicDeployer):
             "_preload_content": not follow,
         }
 
-        self_pod_name = self._pod.metadata.name
-        self_pod_namespace = self._pod.metadata.namespace
+        self_pod_name = self_pod.metadata.name
+        self_pod_namespace = self_pod.metadata.namespace
 
         core_api = kubernetes.client.CoreV1Api(self._client)
 
@@ -2053,7 +2083,6 @@ class KubernetesDeployer(EndoscopicDeployer):
         else:
             return output
 
-    @_endoscopic_supported
     def _endoscopic_exec(
         self,
         detach: bool = True,
@@ -2084,6 +2113,8 @@ class KubernetesDeployer(EndoscopicDeployer):
                 If the deployer fails to execute the command.
 
         """
+        self_pod = self._find_self_pod_for_endoscopy()
+
         attach = not detach or not command
         exec_options = {
             "stdout": True,
@@ -2094,8 +2125,8 @@ class KubernetesDeployer(EndoscopicDeployer):
             "_preload_content": not attach,
         }
 
-        self_pod_name = self._pod.metadata.name
-        self_pod_namespace = self._pod.metadata.namespace
+        self_pod_name = self_pod.metadata.name
+        self_pod_namespace = self_pod.metadata.namespace
 
         core_api = kubernetes.client.CoreV1Api(self._client)
 
@@ -2114,7 +2145,6 @@ class KubernetesDeployer(EndoscopicDeployer):
                 return result
             return KubernetesWorkloadExecStream(result)
 
-    @_endoscopic_supported
     def _endoscopic_inspect(self) -> str:
         """
         Inspect the deployer itself.
@@ -2130,29 +2160,17 @@ class KubernetesDeployer(EndoscopicDeployer):
                 If the deployer fails to execute the command.
 
         """
-        self_pod_name = self._pod.metadata.name
-        self_pod_namespace = self._pod.metadata.namespace
-
-        core_api = kubernetes.client.CoreV1Api(self._client)
-
-        try:
-            k_pod = core_api.read_namespaced_pod(
-                name=self_pod_name,
-                namespace=self_pod_namespace,
-            )
-        except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to inspect self Pod {self_pod_namespace}/{self_pod_name}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
+        self_pod = self._find_self_pod_for_endoscopy()
 
         # Remove managed fields to reduce output size
-        k_pod.metadata.managed_fields = None
+        self_pod.metadata.managed_fields = None
         # Mask sensitive environment variables
-        for c in k_pod.spec.containers:
+        for c in self_pod.spec.containers:
             for env in c.env or []:
                 if sensitive_env_var(env.name):
                     env.value = "******"
 
-        return safe_yaml(k_pod, indent=2, sort_keys=False)
+        return safe_yaml(self_pod, indent=2, sort_keys=False)
 
 
 def equal_config_maps(
