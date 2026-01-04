@@ -446,13 +446,13 @@ def has_agent_get_asic_family_id(agent):
 
 @dataclass
 class Agent:
-    device_type: int
-    device_id: str
-    uuid: str
-    name: str
-    compute_capability: str
-    compute_units: int
-    asic_family_id: int | None
+    device_type: int | None = None
+    device_id: str | None = None
+    uuid: str | None = None
+    name: str | None = None
+    compute_capability: str | None = None
+    compute_units: int | None = None
+    asic_family_id: int | None = None
 
 
 def get_agents() -> list[Agent]:
