@@ -1251,9 +1251,10 @@ class KubernetesDeployer(EndoscopicDeployer):
                 "Mirrored deployment enabled, but no Container named 'default' found, using the first Container instead",
             )
         logger.info(
-            "Mirrored deployment enabled, using self Container %s of self Pod %s for options mirroring",
+            "Mirrored deployment enabled, using self Container %s of self Pod %s/%s for options mirroring",
             self_container.name,
-            f"{self_pod_namespace}/{self_pod_name}",
+            self_pod_namespace,
+            self_pod_name,
         )
 
         core_api = kubernetes.client.CoreV1Api(self._client)

@@ -1195,6 +1195,10 @@ class DockerDeployer(EndoscopicDeployer):
             self_container = self._find_self_container()
             if not self_container:
                 return
+            logger.info(
+                "Mirrored deployment enabled, using self Container %s for options mirroring",
+                self_container.short_id,
+            )
             self_image = self_container.image
         except docker.errors.APIError:
             logger.exception(
@@ -1456,10 +1460,6 @@ class DockerDeployer(EndoscopicDeployer):
 
             self_container = containers[0]
 
-        logger.info(
-            "Mirrored deployment enabled, using self Container %s for options mirroring",
-            self_container.short_id,
-        )
         return self_container
 
     @_supported
