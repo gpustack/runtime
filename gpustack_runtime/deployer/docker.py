@@ -400,7 +400,7 @@ class DockerDeployer(EndoscopicDeployer):
         """
 
         def wrapper(self, *args, **kwargs):
-            if getattr(self, "_self_container", None) is None:
+            if getattr(self, "_container", None) is None:
                 msg = "Endoscopy is not supported in the current environment."
                 raise UnsupportedError(msg)
             return func(self, *args, **kwargs)
@@ -2062,13 +2062,13 @@ class DockerDeployer(EndoscopicDeployer):
             return DockerWorkloadExecStream(output)
 
     @_endoscopic_supported
-    def _endoscopic_inspect(self) -> str | None:
+    def _endoscopic_inspect(self) -> str:
         """
         Inspect the deployer itself.
         Only works in mirrored deployment mode.
 
         Returns:
-            The inspection result. None if not supported.
+            The inspection result.
 
         Raises:
             UnsupportedError:

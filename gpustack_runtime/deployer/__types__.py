@@ -2215,6 +2215,62 @@ class EndoscopicDeployer(Deployer):
     Base class for endoscopic deployers.
     """
 
+    async def async_endoscopic_logs(
+        self,
+        timestamps: bool = False,
+        tail: int | None = None,
+        since: int | None = None,
+        follow: bool = False,
+        async_mode: bool | None = None,
+    ) -> AsyncGenerator[bytes | str, None, None] | bytes | str:
+        """
+        Asynchronously get the logs of the deployer itself.
+        Only works in mirrored deployment mode.
+
+        Args:
+            timestamps:
+                Show timestamps in the logs.
+            tail:
+                Number of lines to show from the end of the logs.
+            since:
+                Show logs since the given epoch in seconds.
+            follow:
+                Whether to follow the logs.
+            async_mode:
+                Whether to execute in a separate thread.
+
+        Returns:
+            The logs as a byte string or a generator yielding byte strings if follow is True.
+
+        Raises:
+            UnsupportedError:
+                If the deployer is not supported in the current environment.
+            OperationError:
+                If the deployer fails to get logs.
+
+        """
+
+        def run_sync_gen(f: bool) -> Generator[bytes | str, None, None] | bytes | str:
+            return self.endoscopic_logs(
+                timestamps=timestamps,
+                tail=tail,
+                since=since,
+                follow=f,
+                async_mode=async_mode,
+            )
+
+        if not follow:
+            return run_sync_gen(False)
+
+        async def async_gen() -> AsyncGenerator[bytes | str, None, None]:
+            loop = asyncio.get_event_loop()
+            sync_gen = await loop.run_in_executor(self.pool, run_sync_gen, True)
+            with contextlib.closing(sync_gen) as gen:
+                for chunk in gen:
+                    yield chunk
+
+        return async_gen()
+
     @_default_args
     def endoscopic_logs(
         self,
@@ -2389,7 +2445,7 @@ class EndoscopicDeployer(Deployer):
     def endoscopic_inspect(
         self,
         async_mode: bool | None = None,
-    ) -> str | None:
+    ) -> str:
         """
         Inspect the deployer itself.
         Only works in mirrored deployment mode.
@@ -2399,7 +2455,7 @@ class EndoscopicDeployer(Deployer):
                 Whether to execute in a separate thread.
 
         Returns:
-            The inspection result. None if not supported.
+            The inspection result.
 
         Raises:
             UnsupportedError:
@@ -2423,13 +2479,13 @@ class EndoscopicDeployer(Deployer):
             return self._endoscopic_inspect()
 
     @abstractmethod
-    def _endoscopic_inspect(self) -> str | None:
+    def _endoscopic_inspect(self) -> str:
         """
         Inspect the deployer itself.
         Only works in mirrored deployment mode.
 
         Returns:
-            The inspection result. None if not supported.
+            The inspection result.
 
         Raises:
             UnsupportedError:

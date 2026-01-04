@@ -2115,13 +2115,13 @@ class KubernetesDeployer(EndoscopicDeployer):
             return KubernetesWorkloadExecStream(result)
 
     @_endoscopic_supported
-    def _endoscopic_inspect(self) -> str | None:
+    def _endoscopic_inspect(self) -> str:
         """
         Inspect the deployer itself.
         Only works in mirrored deployment mode.
 
         Returns:
-            The inspection result. None if not supported.
+            The inspection result.
 
         Raises:
             UnsupportedError:

@@ -408,6 +408,163 @@ def inspect_workload(
     raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
 
 
+def logs_self(
+    timestamps: bool = False,
+    tail: int | None = None,
+    since: int | None = None,
+    follow: bool = False,
+) -> Generator[bytes | str, None, None] | bytes | str:
+    """
+    Get the logs of the deployer itself.
+    Only works in mirrored deployment mode.
+
+    Args:
+        timestamps:
+            Whether to include timestamps in the logs.
+        tail:
+            The number of lines from the end of the logs to show.
+        since:
+            Show logs since a given time (in seconds).
+        follow:
+            Whether to follow the logs.
+
+    Returns:
+        The logs as a byte string, a string or a generator yielding byte strings or strings if follow is True.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to get the logs of the workload.
+
+    """
+    for dep in _DEPLOYERS:
+        if not dep.is_supported():
+            continue
+
+        if hasattr(dep, "endoscopic_logs"):
+            return dep.endoscopic_logs(
+                timestamps=timestamps,
+                tail=tail,
+                since=since,
+                follow=follow,
+            )
+
+    raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
+
+
+async def async_logs_self(
+    timestamps: bool = False,
+    tail: int | None = None,
+    since: int | None = None,
+    follow: bool = False,
+) -> AsyncGenerator[bytes | str, None, None] | bytes | str:
+    """
+    Asynchronously get the logs of the deployer itself.
+    Only works in mirrored deployment mode.
+
+    Args:
+        timestamps:
+            Whether to include timestamps in the logs.
+        tail:
+            The number of lines from the end of the logs to show.
+        since:
+            Show logs since a given time (in seconds).
+        follow:
+            Whether to follow the logs.
+
+    Returns:
+        The logs as a byte string, a string or a generator yielding byte strings or strings if follow is True.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to get the logs of the workload.
+
+    """
+    for dep in _DEPLOYERS:
+        if not dep.is_supported():
+            continue
+
+        if hasattr(dep, "async_endoscopic_logs"):
+            return await dep.async_endoscopic_logs(
+                timestamps=timestamps,
+                tail=tail,
+                since=since,
+                follow=follow,
+            )
+
+    raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
+
+
+def exec_self(
+    detach: bool = True,
+    command: list[str] | None = None,
+    args: list[str] | None = None,
+) -> WorkloadExecStream | bytes | str:
+    """
+    Execute a command in the deployer itself.
+    Only works in mirrored deployment mode.
+
+    Args:
+        detach:
+            Whether to detach from the command execution.
+        command:
+            The command to execute.
+        args:
+            The arguments to pass to the command.
+
+    Returns:
+        If detach is False, return a WorkloadExecStream.
+        otherwise, return the output of the command as a byte string or string.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to execute the command in the workload.
+
+    """
+    for dep in _DEPLOYERS:
+        if not dep.is_supported():
+            continue
+
+        if hasattr(dep, "endoscopic_exec"):
+            return dep.endoscopic_exec(
+                detach=detach,
+                command=command,
+                args=args,
+            )
+
+    raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
+
+
+def inspect_self() -> str:
+    """
+    Inspect the deployer itself.
+    Only works in mirrored deployment mode.
+
+    Returns:
+        The inspection data as a dictionary.
+
+    Raises:
+        UnsupportedError:
+            If no deployer supports the given workload.
+        OperationError:
+            If the deployer fails to inspect the workload.
+
+    """
+    for dep in _DEPLOYERS:
+        if not dep.is_supported():
+            continue
+
+        if hasattr(dep, "endoscopic_inspect"):
+            return dep.endoscopic_inspect()
+
+    raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
+
+
 __all__ = [
     "Container",
     "ContainerCapabilities",
@@ -443,13 +600,17 @@ __all__ = [
     "WorkloadSecuritySysctl",
     "WorkloadStatus",
     "WorkloadStatusStateEnum",
+    "async_logs_self",
     "async_logs_workload",
     "create_workload",
     "delete_workload",
+    "exec_self",
     "exec_workload",
     "get_workload",
+    "inspect_self",
     "inspect_workload",
     "list_workloads",
+    "logs_self",
     "logs_workload",
     "supported_list",
 ]

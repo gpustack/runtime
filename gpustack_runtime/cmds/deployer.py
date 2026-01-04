@@ -23,11 +23,14 @@ from ..deployer import (
     WorkloadPlan,
     WorkloadStatus,
     WorkloadStatusStateEnum,
+    async_logs_self,
     async_logs_workload,
     create_workload,
     delete_workload,
+    exec_self,
     exec_workload,
     get_workload,
+    inspect_self,
     inspect_workload,
     list_workloads,
 )
@@ -777,6 +780,169 @@ class InspectWorkloadSubCommand(SubCommand):
             return
 
         print(result)
+
+
+class LogsSelfSubCommand(SubCommand):
+    """
+    Command to get the logs of the deployer itself.
+    """
+
+    tail: int
+    follow: bool
+
+    @staticmethod
+    def register(parser: _SubParsersAction):
+        logs_parser = parser.add_parser(
+            "logs",
+            help="Get the logs of the deployer itself",
+        )
+
+        logs_parser.add_argument(
+            "--tail",
+            type=int,
+            help="Number of lines to show from the end of the logs (default: -1)",
+            default=-1,
+        )
+
+        logs_parser.add_argument(
+            "--follow",
+            "-f",
+            action="store_true",
+            help="Follow the logs in real-time",
+        )
+
+        logs_parser.set_defaults(func=LogsWorkloadSubCommand)
+
+    def __init__(self, args: Namespace):
+        self.tail = args.tail
+        self.follow = args.follow
+
+    def run(self):
+        print("\033[2J\033[H", end="")
+
+        async def stream_logs():
+            logs_result = await async_logs_self(
+                tail=self.tail,
+                follow=self.follow,
+            )
+            if self.follow:
+                async for line in logs_result:
+                    print(line.decode("utf-8").rstrip())
+            elif isinstance(logs_result, str):
+                print(logs_result.rstrip())
+            else:
+                print(logs_result.decode("utf-8").rstrip())
+
+        asyncio.run(stream_logs())
+
+
+class ExecSelfSubCommand(SubCommand):
+    """
+    Command to execute a command in the deployer itself.
+    """
+
+    interactive: bool
+    command: list[str]
+
+    @staticmethod
+    def register(parser: _SubParsersAction):
+        exec_parser = parser.add_parser(
+            "exec",
+            help="Execute a command in the deployer itself",
+        )
+
+        exec_parser.add_argument(
+            "--interactive",
+            "-i",
+            action="store_true",
+            help="Interactive mode",
+        )
+
+        exec_parser.add_argument(
+            "command",
+            nargs=REMAINDER,
+            help="Command to execute in the workload",
+        )
+
+        exec_parser.set_defaults(func=ExecWorkloadSubCommand)
+
+    def __init__(self, args: Namespace):
+        self.interactive = args.interactive
+        self.command = args.command
+
+    def run(self):
+        try:
+            if self.interactive:
+                from dockerpty import io, pty  # noqa: PLC0415
+        except ImportError:
+            print(
+                "dockerpty is required for interactive mode. "
+                "Please install it via 'pip install dockerpty'.",
+            )
+            sys.exit(1)
+
+        print("\033[2J\033[H", end="")
+        exec_result = exec_self(
+            detach=not self.interactive,
+            command=self.command,
+        )
+
+        # Non-interactive mode: print output and exit with the command's exit code
+
+        if not self.interactive:
+            if isinstance(exec_result, bytes):
+                print(exec_result.decode("utf-8").rstrip())
+            else:
+                print(exec_result)
+            return
+
+        # Interactive mode: use dockerpty to attach to the exec session
+
+        class ExecOperation(pty.Operation):
+            def __init__(self, sock):
+                self.stdin = sys.stdin
+                self.stdout = sys.stdout
+                self.sock = io.Stream(sock)
+
+            def israw(self, **_):
+                return self.stdout.isatty()
+
+            def start(self, **_):
+                sock = self.sockets()
+                return [
+                    io.Pump(io.Stream(self.stdin), sock, wait_for_output=False),
+                    io.Pump(sock, io.Stream(self.stdout), propagate_close=False),
+                ]
+
+            def resize(self, height, width, **_):
+                pass
+
+            def sockets(self):
+                return self.sock
+
+        exec_op = ExecOperation(exec_result)
+        pty.PseudoTerminal(None, exec_op).start()
+
+
+class InspectSelfSubCommand(SubCommand):
+    """
+    Command to diagnose the deployer itself.
+    """
+
+    @staticmethod
+    def register(parser: _SubParsersAction):
+        inspect_parser = parser.add_parser(
+            "inspect",
+            help="Inspect the deployer itself",
+        )
+
+        inspect_parser.set_defaults(func=InspectWorkloadSubCommand)
+
+    def __init__(self, args: Namespace):
+        pass
+
+    def run(self):
+        print(inspect_self())
 
 
 def format_workloads_json(sts: list[WorkloadStatus]) -> str:
