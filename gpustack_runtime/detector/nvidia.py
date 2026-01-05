@@ -76,7 +76,7 @@ class NVIDIADetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.NVIDIA)
 
-    def detect(self) -> Devices | None:
+    def detect(self) -> Devices | None:  # noqa: PLR0915
         """
         Detect NVIDIA GPUs using pynvml.
 
@@ -188,18 +188,21 @@ class NVIDIADetector(Detector):
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
 
+                dev_bdf = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
+                    dev_bdf = str(dev_pci_info.busIdLegacy).lower()
+
                 dev_is_vgpu = False
-                dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
-                for addr in [dev_pci_info.busIdLegacy, dev_pci_info.busId]:
-                    if addr in pci_devs:
-                        dev_is_vgpu = _is_vgpu(pci_devs[addr].config)
-                        break
+                if dev_bdf and dev_bdf in pci_devs:
+                    dev_is_vgpu = _is_vgpu(pci_devs[dev_bdf].config)
 
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_cc_t),
                     "vgpu": dev_is_vgpu,
-                    "bdf": str(dev_pci_info.busIdLegacy).lower(),
                 }
+                if dev_bdf:
+                    dev_appendix["bdf"] = dev_bdf
 
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_fabric = pynvml.c_nvmlGpuFabricInfoV_t()

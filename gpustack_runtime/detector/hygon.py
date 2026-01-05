@@ -16,6 +16,7 @@ from .__utils__ import (
     get_brief_version,
     get_numa_node_by_bdf,
     get_pci_devices,
+    get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
 )
@@ -156,8 +157,12 @@ class HygonDetector(Detector):
                 dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                 dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
+                dev_is_vgpu = False
+                if dev_bdf:
+                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+
                 dev_appendix = {
-                    "vgpu": False,
+                    "vgpu": dev_is_vgpu,
                 }
                 if dev_bdf is not None:
                     dev_appendix["bdf"] = dev_bdf

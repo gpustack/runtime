@@ -23,6 +23,7 @@ from .__utils__ import (
     get_numa_node_by_bdf,
     get_numa_nodeset_size,
     get_pci_devices,
+    get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
     support_command,
@@ -165,13 +166,20 @@ class IluvatarDetector(Detector):
                     if dev_cc_t:
                         dev_cc = ".".join(map(str, dev_cc_t))
 
+                dev_bdf = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
+                    dev_bdf = str(dev_pci_info.busIdLegacy).lower()
+
                 dev_is_vgpu = False
-                dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
+                if dev_bdf:
+                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
-                    "bdf": str(dev_pci_info.busIdLegacy).lower(),
                 }
+                if dev_bdf:
+                    dev_appendix["bdf"] = dev_bdf
 
                 ret.append(
                     Device(

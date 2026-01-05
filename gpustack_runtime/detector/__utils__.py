@@ -951,3 +951,26 @@ def bitmask_to_str(bitmask_list: list) -> str:
         offset += get_bits_size()
 
     return list_to_range_str(sorted(bits_lists))
+
+
+def get_physical_function_by_bdf(bdf: str) -> str:
+    """
+    Get the physical function BDF for a given PCI device BDF address.
+
+    Args:
+        bdf:
+            The PCI device BDF address (e.g., "0000:00:1f.0").
+
+    Returns:
+        The physical function BDF if found, otherwise returns the original BDF.
+
+    """
+    if bdf:
+        with contextlib.suppress(Exception):
+            dev_path = Path(f"/sys/bus/pci/devices/{bdf}")
+            if dev_path.exists():
+                physfn_path = dev_path / "physfn"
+                if physfn_path.exists():
+                    physfn_realpath = physfn_path.resolve()
+                    return physfn_realpath.name
+    return bdf

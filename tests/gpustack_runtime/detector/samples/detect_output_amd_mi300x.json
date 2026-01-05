@@ -18,7 +18,7 @@
     "power_used": 132,
     "appendix": {
       "arch_family": "Arctic Islands",
-      "vgpu": true,
+      "vgpu": false,
       "bdf": "0000:26:00.0",
       "card_id": 9,
       "renderd_id": 136
@@ -43,7 +43,7 @@
     "power_used": 141,
     "appendix": {
       "arch_family": "Arctic Islands",
-      "vgpu": true,
+      "vgpu": false,
       "bdf": "0000:46:00.0",
       "card_id": 17,
       "renderd_id": 144

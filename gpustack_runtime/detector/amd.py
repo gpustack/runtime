@@ -16,6 +16,7 @@ from .__utils__ import (
     get_brief_version,
     get_numa_node_by_bdf,
     get_pci_devices,
+    get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
 )
@@ -199,15 +200,13 @@ class AMDDetector(Detector):
                         dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                         dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
-                dev_compute_partition = None
-                with contextlib.suppress(pyamdsmi.AmdSmiException):
-                    dev_compute_partition = pyamdsmi.amdsmi_get_gpu_compute_partition(
-                        dev,
-                    )
+                dev_is_vgpu = False
+                if dev_bdf:
+                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
 
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_asic_family_id),
-                    "vgpu": dev_compute_partition is not None,
+                    "vgpu": dev_is_vgpu,
                 }
                 if dev_bdf:
                     dev_appendix["bdf"] = dev_bdf
