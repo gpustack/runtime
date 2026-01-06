@@ -123,8 +123,13 @@ class AMDDetector(Detector):
 
                 dev_cc = dev_hsa_agent.compute_capability
                 if not dev_cc:
-                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
+                    if "target_graphics_version" in dev_gpu_asic_info:
+                        dev_cc = dev_gpu_asic_info.get("target_graphics_version")
+                    else:
+                        with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                            dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(
+                                dev_idx,
+                            )
 
                 dev_bdf = None
                 dev_card_id = None
