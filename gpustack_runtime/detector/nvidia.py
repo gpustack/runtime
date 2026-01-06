@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
+import time
 from _ctypes import byref
 from functools import lru_cache
 from math import ceil
@@ -125,66 +127,6 @@ class NVIDIADetector(Detector):
             for dev_idx in range(dev_count):
                 dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
 
-                dev_index = dev_idx
-                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                    if dev_files is None:
-                        dev_files = get_device_files(pattern=r"nvidia(?P<number>\d+)")
-                    if len(dev_files) >= dev_count:
-                        dev_file = dev_files[dev_idx]
-                        if dev_file.number is not None:
-                            dev_index = dev_file.number
-                dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
-
-                dev_cores = None
-                if not envs.GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL:
-                    with contextlib.suppress(pycuda.CUDAError):
-                        dev_gpudev = pycuda.cuDeviceGet(dev_idx)
-                        dev_cores = pycuda.cuDeviceGetAttribute(
-                            dev_gpudev,
-                            pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
-                        )
-
-                dev_mem = 0
-                dev_mem_used = 0
-                with contextlib.suppress(pynvml.NVMLError):
-                    dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
-                    dev_mem = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.total,
-                    )
-                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.used,
-                    )
-                if dev_mem == 0:
-                    dev_mem, dev_mem_used = get_memory()
-
-                dev_cores_util = None
-                with contextlib.suppress(pynvml.NVMLError):
-                    dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
-                    dev_cores_util = dev_util_rates.gpu
-                if dev_cores_util is None:
-                    debug_log_warning(
-                        logger,
-                        "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
-                    )
-                    dev_cores_util = 0
-
-                dev_temp = None
-                with contextlib.suppress(pynvml.NVMLError):
-                    dev_temp = pynvml.nvmlDeviceGetTemperature(
-                        dev,
-                        pynvml.NVML_TEMPERATURE_GPU,
-                    )
-
-                dev_power = None
-                dev_power_used = None
-                with contextlib.suppress(pynvml.NVMLError):
-                    dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
-                    dev_power = dev_power // 1000  # mW to W
-                    dev_power_used = (
-                        pynvml.nvmlDeviceGetPowerUsage(dev) // 1000
-                    )  # mW to W
-
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
 
@@ -193,38 +135,102 @@ class NVIDIADetector(Detector):
                     dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
                     dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
-                dev_is_vgpu = False
-                if dev_bdf and dev_bdf in pci_devs:
-                    dev_is_vgpu = _is_vgpu(pci_devs[dev_bdf].config)
-
-                dev_appendix = {
-                    "arch_family": _get_arch_family(dev_cc_t),
-                    "vgpu": dev_is_vgpu,
-                }
-                if dev_bdf:
-                    dev_appendix["bdf"] = dev_bdf
-
-                with contextlib.suppress(pynvml.NVMLError):
-                    dev_fabric = pynvml.c_nvmlGpuFabricInfoV_t()
-                    r = pynvml.nvmlDeviceGetGpuFabricInfoV(dev, byref(dev_fabric))
-                    if r != pynvml.NVML_SUCCESS:
-                        dev_fabric = None
-                    if dev_fabric.state != pynvml.NVML_GPU_FABRIC_STATE_COMPLETED:
-                        dev_fabric = None
-                    if dev_fabric:
-                        dev_appendix["fabric_cluster_uuid"] = stringify_uuid(
-                            bytes(dev_fabric.clusterUuid),
-                        )
-                        dev_appendix["fabric_clique_id"] = dev_fabric.cliqueId
-
                 dev_mig_mode = pynvml.NVML_DEVICE_MIG_DISABLE
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_mig_mode, _ = pynvml.nvmlDeviceGetMigMode(dev)
 
-                # If MIG is not enabled, return the GPU itself.
-
+                # With MIG disabled, treat as a single device.
                 if dev_mig_mode == pynvml.NVML_DEVICE_MIG_DISABLE:
+                    dev_index = dev_idx
+                    if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                        if dev_files is None:
+                            dev_files = get_device_files(
+                                pattern=r"nvidia(?P<number>\d+)",
+                            )
+                        if len(dev_files) >= dev_count:
+                            dev_file = dev_files[dev_idx]
+                            if dev_file.number is not None:
+                                dev_index = dev_file.number
+
                     dev_name = pynvml.nvmlDeviceGetName(dev)
+
+                    dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+
+                    dev_cores = None
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL:
+                        with contextlib.suppress(pycuda.CUDAError):
+                            dev_gpudev = pycuda.cuDeviceGet(dev_idx)
+                            dev_cores = pycuda.cuDeviceGetAttribute(
+                                dev_gpudev,
+                                pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                            )
+
+                    dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
+                    if dev_cores_util is None:
+                        with contextlib.suppress(pynvml.NVMLError):
+                            dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
+                            dev_cores_util = dev_util_rates.gpu
+                    if dev_cores_util is None:
+                        debug_log_warning(
+                            logger,
+                            "Failed to get device %d cores utilization, setting to 0",
+                            dev_index,
+                        )
+                        dev_cores_util = 0
+
+                    dev_mem = 0
+                    dev_mem_used = 0
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
+                        dev_mem = byte_to_mebibyte(  # byte to MiB
+                            dev_mem_info.total,
+                        )
+                        dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                            dev_mem_info.used,
+                        )
+                    if dev_mem == 0:
+                        dev_mem, dev_mem_used = get_memory()
+
+                    dev_temp = None
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_temp = pynvml.nvmlDeviceGetTemperature(
+                            dev,
+                            pynvml.NVML_TEMPERATURE_GPU,
+                        )
+
+                    dev_power = None
+                    dev_power_used = None
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
+                        dev_power = dev_power // 1000  # mW to W
+                        dev_power_used = (
+                            pynvml.nvmlDeviceGetPowerUsage(dev) // 1000
+                        )  # mW to W
+
+                    dev_is_vgpu = False
+                    if dev_bdf and dev_bdf in pci_devs:
+                        dev_is_vgpu = _is_vgpu(pci_devs[dev_bdf].config)
+
+                    dev_appendix = {
+                        "arch_family": _get_arch_family(dev_cc_t),
+                        "vgpu": dev_is_vgpu,
+                    }
+                    if dev_bdf:
+                        dev_appendix["bdf"] = dev_bdf
+
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_fabric = pynvml.c_nvmlGpuFabricInfoV_t()
+                        r = pynvml.nvmlDeviceGetGpuFabricInfoV(dev, byref(dev_fabric))
+                        if r != pynvml.NVML_SUCCESS:
+                            dev_fabric = None
+                        if dev_fabric.state != pynvml.NVML_GPU_FABRIC_STATE_COMPLETED:
+                            dev_fabric = None
+                        if dev_fabric:
+                            dev_appendix["fabric_cluster_uuid"] = stringify_uuid(
+                                bytes(dev_fabric.clusterUuid),
+                            )
+                            dev_appendix["fabric_clique_id"] = dev_fabric.cliqueId
+
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
@@ -286,12 +292,19 @@ class NVIDIADetector(Detector):
                         pynvml.nvmlDeviceGetPowerUsage(mdev) // 1000
                     )  # mW to W
 
-                    mdev_appendix = dev_appendix.copy()
+                    mdev_appendix = {
+                        "arch_family": _get_arch_family(dev_cc_t),
+                        "vgpu": True,
+                    }
+                    if dev_bdf:
+                        mdev_appendix["bdf"] = dev_bdf
 
                     mdev_gi_id = pynvml.nvmlDeviceGetGpuInstanceId(mdev)
                     mdev_appendix["gpu_instance_id"] = mdev_gi_id
                     mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
                     mdev_appendix["compute_instance_id"] = mdev_ci_id
+
+                    mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
 
                     if not mdev_name:
                         mdev_attrs = pynvml.nvmlDeviceGetAttributes(mdev)
@@ -377,6 +390,7 @@ class NVIDIADetector(Detector):
                             runtime_version_original=sys_runtime_ver_original,
                             compute_capability=dev_cc,
                             cores=mdev_cores,
+                            cores_utilization=mdev_cores_util,
                             memory=mdev_mem,
                             memory_used=mdev_mem_used,
                             memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
@@ -493,6 +507,97 @@ class NVIDIADetector(Detector):
             pynvml.nvmlShutdown()
 
         return ret
+
+
+def _get_gpm_metrics(
+    metrics: list[int],
+    dev: pynvml.c_nvmlDevice_t,
+    gpu_instance_id: int | None = None,
+    interval: float = 0.1,
+) -> list[pynvml.c_nvmlGpmMetric_t] | None:
+    """
+    Get GPM metrics for a device or a MIG GPU instance.
+
+    Args:
+        metrics:
+            A list of GPM metric IDs to query.
+        dev:
+            The NVML device handle.
+        gpu_instance_id:
+            The GPU instance ID for MIG devices.
+        interval:
+            Interval in seconds between two samples.
+
+    Returns:
+        A list of GPM metric structures, or None if failed.
+
+    """
+    try:
+        dev_gpm_support = pynvml.nvmlGpmQueryDeviceSupport(dev)
+        if not bool(dev_gpm_support.isSupportedDevice):
+            return None
+    except pynvml.NVMLError:
+        debug_log_warning(logger, "Unsupported GPM query")
+        return None
+
+    dev_gpm_metrics = pynvml.c_nvmlGpmMetricsGet_t()
+    try:
+        dev_gpm_metrics.sample1 = pynvml.nvmlGpmSampleAlloc()
+        dev_gpm_metrics.sample2 = pynvml.nvmlGpmSampleAlloc()
+        if gpu_instance_id is None:
+            pynvml.nvmlGpmSampleGet(dev, dev_gpm_metrics.sample1)
+            time.sleep(interval)
+            pynvml.nvmlGpmSampleGet(dev, dev_gpm_metrics.sample2)
+        else:
+            pynvml.nvmlGpmMigSampleGet(dev, gpu_instance_id, dev_gpm_metrics.sample1)
+            time.sleep(interval)
+            pynvml.nvmlGpmMigSampleGet(dev, gpu_instance_id, dev_gpm_metrics.sample2)
+        dev_gpm_metrics.version = pynvml.NVML_GPM_METRICS_GET_VERSION
+        dev_gpm_metrics.numMetrics = len(metrics)
+        for metric_idx, metric in enumerate(metrics):
+            dev_gpm_metrics.metrics[metric_idx].metricId = metric
+        pynvml.nvmlGpmMetricsGet(dev_gpm_metrics)
+    except pynvml.NVMLError:
+        debug_log_exception(logger, "Failed to get GPM metrics")
+        return None
+    finally:
+        if dev_gpm_metrics.sample1:
+            pynvml.nvmlGpmSampleFree(dev_gpm_metrics.sample1)
+        if dev_gpm_metrics.sample2:
+            pynvml.nvmlGpmSampleFree(dev_gpm_metrics.sample2)
+    return list(dev_gpm_metrics.metrics)
+
+
+def _get_sm_util_from_gpm_metrics(
+    dev: pynvml.c_nvmlDevice_t,
+    gpu_instance_id: int | None = None,
+    interval: float = 0.1,
+) -> int | None:
+    """
+    Get SM utilization from GPM metrics.
+
+    Args:
+        dev:
+            The NVML device handle.
+        gpu_instance_id:
+            The GPU instance ID for MIG devices.
+        interval:
+            Interval in seconds between two samples.
+
+    Returns:
+        The SM utilization as an integer percentage, or None if failed.
+
+    """
+    dev_gpm_metrics = _get_gpm_metrics(
+        metrics=[pynvml.NVML_GPM_METRIC_SM_UTIL],
+        dev=dev,
+        gpu_instance_id=gpu_instance_id,
+        interval=interval,
+    )
+    if dev_gpm_metrics and not math.isnan(dev_gpm_metrics[0].value):
+        return int(dev_gpm_metrics[0].value)
+
+    return None
 
 
 def _get_arch_family(dev_cc_t: list[int]) -> str:
