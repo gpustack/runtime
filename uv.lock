@@ -278,6 +278,7 @@ dependencies = [
     { name = "docker" },
     { name = "gpustack-runner" },
     { name = "kubernetes" },
+    { name = "mthreads-ml-py" },
     { name = "nvidia-ml-py" },
     { name = "podman" },
     { name = "pyyaml" },
@@ -305,6 +306,7 @@ requires-dist = [
     { name = "docker", specifier = ">=7.1.0" },
     { name = "gpustack-runner", specifier = ">=0.1.23.post4" },
     { name = "kubernetes", specifier = ">=33.1.0" },
+    { name = "mthreads-ml-py", specifier = ">=2.2.10" },
     { name = "nvidia-ml-py", specifier = ">=13.580.65" },
     { name = "podman", specifier = "==5.6.0" },
     { name = "pyyaml" },
@@ -630,6 +632,14 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/13/d4/6327c4e82dda667b0ff83b6f6b6a03e7b81dfd1f28cd5eda50ffe66d546f/mkdocstrings_python-1.18.0.tar.gz", hash = "sha256:0b9924b4034fe9ae43604d78fe8e5107ea2c2391620124fc833043a62e83c744", size = 207601, upload-time = "2025-08-26T14:02:30.839Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/96/7ecc71bb9f01ee20f201b2531960b401159c6730aec90ec76a1b74bc81e1/mkdocstrings_python-1.18.0-py3-none-any.whl", hash = "sha256:f5056d8afe9a9683ad0c59001df1ecd9668b51c19b9a6b4dc0ff02cc9b76265a", size = 138182, upload-time = "2025-08-26T14:02:28.076Z" },
+]
+
+[[package]]
+name = "mthreads-ml-py"
+version = "2.2.10"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/58/39/406e8818b6fefb9ffa5ce3a3620cd8e9e17a7b05f49082d20d9c1613667a/mthreads_ml_py-2.2.10-py3-none-any.whl", hash = "sha256:aa9f801f147262ff43e3bd497c9753c7883f416105afb16aeb60cd4cfb06c972", size = 18296, upload-time = "2026-01-07T02:46:21.527Z" },
 ]
 
 [[package]]
