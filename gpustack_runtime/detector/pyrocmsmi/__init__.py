@@ -223,8 +223,9 @@ def rsmi_dev_target_graphics_version_get(device=0):
         c_version = c_uint64()
         ret = rocmsmiLib.rsmi_dev_target_graphics_version_get(device, byref(c_version))
         _rocmsmiCheckReturn(ret)
-        version = hex(c_version.value)[2:]
-        return "gfx" + version
+        if c_version.value < 2000:
+            return "gfx" + str(c_version.value)
+        return "gfx" + hex(c_version.value)[2:]
     except AttributeError:
         return None
 
