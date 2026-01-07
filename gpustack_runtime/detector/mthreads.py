@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
+import pymtml
+
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-import pymtml
 from .__types__ import (
     Detector,
     Device,
