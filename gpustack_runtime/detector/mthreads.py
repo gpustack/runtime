@@ -138,7 +138,6 @@ class MThreadsDetector(Detector):
 
                 dev_mem = 0
                 dev_mem_used = 0
-                
                 with pymtml.mtmlMemoryContext(dev) as devmem:
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pymtml.mtmlMemoryGetTotal(devmem),
