@@ -5,7 +5,7 @@ from functools import lru_cache
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import pymtml
+import pymtml
 from .__types__ import (
     Detector,
     Device,
@@ -105,9 +105,8 @@ class MThreadsDetector(Detector):
 
         try:
             pymtml.mtmlLibraryInit()
-
-            sys_driver_ver = pymtml.mtmlSystemGetDriverVersion()
-
+            system = pymtml.mtmlLibraryInitSystem()
+            sys_driver_ver = pymtml.mtmlSystemGetDriverVersion(system)
             dev_count = pymtml.mtmlLibraryCountDevice()
             for dev_idx in range(dev_count):
                 dev_index = dev_idx
@@ -139,25 +138,21 @@ class MThreadsDetector(Detector):
 
                 dev_mem = 0
                 dev_mem_used = 0
-                devmem = pymtml.mtmlDeviceInitMemory(dev)
-                try:
+                
+                with pymtml.mtmlMemoryContext(dev) as devmem:
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pymtml.mtmlMemoryGetTotal(devmem),
                     )
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         pymtml.mtmlMemoryGetUsed(devmem),
                     )
-                finally:
-                    pymtml.mtmlDeviceFreeMemory(devmem)
 
                 dev_cores_util = None
                 dev_temp = None
-                devgpu = pymtml.mtmlDeviceInitGpu(dev)
-                try:
+                with pymtml.mtmlGpuContext(dev) as devgpu:
                     dev_cores_util = pymtml.mtmlGpuGetUtilization(devgpu)
                     dev_temp = pymtml.mtmlGpuGetTemperature(devgpu)
-                finally:
-                    pymtml.mtmlDeviceFreeGpu(devgpu)
+
                 if dev_cores_util is None:
                     debug_log_warning(
                         logger,
@@ -198,6 +193,7 @@ class MThreadsDetector(Detector):
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
         finally:
+            pymtml.mtmlLibraryFreeSystem(system)
             pymtml.mtmlLibraryShutDown()
 
         return ret

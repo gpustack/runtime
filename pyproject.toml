@@ -25,6 +25,7 @@ dependencies = [
     "pyyaml",
     "gpustack-runner>=0.1.23.post4",
     "nvidia-ml-py>=13.580.65",
+    "mthreads-ml-py >= 2.2.10",
     "argcomplete>=3.6.3",
     "tqdm",
 ]
