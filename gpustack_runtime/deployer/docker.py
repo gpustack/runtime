@@ -1213,8 +1213,12 @@ class DockerDeployer(EndoscopicDeployer):
         self_container_envs: dict[str, str] = dict(
             item.split("=", 1) for item in self_container.attrs["Config"].get("Env", [])
         )
-        self_image_envs: dict[str, str] = dict(
-            item.split("=", 1) for item in self_image.attrs["Config"].get("Env", [])
+        self_image_envs: dict[str, str] = (
+            dict(
+                item.split("=", 1) for item in self_image.attrs["Config"].get("Env", [])
+            )
+            if self_image.attrs["Config"]
+            else {}
         )
         mirrored_envs: dict[str, str] = {
             # Filter out gpustack-internal envs and same-as-image envs.
