@@ -26,7 +26,6 @@ from .__utils__ import (
     get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
-    support_command,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,7 +55,13 @@ class IluvatarDetector(Detector):
         if not pci_devs and not envs.GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK:
             logger.debug("No Iluvatar PCI devices found")
 
-        supported = support_command("ixsmi")
+        try:
+            pyixml.nvmlInit()
+            supported = True
+        except pyixml.NVMLError:
+            debug_log_exception(logger, "Failed to initialize IXML library")
+        finally:
+            pyixml.nvmlShutdown()
 
         return supported
 
@@ -74,7 +79,7 @@ class IluvatarDetector(Detector):
 
     def detect(self) -> Devices | None:
         """
-        Detect Iluvatar GPUs using ixsmi tool.
+        Detect Iluvatar GPUs using pyixml.
 
         Returns:
             A list of detected Iluvatar GPU devices,

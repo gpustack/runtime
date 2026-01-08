@@ -1076,7 +1076,7 @@ def _nvmlGetFunctionPointer(name):
     libLoadLock.acquire()
     try:
         # ensure library was loaded
-        if nvmlLib == None:
+        if nvmlLib is None:
             raise NVMLError(NVML_ERROR_UNINITIALIZED)
         try:
             _nvmlGetFunctionPointer_cache[name] = getattr(nvmlLib, name)
@@ -2143,13 +2143,13 @@ def _LoadNvmlLibrary():
     """
     global nvmlLib
 
-    if nvmlLib == None:
+    if nvmlLib is None:
         # lock to ensure only one caller loads the library
         libLoadLock.acquire()
 
         try:
             # ensure the library still isn't loaded
-            if nvmlLib == None:
+            if nvmlLib is None:
                 try:
                     if sys.platform.startswith("win"):
                         # IXML is typically used on Linux, but for completeness,
@@ -2157,9 +2157,9 @@ def _LoadNvmlLibrary():
                         _nvmlCheckReturn(NVML_ERROR_LIBRARY_NOT_FOUND)
                     else:
                         nvmlLib = CDLL("libixml.so")
-                except OSError as ose:
+                except OSError:
                     _nvmlCheckReturn(NVML_ERROR_LIBRARY_NOT_FOUND)
-                if nvmlLib == None:
+                if nvmlLib is None:
                     _nvmlCheckReturn(NVML_ERROR_LIBRARY_NOT_FOUND)
         finally:
             # lock is always freed
@@ -5020,153 +5020,75 @@ def nvmlDeviceGetMemClkMinMaxVfOffset(device, minOffset, maxOffset):
 ## Enums/defines
 
 #### GPM Metric Identifiers
-NVML_GPM_METRIC_GRAPHICS_UTIL = (
-    1  # Percentage of time any compute/graphics app was active on the GPU. 0.0 - 100.0
-)
-NVML_GPM_METRIC_SM_UTIL = 2  # Percentage of SMs that were busy. 0.0 - 100.0
-NVML_GPM_METRIC_SM_OCCUPANCY = (
-    3  # Percentage of warps that were active vs theoretical maximum. 0.0 - 100.0
-)
-NVML_GPM_METRIC_INTEGER_UTIL = (
-    4  # Percentage of time the GPU's SMs were doing integer operations. 0.0 - 100.0
-)
-NVML_GPM_METRIC_ANY_TENSOR_UTIL = (
-    5  # Percentage of time the GPU's SMs were doing ANY tensor operations. 0.0 - 100.0
-)
-NVML_GPM_METRIC_DFMA_TENSOR_UTIL = (
-    6  # Percentage of time the GPU's SMs were doing DFMA tensor operations. 0.0 - 100.0
-)
-NVML_GPM_METRIC_HMMA_TENSOR_UTIL = (
-    7  # Percentage of time the GPU's SMs were doing HMMA tensor operations. 0.0 - 100.0
-)
-NVML_GPM_METRIC_IMMA_TENSOR_UTIL = (
-    9  # Percentage of time the GPU's SMs were doing IMMA tensor operations. 0.0 - 100.0
-)
-NVML_GPM_METRIC_DRAM_BW_UTIL = (
-    10  # Percentage of DRAM bw used vs theoretical maximum. 0.0 - 100.0
-)
-NVML_GPM_METRIC_FP64_UTIL = (
-    11  # Percentage of time the GPU's SMs were doing non-tensor FP64 math. 0.0 - 100.0
-)
-NVML_GPM_METRIC_FP32_UTIL = (
-    12  # Percentage of time the GPU's SMs were doing non-tensor FP32 math. 0.0 - 100.0
-)
-NVML_GPM_METRIC_FP16_UTIL = (
-    13  # Percentage of time the GPU's SMs were doing non-tensor FP16 math. 0.0 - 100.0
-)
-NVML_GPM_METRIC_PCIE_TX_PER_SEC = 20  # PCIe traffic from this GPU in MiB/sec
-NVML_GPM_METRIC_PCIE_RX_PER_SEC = 21  # PCIe traffic to this GPU in MiB/sec
-NVML_GPM_METRIC_NVDEC_0_UTIL = 30  # Percent utilization of NVDEC 0. 0.0 - 100.0
-NVML_GPM_METRIC_NVDEC_1_UTIL = 31  # Percent utilization of NVDEC 1. 0.0 - 100.0
-NVML_GPM_METRIC_NVDEC_2_UTIL = 32  # Percent utilization of NVDEC 2. 0.0 - 100.0
-NVML_GPM_METRIC_NVDEC_3_UTIL = 33  # Percent utilization of NVDEC 3. 0.0 - 100.0
-NVML_GPM_METRIC_NVDEC_4_UTIL = 34  # Percent utilization of NVDEC 4. 0.0 - 100.0
-NVML_GPM_METRIC_NVDEC_5_UTIL = 35  # Percent utilization of NVDEC 5. 0.0 - 100.0
-NVML_GPM_METRIC_NVDEC_6_UTIL = 36  # Percent utilization of NVDEC 6. 0.0 - 100.0
-NVML_GPM_METRIC_NVDEC_7_UTIL = 37  # Percent utilization of NVDEC 7. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_0_UTIL = 40  # Percent utilization of NVJPG 0. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_1_UTIL = 41  # Percent utilization of NVJPG 1. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_2_UTIL = 42  # Percent utilization of NVJPG 2. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_3_UTIL = 43  # Percent utilization of NVJPG 3. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_4_UTIL = 44  # Percent utilization of NVJPG 4. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_5_UTIL = 45  # Percent utilization of NVJPG 5. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_6_UTIL = 46  # Percent utilization of NVJPG 6. 0.0 - 100.0
-NVML_GPM_METRIC_NVJPG_7_UTIL = 47  # Percent utilization of NVJPG 7. 0.0 - 100.0
-NVML_GPM_METRIC_NVOFA_0_UTIL = 50  # Percent utilization of NVOFA 0. 0.0 - 100.0
-NVML_GPM_METRIC_NVLINK_TOTAL_RX_PER_SEC = (
-    60  # NvLink read bandwidth for all links in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_TOTAL_TX_PER_SEC = (
-    61  # NvLink write bandwidth for all links in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L0_RX_PER_SEC = 62  # NvLink read bandwidth for link 0 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L0_TX_PER_SEC = (
-    63  # NvLink write bandwidth for link 0 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L1_RX_PER_SEC = 64  # NvLink read bandwidth for link 1 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L1_TX_PER_SEC = (
-    65  # NvLink write bandwidth for link 1 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L2_RX_PER_SEC = 66  # NvLink read bandwidth for link 2 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L2_TX_PER_SEC = (
-    67  # NvLink write bandwidth for link 2 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L3_RX_PER_SEC = 68  # NvLink read bandwidth for link 3 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L3_TX_PER_SEC = (
-    69  # NvLink write bandwidth for link 3 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L4_RX_PER_SEC = 70  # NvLink read bandwidth for link 4 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L4_TX_PER_SEC = (
-    71  # NvLink write bandwidth for link 4 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L5_RX_PER_SEC = 72  # NvLink read bandwidth for link 5 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L5_TX_PER_SEC = (
-    73  # NvLink write bandwidth for link 5 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L6_RX_PER_SEC = 74  # NvLink read bandwidth for link 6 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L6_TX_PER_SEC = (
-    75  # NvLink write bandwidth for link 6 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L7_RX_PER_SEC = 76  # NvLink read bandwidth for link 7 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L7_TX_PER_SEC = (
-    77  # NvLink write bandwidth for link 7 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L8_RX_PER_SEC = 78  # NvLink read bandwidth for link 8 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L8_TX_PER_SEC = (
-    79  # NvLink write bandwidth for link 8 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L9_RX_PER_SEC = 80  # NvLink read bandwidth for link 9 in MiB/sec
-NVML_GPM_METRIC_NVLINK_L9_TX_PER_SEC = (
-    81  # NvLink write bandwidth for link 9 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L10_RX_PER_SEC = (
-    82  # NvLink read bandwidth for link 10 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L10_TX_PER_SEC = (
-    83  # NvLink write bandwidth for link 10 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L11_RX_PER_SEC = (
-    84  # NvLink read bandwidth for link 11 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L11_TX_PER_SEC = (
-    85  # NvLink write bandwidth for link 11 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L12_RX_PER_SEC = (
-    86  # NvLink read bandwidth for link 12 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L12_TX_PER_SEC = (
-    87  # NvLink write bandwidth for link 12 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L13_RX_PER_SEC = (
-    88  # NvLink read bandwidth for link 13 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L13_TX_PER_SEC = (
-    89  # NvLink write bandwidth for link 13 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L14_RX_PER_SEC = (
-    90  # NvLink read bandwidth for link 14 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L14_TX_PER_SEC = (
-    91  # NvLink write bandwidth for link 14 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L15_RX_PER_SEC = (
-    92  # NvLink read bandwidth for link 15 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L15_TX_PER_SEC = (
-    93  # NvLink write bandwidth for link 15 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L16_RX_PER_SEC = (
-    94  # NvLink read bandwidth for link 16 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L16_TX_PER_SEC = (
-    95  # NvLink write bandwidth for link 16 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L17_RX_PER_SEC = (
-    96  # NvLink read bandwidth for link 17 in MiB/sec
-)
-NVML_GPM_METRIC_NVLINK_L17_TX_PER_SEC = (
-    97  # NvLink write bandwidth for link 17 in MiB/sec
-)
+NVML_GPM_METRIC_GRAPHICS_UTIL = 1
+NVML_GPM_METRIC_SM_UTIL = 2
+NVML_GPM_METRIC_SM_OCCUPANCY = 3
+NVML_GPM_METRIC_INTEGER_UTIL = 4
+NVML_GPM_METRIC_ANY_TENSOR_UTIL = 5
+NVML_GPM_METRIC_DFMA_TENSOR_UTIL = 6
+NVML_GPM_METRIC_HMMA_TENSOR_UTIL = 7
+NVML_GPM_METRIC_IMMA_TENSOR_UTIL = 9
+NVML_GPM_METRIC_DRAM_BW_UTIL = 10
+NVML_GPM_METRIC_FP64_UTIL = 11
+NVML_GPM_METRIC_FP32_UTIL = 12
+NVML_GPM_METRIC_FP16_UTIL = 13
+NVML_GPM_METRIC_PCIE_TX_PER_SEC = 20
+NVML_GPM_METRIC_PCIE_RX_PER_SEC = 21
+NVML_GPM_METRIC_NVDEC_0_UTIL = 30
+NVML_GPM_METRIC_NVDEC_1_UTIL = 31
+NVML_GPM_METRIC_NVDEC_2_UTIL = 32
+NVML_GPM_METRIC_NVDEC_3_UTIL = 33
+NVML_GPM_METRIC_NVDEC_4_UTIL = 34
+NVML_GPM_METRIC_NVDEC_5_UTIL = 35
+NVML_GPM_METRIC_NVDEC_6_UTIL = 36
+NVML_GPM_METRIC_NVDEC_7_UTIL = 37
+NVML_GPM_METRIC_NVJPG_0_UTIL = 40
+NVML_GPM_METRIC_NVJPG_1_UTIL = 41
+NVML_GPM_METRIC_NVJPG_2_UTIL = 42
+NVML_GPM_METRIC_NVJPG_3_UTIL = 43
+NVML_GPM_METRIC_NVJPG_4_UTIL = 44
+NVML_GPM_METRIC_NVJPG_5_UTIL = 45
+NVML_GPM_METRIC_NVJPG_6_UTIL = 46
+NVML_GPM_METRIC_NVJPG_7_UTIL = 47
+NVML_GPM_METRIC_NVOFA_0_UTIL = 50
+NVML_GPM_METRIC_NVLINK_TOTAL_RX_PER_SEC = 60
+NVML_GPM_METRIC_NVLINK_TOTAL_TX_PER_SEC = 61
+NVML_GPM_METRIC_NVLINK_L0_RX_PER_SEC = 62
+NVML_GPM_METRIC_NVLINK_L0_TX_PER_SEC = 63
+NVML_GPM_METRIC_NVLINK_L1_RX_PER_SEC = 64
+NVML_GPM_METRIC_NVLINK_L1_TX_PER_SEC = 65
+NVML_GPM_METRIC_NVLINK_L2_RX_PER_SEC = 66
+NVML_GPM_METRIC_NVLINK_L2_TX_PER_SEC = 67
+NVML_GPM_METRIC_NVLINK_L3_RX_PER_SEC = 68
+NVML_GPM_METRIC_NVLINK_L3_TX_PER_SEC = 69
+NVML_GPM_METRIC_NVLINK_L4_RX_PER_SEC = 70
+NVML_GPM_METRIC_NVLINK_L4_TX_PER_SEC = 71
+NVML_GPM_METRIC_NVLINK_L5_RX_PER_SEC = 72
+NVML_GPM_METRIC_NVLINK_L5_TX_PER_SEC = 73
+NVML_GPM_METRIC_NVLINK_L6_RX_PER_SEC = 74
+NVML_GPM_METRIC_NVLINK_L6_TX_PER_SEC = 75
+NVML_GPM_METRIC_NVLINK_L7_RX_PER_SEC = 76
+NVML_GPM_METRIC_NVLINK_L7_TX_PER_SEC = 77
+NVML_GPM_METRIC_NVLINK_L8_RX_PER_SEC = 78
+NVML_GPM_METRIC_NVLINK_L8_TX_PER_SEC = 79
+NVML_GPM_METRIC_NVLINK_L9_RX_PER_SEC = 80
+NVML_GPM_METRIC_NVLINK_L9_TX_PER_SEC = 81
+NVML_GPM_METRIC_NVLINK_L10_RX_PER_SEC = 82
+NVML_GPM_METRIC_NVLINK_L10_TX_PER_SEC = 83
+NVML_GPM_METRIC_NVLINK_L11_RX_PER_SEC = 84
+NVML_GPM_METRIC_NVLINK_L11_TX_PER_SEC = 85
+NVML_GPM_METRIC_NVLINK_L12_RX_PER_SEC = 86
+NVML_GPM_METRIC_NVLINK_L12_TX_PER_SEC = 87
+NVML_GPM_METRIC_NVLINK_L13_RX_PER_SEC = 88
+NVML_GPM_METRIC_NVLINK_L13_TX_PER_SEC = 89
+NVML_GPM_METRIC_NVLINK_L14_RX_PER_SEC = 90
+NVML_GPM_METRIC_NVLINK_L14_TX_PER_SEC = 91
+NVML_GPM_METRIC_NVLINK_L15_RX_PER_SEC = 92
+NVML_GPM_METRIC_NVLINK_L15_TX_PER_SEC = 93
+NVML_GPM_METRIC_NVLINK_L16_RX_PER_SEC = 94
+NVML_GPM_METRIC_NVLINK_L16_TX_PER_SEC = 95
+NVML_GPM_METRIC_NVLINK_L17_RX_PER_SEC = 96
+NVML_GPM_METRIC_NVLINK_L17_TX_PER_SEC = 97
 NVML_GPM_METRIC_MAX = 98
 
 ## Structs
