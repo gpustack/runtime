@@ -339,7 +339,8 @@ variables: dict[str, Callable[[], Any]] = {
             "corex=iluvatar.ai/devices;"
             "maca=metax-tech.com/devices;"
             "musa=mthreads.com/devices;"
-            "cuda=nvidia.com/devices;",
+            "cuda=nvidia.com/devices;"
+            "hggc=alibabacloud.com/devices;",
         ),
     ),
     "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(
@@ -451,7 +452,8 @@ variables: dict[str, Callable[[], Any]] = {
             "iluvatar.ai/devices=iluvatar.com/gpu;"
             "metax-tech.com/devices=metax-tech.com/gpu;"
             "mthreads.com/devices=mthreads.com/gpu;"
-            "nvidia.com/devices=nvidia.com/gpu;",
+            "nvidia.com/devices=nvidia.com/gpu;"
+            "alibabacloud.com/devices=alibabacloud.com/ppu;",
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES": lambda: to_dict(
@@ -464,7 +466,8 @@ variables: dict[str, Callable[[], Any]] = {
             "iluvatar.ai/devices=IX_VISIBLE_DEVICES;"
             "metax-tech.com/devices=CUDA_VISIBLE_DEVICES;"
             "mthreads.com/devices=METHERDS_VISIBLE_DEVICES;"
-            "nvidia.com/devices=NVIDIA_VISIBLE_DEVICES;",
+            "nvidia.com/devices=NVIDIA_VISIBLE_DEVICES;"
+            "alibabacloud.com/devices=NVIDIA_VISIBLE_DEVICES;",
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES": lambda: to_dict(
@@ -477,7 +480,8 @@ variables: dict[str, Callable[[], Any]] = {
             "iluvatar.ai/devices=CUDA_VISIBLE_DEVICES;"
             "metax-tech.com/devices=CUDA_VISIBLE_DEVICES;"
             "mthreads.com/devices=CUDA_VISIBLE_DEVICES,MUSA_VISIBLE_DEVICES;"
-            "nvidia.com/devices=CUDA_VISIBLE_DEVICES;",
+            "nvidia.com/devices=CUDA_VISIBLE_DEVICES;"
+            "alibabacloud.com/devices=CUDA_VISIBLE_DEVICES;",
         ),
         list_sep=",",
     ),

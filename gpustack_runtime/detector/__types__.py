@@ -45,6 +45,10 @@ class ManufacturerEnum(str, Enum):
     """
     NVIDIA Corporation
     """
+    THEAD = "thead"
+    """
+    T-Head Semiconductor Co., Ltd.
+    """
     UNKNOWN = "unknown"
     """
     Unknown Manufacturer
@@ -63,6 +67,7 @@ _MANUFACTURER_BACKEND_MAPPING: dict[ManufacturerEnum, str] = {
     ManufacturerEnum.METAX: "maca",
     ManufacturerEnum.MTHREADS: "musa",
     ManufacturerEnum.NVIDIA: "cuda",
+    ManufacturerEnum.THEAD: "hggc",
 }
 """
 Mapping of manufacturer to runtime backend,

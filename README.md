@@ -12,6 +12,7 @@ It supports detection of a wide range of GPU and accelerator resources, includin
 - MetaX GPU
 - Moore Threads GPU
 - NVIDIA GPU
+- T-Head PPU
 
 Contributions to support additional GPU resources are welcome!
 

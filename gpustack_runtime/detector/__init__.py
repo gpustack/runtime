@@ -24,6 +24,7 @@ from .iluvatar import IluvatarDetector
 from .metax import MetaXDetector
 from .mthreads import MThreadsDetector
 from .nvidia import NVIDIADetector
+from .thead import THeadDetector
 
 logger = logging.getLogger(__package__)
 
@@ -36,6 +37,7 @@ _DETECTORS: list[Detector] = [
     MetaXDetector(),
     MThreadsDetector(),
     NVIDIADetector(),
+    THeadDetector(),
 ]
 """
 List of all detectors.

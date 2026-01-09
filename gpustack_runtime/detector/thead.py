@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import pyixml
+from . import pyhgml
 from .__types__ import (
     Detector,
     Device,
@@ -31,16 +31,16 @@ from .__utils__ import (
 logger = logging.getLogger(__name__)
 
 
-class IluvatarDetector(Detector):
+class THeadDetector(Detector):
     """
-    Detect Iluvatar GPUs.
+    Detect T-Head PPUs.
     """
 
     @staticmethod
     @lru_cache
     def is_supported() -> bool:
         """
-        Check if the Iluvatar detector is supported.
+        Check if the T-Head detector is supported.
 
         Returns:
             True if supported, False otherwise.
@@ -48,40 +48,40 @@ class IluvatarDetector(Detector):
         """
         supported = False
         if envs.GPUSTACK_RUNTIME_DETECT.lower() not in ("auto", "iluvatar"):
-            logger.debug("Iluvatar detection is disabled by environment variable")
+            logger.debug("T-Head detection is disabled by environment variable")
             return supported
 
-        pci_devs = IluvatarDetector.detect_pci_devices()
+        pci_devs = THeadDetector.detect_pci_devices()
         if not pci_devs and not envs.GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK:
-            logger.debug("No Iluvatar PCI devices found")
+            logger.debug("No T-Head PCI devices found")
 
         try:
-            pyixml.nvmlInit()
-            pyixml.nvmlShutdown()
+            pyhgml.hgmlInit()
+            pyhgml.hgmlShutdown()
             supported = True
-        except pyixml.NVMLError:
-            debug_log_exception(logger, "Failed to initialize IXML library")
+        except pyhgml.HGMLError:
+            debug_log_exception(logger, "Failed to initialize HGML library")
 
         return supported
 
     @staticmethod
     @lru_cache
     def detect_pci_devices() -> dict[str, PCIDevice]:
-        # See https://pcisig.com/membership/member-companies?combine=Iluvatar.
-        pci_devs = get_pci_devices(vendor="0x1e3e")
+        # See https://pcisig.com/membership/member-companies?combine=Alibaba.
+        pci_devs = get_pci_devices(vendor=["0x05b7", "0x1ded"])
         if not pci_devs:
             return {}
         return {dev.address: dev for dev in pci_devs}
 
     def __init__(self):
-        super().__init__(ManufacturerEnum.ILUVATAR)
+        super().__init__(ManufacturerEnum.THEAD)
 
     def detect(self) -> Devices | None:
         """
-        Detect Iluvatar GPUs using pyixml.
+        Detect T-Head GPUs using pyhgml.
 
         Returns:
-            A list of detected Iluvatar GPU devices,
+            A list of detected T-Head GPU devices,
             or None if not supported.
 
         Raises:
@@ -94,11 +94,11 @@ class IluvatarDetector(Detector):
         ret: Devices = []
 
         try:
-            pyixml.nvmlInit()
+            pyhgml.hgmlInit()
 
-            sys_driver_ver = pyixml.nvmlSystemGetDriverVersion()
+            sys_driver_ver = pyhgml.hgmlSystemGetDriverVersion()
 
-            sys_runtime_ver_original = pyixml.nvmlSystemGetCudaDriverVersion()
+            sys_runtime_ver_original = pyhgml.hgmlSystemGetHggcDriverVersion()
             sys_runtime_ver_original = ".".join(
                 map(
                     str,
@@ -113,22 +113,22 @@ class IluvatarDetector(Detector):
                 sys_runtime_ver_original,
             )
 
-            dev_count = pyixml.nvmlDeviceGetCount()
+            dev_count = pyhgml.hgmlDeviceGetCount()
             for dev_idx in range(dev_count):
-                dev = pyixml.nvmlDeviceGetHandleByIndex(dev_idx)
+                dev = pyhgml.hgmlDeviceGetHandleByIndex(dev_idx)
 
                 dev_index = dev_idx
-                dev_uuid = pyixml.nvmlDeviceGetUUID(dev)
-                dev_name = pyixml.nvmlDeviceGetName(dev)
+                dev_uuid = pyhgml.hgmlDeviceGetUUID(dev)
+                dev_name = pyhgml.hgmlDeviceGetName(dev)
 
                 dev_cores = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_cores = pyixml.nvmlDeviceGetNumGpuCores(dev)
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_cores = pyhgml.hgmlDeviceGetNumGpuCores(dev)
 
                 dev_mem = 0
                 dev_mem_used = 0
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_mem_info = pyixml.nvmlDeviceGetMemoryInfo(dev)
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(dev)
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         dev_mem_info.total,
                     )
@@ -137,8 +137,8 @@ class IluvatarDetector(Detector):
                     )
 
                 dev_cores_util = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_util_rates = pyixml.nvmlDeviceGetUtilizationRates(dev)
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_util_rates = pyhgml.hgmlDeviceGetUtilizationRates(dev)
                     dev_cores_util = dev_util_rates.gpu
                 if dev_cores_util is None:
                     debug_log_warning(
@@ -149,30 +149,30 @@ class IluvatarDetector(Detector):
                     dev_cores_util = 0
 
                 dev_temp = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_temp = pyixml.nvmlDeviceGetTemperature(
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_temp = pyhgml.hgmlDeviceGetTemperature(
                         dev,
-                        pyixml.NVML_TEMPERATURE_GPU,
+                        pyhgml.HGML_TEMPERATURE_GPU,
                     )
 
                 dev_power = None
                 dev_power_used = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_power = pyixml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_power = pyhgml.hgmlDeviceGetPowerManagementDefaultLimit(dev)
                     dev_power = dev_power // 1000  # mW to W
                     dev_power_used = (
-                        pyixml.nvmlDeviceGetPowerUsage(dev) // 1000
+                        pyhgml.hgmlDeviceGetPowerUsage(dev) // 1000
                     )  # mW to W
 
                 dev_cc = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_cc_t = pyixml.nvmlDeviceGetCudaComputeCapability(dev)
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_cc_t = pyhgml.hgmlDeviceGetHggcComputeCapability(dev)
                     if dev_cc_t:
                         dev_cc = ".".join(map(str, dev_cc_t))
 
                 dev_bdf = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_pci_info = pyhgml.hgmlDeviceGetPciInfo(dev)
                     dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
                 dev_is_vgpu = False
@@ -206,14 +206,14 @@ class IluvatarDetector(Detector):
                         appendix=dev_appendix,
                     ),
                 )
-        except pyixml.NVMLError:
+        except pyhgml.HGMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
         except Exception:
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
         finally:
-            pyixml.nvmlShutdown()
+            pyhgml.hgmlShutdown()
 
         return ret
 
@@ -242,7 +242,7 @@ class IluvatarDetector(Detector):
 
         try:
             for i, dev_i in enumerate(devices):
-                dev_i_handle = pyixml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
+                dev_i_handle = pyhgml.hgmlDeviceGetHandleByUUID(dev_i.uuid)
 
                 # Get affinity with PCIe BDF if possible.
                 if dev_i_bdf := dev_i.appendix.get("bdf", ""):
@@ -256,15 +256,15 @@ class IluvatarDetector(Detector):
                 if not ret.devices_cpu_affinities[i]:
                     # Get NUMA affinity.
                     try:
-                        dev_i_memset = pyixml.nvmlDeviceGetMemoryAffinity(
+                        dev_i_memset = pyhgml.hgmlDeviceGetMemoryAffinity(
                             dev_i_handle,
                             get_numa_nodeset_size(),
-                            pyixml.NVML_AFFINITY_SCOPE_NODE,
+                            pyhgml.HGML_AFFINITY_SCOPE_NODE,
                         )
                         ret.devices_numa_affinities[i] = bitmask_to_str(
                             list(dev_i_memset),
                         )
-                    except pyixml.NVMLError:
+                    except pyhgml.HGMLError:
                         debug_log_exception(
                             logger,
                             "Failed to get NUMA affinity for device %d",
@@ -280,16 +280,16 @@ class IluvatarDetector(Detector):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
 
-                    dev_j_handle = pyixml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
+                    dev_j_handle = pyhgml.hgmlDeviceGetHandleByUUID(dev_j.uuid)
 
                     distance = TopologyDistanceEnum.UNK
                     try:
-                        distance = pyixml.nvmlDeviceGetTopologyCommonAncestor(
+                        distance = pyhgml.hgmlDeviceGetTopologyCommonAncestor(
                             dev_i_handle,
                             dev_j_handle,
                         )
                         # TODO(thxCode): Support LINK distance.
-                    except pyixml.NVMLError:
+                    except pyhgml.HGMLError:
                         debug_log_exception(
                             logger,
                             "Failed to get distance between device %d and %d",
@@ -299,13 +299,13 @@ class IluvatarDetector(Detector):
 
                     ret.devices_distances[i][j] = distance
                     ret.devices_distances[j][i] = distance
-        except pyixml.NVMLError:
+        except pyhgml.HGMLError:
             debug_log_exception(logger, "Failed to fetch topology")
             raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
         finally:
-            pyixml.nvmlShutdown()
+            pyhgml.hgmlShutdown()
 
         return ret
