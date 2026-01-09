@@ -92,6 +92,7 @@ class CreateWorkloadSubCommand(SubCommand):
     command_script: str | None
     port: int
     host_network: bool
+    privileged: bool
     check: bool
     namespace: str
     name: str
@@ -133,8 +134,16 @@ class CreateWorkloadSubCommand(SubCommand):
 
         deploy_parser.add_argument(
             "--host-network",
+            "--network-host",
             action="store_true",
             help="Use host network (default: False)",
+            default=False,
+        )
+
+        deploy_parser.add_argument(
+            "--privileged",
+            action="store_true",
+            help="Run the container in privileged mode (default: False)",
             default=False,
         )
 
@@ -183,6 +192,7 @@ class CreateWorkloadSubCommand(SubCommand):
         self.command_script = None
         self.port = args.port
         self.host_network = args.host_network
+        self.privileged = args.privileged
         self.check = args.check
         self.namespace = args.namespace
         self.name = args.name
@@ -237,6 +247,7 @@ class CreateWorkloadSubCommand(SubCommand):
         execution = ContainerExecution(
             command_script=self.command_script,
             args=self.extra_args,
+            privileged=self.privileged,
         )
         ports = (
             [
