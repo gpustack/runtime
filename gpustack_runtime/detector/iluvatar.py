@@ -241,6 +241,8 @@ class IluvatarDetector(Detector):
         )
 
         try:
+            pyixml.nvmlInit()
+
             for i, dev_i in enumerate(devices):
                 dev_i_handle = pyixml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
 

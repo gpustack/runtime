@@ -98,17 +98,7 @@ class THeadDetector(Detector):
 
             sys_driver_ver = pyhgml.hgmlSystemGetDriverVersion()
 
-            sys_runtime_ver_original = pyhgml.hgmlSystemGetHggcDriverVersion()
-            sys_runtime_ver_original = ".".join(
-                map(
-                    str,
-                    [
-                        sys_runtime_ver_original // 1000,
-                        (sys_runtime_ver_original % 1000) // 10,
-                        (sys_runtime_ver_original % 10),
-                    ],
-                ),
-            )
+            sys_runtime_ver_original = pyhgml.hgmlSystemGetHGMLVersion()
             sys_runtime_ver = get_brief_version(
                 sys_runtime_ver_original,
             )
@@ -241,6 +231,8 @@ class THeadDetector(Detector):
         )
 
         try:
+            pyhgml.hgmlInit()
+
             for i, dev_i in enumerate(devices):
                 dev_i_handle = pyhgml.hgmlDeviceGetHandleByUUID(dev_i.uuid)
 
