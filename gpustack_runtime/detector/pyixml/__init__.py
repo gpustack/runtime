@@ -1,7 +1,6 @@
 ##
 # Python bindings for the IXML library
 ##
-
 #####
 # Copyright (c) 2011-2023, NVIDIA Corporation.  All rights reserved.
 #
@@ -36,9 +35,9 @@
 from ctypes import *
 from functools import wraps
 import sys
-import os
 import threading
 import string
+from pathlib import Path
 
 ## C Type mappings ##
 ## Enums
@@ -2146,21 +2145,25 @@ def _LoadNvmlLibrary():
     if nvmlLib is None:
         # lock to ensure only one caller loads the library
         libLoadLock.acquire()
-
         try:
             # ensure the library still isn't loaded
             if nvmlLib is None:
-                try:
-                    if sys.platform.startswith("win"):
-                        # IXML is typically used on Linux, but for completeness,
-                        # Windows support would require different path handling.
-                        _nvmlCheckReturn(NVML_ERROR_LIBRARY_NOT_FOUND)
-                    else:
-                        nvmlLib = CDLL("libixml.so")
-                except OSError:
-                    _nvmlCheckReturn(NVML_ERROR_LIBRARY_NOT_FOUND)
+                if sys.platform.startswith("win"):
+                    # Do not support Windows yet.
+                    raise NVMLError(NVML_ERROR_LIBRARY_NOT_FOUND)
+                # Linux path
+                locs = [
+                    "libixml.so",
+                    str(Path(__file__).resolve().parent / "libixml.so"),
+                ]
+                for loc in locs:
+                    try:
+                        nvmlLib = CDLL(loc)
+                        break
+                    except OSError:
+                        pass
                 if nvmlLib is None:
-                    _nvmlCheckReturn(NVML_ERROR_LIBRARY_NOT_FOUND)
+                    raise NVMLError(NVML_ERROR_LIBRARY_NOT_FOUND)
         finally:
             # lock is always freed
             libLoadLock.release()

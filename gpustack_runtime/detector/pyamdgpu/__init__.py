@@ -212,10 +212,17 @@ class c_amdgpu_gpu_info(_PrintableStructure):
 
 
 def _LoadAMDGPULibrary():
+    """
+    Load the library if it isn't loaded already.
+    """
     global amdgpuLib
+
     if amdgpuLib is None:
+        # lock to ensure only one caller loads the library
         libLoadLock.acquire()
+
         try:
+            # ensure the library still isn't loaded
             if amdgpuLib is None:
                 if sys.platform.startswith("win"):
                     # Do not support Windows yet.
@@ -235,6 +242,7 @@ def _LoadAMDGPULibrary():
                 if amdgpuLib is None:
                     raise AMDGPUError(AMDGPU_ERROR_LIBRARY_NOT_FOUND)
         finally:
+            # lock is always freed
             libLoadLock.release()
 
 

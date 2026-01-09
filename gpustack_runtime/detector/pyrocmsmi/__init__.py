@@ -11,6 +11,40 @@ import threading
 from ctypes import *
 from functools import wraps
 from pathlib import Path
+from typing import ClassVar
+
+# Example ROCM_SMI_LIB_PATH
+# - /opt/hyhal/lib
+# - /opt/rocm/rocm_smi/lib
+# Example ROCM_PATH/ROCM_HOME
+# - /opt/dtk-24.04.3
+# - /opt/dtk
+# - /opt/rocm
+rocmsmi_lib_path = os.getenv("ROCM_SMI_LIB_PATH")
+if not rocmsmi_lib_path:
+    rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
+    rocmsmi_lib_path = str(rocm_path / "lib")
+    if not Path(rocmsmi_lib_path).exists():
+        rocmsmi_lib_path = str(rocm_path / "rocm_smi" / "lib")
+else:
+    rocm_path = Path(
+        os.getenv(
+            "ROCM_HOME",
+            os.getenv("ROCM_PATH") or str(Path(rocmsmi_lib_path).parent.parent),
+        )
+    )
+
+rocmsmi_lib_loc = Path(rocmsmi_lib_path) / "librocm_smi64.so"
+if rocmsmi_lib_loc.exists():
+    rocmsmi_bindings_paths = [
+        (rocm_path / "rocm_smi" / "bindings"),
+        (rocm_path / "libexec" / "rocm_smi"),
+    ]
+    rocmsmi_bindings_path = None
+    for p in rocmsmi_bindings_paths:
+        if p.exists():
+            rocmsmi_bindings_path = p
+            break
 
 ## Enums ##
 ROCMSMI_IOLINK_TYPE_UNDEFINED = 0
@@ -20,66 +54,49 @@ ROCMSMI_IOLINK_TYPE_NUMIOLINKTYPES = 3
 
 ## Error Codes ##
 ROCMSMI_ERROR_UNINITIALIZED = -99997
+ROCMSMI_ERROR_FUNCTION_NOT_FOUND = -99998
 
 ## Lib loading ##
 rocmsmiLib = None
 libLoadLock = threading.Lock()
 
-if rocmsmiLib is None:
-    # Example ROCM_SMI_LIB_PATH
-    # - /opt/hyhal/lib
-    # - /opt/rocm/rocm_smi/lib
-    # Example ROCM_PATH/ROCM_HOME
-    # - /opt/dtk-24.04.3
-    # - /opt/dtk
-    # - /opt/rocm
-    rocmsmi_lib_path = os.getenv("ROCM_SMI_LIB_PATH")
-    if not rocmsmi_lib_path:
-        rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
-        rocmsmi_lib_path = str(rocm_path / "lib")
-        if not Path(rocmsmi_lib_path).exists():
-            rocmsmi_lib_path = str(rocm_path / "rocm_smi" / "lib")
-    else:
-        rocm_path = Path(
-            os.getenv(
-                "ROCM_HOME",
-                os.getenv("ROCM_PATH") or str(Path(rocmsmi_lib_path).parent.parent),
-            )
-        )
 
-    rocmsmi_lib_loc = Path(rocmsmi_lib_path) / "librocm_smi64.so"
-    if rocmsmi_lib_loc.exists():
-        rocmsmi_bindings_paths = [
-            (rocm_path / "rocm_smi" / "bindings"),
-            (rocm_path / "libexec" / "rocm_smi"),
-        ]
-        rocmsmi_bindings_path = None
-        for p in rocmsmi_bindings_paths:
-            if p.exists():
-                rocmsmi_bindings_path = p
-                break
+def _LoadRocmSmiLibrary():
+    """
+    Load the library if it isn't loaded already.
+    """
+    global rocmsmiLib
 
-        if rocmsmi_bindings_path and rocmsmi_bindings_path.exists():
-            if str(rocmsmi_bindings_path) not in sys.path:
-                sys.path.append(str(rocmsmi_bindings_path))
+    if rocmsmiLib is None:
+        # lock to ensure only one caller loads the library
+        libLoadLock.acquire()
+        try:
+            # ensure the library still isn't loaded
+            if (
+                rocmsmiLib is None
+                and not sys.platform.startswith("win")
+                and rocmsmi_lib_loc.is_file()
+            ):
+                try:
+                    # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
+                    # Add bindings path to sys.path for importing rsmiBindings
+                    if rocmsmi_bindings_path and rocmsmi_bindings_path.exists():
+                        if str(rocmsmi_bindings_path) not in sys.path:
+                            sys.path.append(str(rocmsmi_bindings_path))
+                    from rsmiBindings import *
 
-            libLoadLock.acquire()
-
-            try:
-                # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
-                from rsmiBindings import *
-
-                if not rocmsmiLib:
-                    rocmsmiLib = CDLL(rocmsmi_lib_loc)
-            except OSError:
-                pass
-            finally:
-                libLoadLock.release()
+                    rocmsmiLib = CDLL(str(rocmsmi_lib_loc))
+                except OSError:
+                    pass
+        finally:
+            # lock is always released
+            libLoadLock.release()
 
 
 class ROCMSMIError(Exception):
     _extend_errcode_to_string: ClassVar[dict[int, str]] = {
         ROCMSMI_ERROR_UNINITIALIZED: "Library Not Initialized",
+        ROCMSMI_ERROR_FUNCTION_NOT_FOUND: "Function Not Found in Library",
     }
 
     def __init__(self, value):
@@ -97,6 +114,31 @@ def _rocmsmiCheckReturn(ret):
     if ret != rsmi_status_t.RSMI_STATUS_SUCCESS:
         raise ROCMSMIError(ret)
     return ret
+
+
+## Function access ##
+_rocmsmiGetFunctionPointer_cache = {}  # function pointers are cached to prevent unnecessary libLoadLock locking
+
+
+def _rocmsmiGetFunctionPointer(name):
+    global rocmsmiLib
+
+    if name in _rocmsmiGetFunctionPointer_cache:
+        return _rocmsmiGetFunctionPointer_cache[name]
+
+    libLoadLock.acquire()
+    try:
+        # ensure library was loaded
+        if rocmsmiLib is None:
+            raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+        try:
+            _rocmsmiGetFunctionPointer_cache[name] = getattr(rocmsmiLib, name)
+            return _rocmsmiGetFunctionPointer_cache[name]
+        except AttributeError:
+            raise ROCMSMIError(ROCMSMI_ERROR_FUNCTION_NOT_FOUND)
+    finally:
+        # lock is always freed
+        libLoadLock.release()
 
 
 ## string/bytes conversion for ease of use
@@ -120,108 +162,90 @@ def convertStrBytes(func):
 
 ## C function wrappers ##
 def rsmi_init(flags=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
+    _LoadRocmSmiLibrary()
 
-    ret = rocmsmiLib.rsmi_init(flags)
+    fn = _rocmsmiGetFunctionPointer("rsmi_init")
+    ret = fn(flags)
     _rocmsmiCheckReturn(ret)
 
 
 @convertStrBytes
 def rsmi_driver_version_get():
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     component = rsmi_sw_component_t.RSMI_SW_COMP_DRIVER
     c_version = create_string_buffer(256)
-    ret = rocmsmiLib.rsmi_version_str_get(component, c_version, 256)
+    fn = _rocmsmiGetFunctionPointer("rsmi_version_str_get")
+    ret = fn(component, c_version, 256)
     _rocmsmiCheckReturn(ret)
     return c_version.value
 
 
 def rsmi_num_monitor_devices():
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_num_devices = c_uint32()
-    ret = rocmsmiLib.rsmi_num_monitor_devices(byref(c_num_devices))
+    fn = _rocmsmiGetFunctionPointer("rsmi_num_monitor_devices")
+    ret = fn(byref(c_num_devices))
     _rocmsmiCheckReturn(ret)
     return c_num_devices.value
 
 
 @convertStrBytes
 def rsmi_dev_name_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_name = create_string_buffer(256)
-    ret = rocmsmiLib.rsmi_dev_name_get(device, c_name, 256)
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_name_get")
+    ret = fn(device, c_name, 256)
     _rocmsmiCheckReturn(ret)
     return c_name.value
 
 
 @convertStrBytes
 def rsmi_dev_serial_number_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_serial = create_string_buffer(256)
-    ret = rocmsmiLib.rsmi_dev_serial_number_get(device, c_serial, 256)
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_serial_number_get")
+    ret = fn(device, c_serial, 256)
     _rocmsmiCheckReturn(ret)
     return c_serial.value
 
 
 def rsmi_dev_unique_id_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_uid = c_uint64()
-    ret = rocmsmiLib.rsmi_dev_unique_id_get(device, byref(c_uid))
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_unique_id_get")
+    ret = fn(device, byref(c_uid))
     _rocmsmiCheckReturn(ret)
     return hex(c_uid.value)
 
 
 def rsmi_dev_busy_percent_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_percent = c_uint32()
-    ret = rocmsmiLib.rsmi_dev_busy_percent_get(device, byref(c_percent))
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_busy_percent_get")
+    ret = fn(device, byref(c_percent))
     _rocmsmiCheckReturn(ret)
     return c_percent.value
 
 
 def rsmi_dev_memory_usage_get(device=0, memory_type=None):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     if memory_type is None:
         memory_type = rsmi_memory_type_t.RSMI_MEM_TYPE_VRAM
     c_used = c_uint64()
-    ret = rocmsmiLib.rsmi_dev_memory_usage_get(device, memory_type, byref(c_used))
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_memory_usage_get")
+    ret = fn(device, memory_type, byref(c_used))
     _rocmsmiCheckReturn(ret)
     return c_used.value
 
 
 def rsmi_dev_memory_total_get(device=0, memory_type=None):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     if memory_type is None:
         memory_type = rsmi_memory_type_t.RSMI_MEM_TYPE_VRAM
     c_total = c_uint64()
-    ret = rocmsmiLib.rsmi_dev_memory_total_get(device, memory_type, byref(c_total))
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_memory_total_get")
+    ret = fn(device, memory_type, byref(c_total))
     _rocmsmiCheckReturn(ret)
     return c_total.value
 
 
 def rsmi_dev_target_graphics_version_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     try:
         c_version = c_uint64()
-        ret = rocmsmiLib.rsmi_dev_target_graphics_version_get(device, byref(c_version))
+        fn = _rocmsmiGetFunctionPointer("rsmi_dev_target_graphics_version_get")
+        ret = fn(device, byref(c_version))
         _rocmsmiCheckReturn(ret)
         if c_version.value < 2000:
             return "gfx" + str(c_version.value)
@@ -231,15 +255,15 @@ def rsmi_dev_target_graphics_version_get(device=0):
 
 
 def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     if metric is None:
         metric = rsmi_temperature_metric_t.RSMI_TEMP_CURRENT
 
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_temp_metric_get")
+
     if sensor is not None:
         c_temp = c_int64(0)
-        ret = rocmsmiLib.rsmi_dev_temp_metric_get(
+
+        ret = fn(
             c_uint32(device),
             sensor,
             metric,
@@ -252,7 +276,7 @@ def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
     # try all sensors and return the first valid temperature.
     for sensor_i in range(7):
         c_temp = c_int64(0)
-        ret = rocmsmiLib.rsmi_dev_temp_metric_get(
+        ret = fn(
             c_uint32(device),
             sensor_i,
             metric,
@@ -265,34 +289,28 @@ def rsmi_dev_temp_metric_get(device=0, sensor=None, metric=None):
 
 
 def rsmi_dev_power_cap_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_power_cap = c_uint64(0)
-    ret = rocmsmiLib.rsmi_dev_power_cap_get(device, 0, byref(c_power_cap))
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_power_cap_get")
+    ret = fn(device, 0, byref(c_power_cap))
     _rocmsmiCheckReturn(ret)
     return c_power_cap.value // 1000000
 
 
 def rsmi_dev_power_ave_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_device_chip = c_uint32(0)
     c_power = c_uint64(0)
-    ret = rocmsmiLib.rsmi_dev_power_ave_get(device, c_device_chip, byref(c_power))
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_power_ave_get")
+    ret = fn(device, c_device_chip, byref(c_power))
     _rocmsmiCheckReturn(ret)
     return c_power.value // 1000000
 
 
 def rsmi_dev_power_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     try:
         c_power = c_uint64(0)
         c_power_type = rsmi_power_type_t()
-        ret = rocmsmiLib.rsmi_dev_power_get(device, byref(c_power), byref(c_power_type))
+        fn = _rocmsmiGetFunctionPointer("rsmi_dev_power_get")
+        ret = fn(device, byref(c_power), byref(c_power_type))
         _rocmsmiCheckReturn(ret)
         return c_power.value // 1000000
     except NameError:
@@ -301,21 +319,17 @@ def rsmi_dev_power_get(device=0):
 
 
 def rsmi_dev_node_id_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_node_id = c_uint32()
-    ret = rocmsmiLib.rsmi_dev_node_id_get(device, byref(c_node_id))
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_node_id_get")
+    ret = fn(device, byref(c_node_id))
     _rocmsmiCheckReturn(ret)
     return c_node_id.value
 
 
 def rsmi_dev_pci_id_get(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_pci_id_get")
     c_pci_id = c_uint64()
-    ret = rocmsmiLib.rsmi_dev_pci_id_get(device, byref(c_pci_id))
+    ret = fn(device, byref(c_pci_id))
     _rocmsmiCheckReturn(ret)
 
     return str_bdfid(c_pci_id.value)
@@ -333,22 +347,18 @@ def str_bdfid(bdfid: int) -> str:
 
 
 def rsmi_topo_get_numa_node_number(device=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_numa_node = c_uint32()
-    ret = rocmsmiLib.rsmi_topo_get_numa_node_number(device, byref(c_numa_node))
+    fn = _rocmsmiGetFunctionPointer("rsmi_topo_get_numa_node_number")
+    ret = fn(device, byref(c_numa_node))
     _rocmsmiCheckReturn(ret)
     return c_numa_node.value
 
 
 def rsmi_topo_get_link_type(device_a=0, device_b=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_hops = c_uint64()
     c_type = c_uint32()
-    ret = rocmsmiLib.rsmi_topo_get_link_type(
+    fn = _rocmsmiGetFunctionPointer("rsmi_topo_get_link_type")
+    ret = fn(
         device_a,
         device_b,
         byref(c_hops),
@@ -359,11 +369,9 @@ def rsmi_topo_get_link_type(device_a=0, device_b=0):
 
 
 def rsmi_topo_get_link_weight(device_a=0, device_b=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_weight = c_uint64()
-    ret = rocmsmiLib.rsmi_topo_get_link_weight(
+    fn = _rocmsmiGetFunctionPointer("rsmi_topo_get_link_weight")
+    ret = fn(
         device_a,
         device_b,
         byref(c_weight),
@@ -373,11 +381,9 @@ def rsmi_topo_get_link_weight(device_a=0, device_b=0):
 
 
 def rsmi_is_p2p_accessible(device_a=0, device_b=0):
-    if not rocmsmiLib:
-        raise ROCMSMIError(ROCMSMI_ERROR_UNINITIALIZED)
-
     c_accessible = c_bool()
-    ret = rocmsmiLib.rsmi_is_P2P_accessible(
+    fn = _rocmsmiGetFunctionPointer("rsmi_is_P2P_accessible")
+    ret = fn(
         device_a,
         device_b,
         byref(c_accessible),

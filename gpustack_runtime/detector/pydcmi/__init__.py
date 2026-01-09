@@ -733,14 +733,20 @@ def convertStrBytes(func):
 
 
 def _LoadDcmiLibrary():
+    """
+    Load the library if it isn't loaded already.
+    """
     global dcmiLib
+
     if dcmiLib is None:
+        # lock to ensure only one caller loads the library
         libLoadLock.acquire()
+
         try:
+            # ensure the library still isn't loaded
             if dcmiLib is None:
                 if sys.platform.startswith("win"):
-                    # DCMI is typically used on Linux, but for completeness,
-                    # Windows support would require different path handling.
+                    # Do not support Windows yet.
                     raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
                 locs = [
@@ -757,6 +763,7 @@ def _LoadDcmiLibrary():
                 if dcmiLib is None:
                     raise DCMIError(DCMI_ERROR_LIBRARY_NOT_FOUND)
         finally:
+            # lock is always freed
             libLoadLock.release()
 
 

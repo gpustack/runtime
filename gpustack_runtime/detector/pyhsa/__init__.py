@@ -331,10 +331,16 @@ def convertStrBytes(func):
 
 
 def _LoadHsaLibrary():
+    """
+    Load the library if it isn't loaded already.
+    """
     global hsaLib
+
     if hsaLib is None:
+        # lock to ensure only one caller loads the library
         libLoadLock.acquire()
         try:
+            # ensure the library still isn't loaded
             if hsaLib is None:
                 if sys.platform.startswith("win"):
                     # Do not support Windows yet.
@@ -360,7 +366,10 @@ def _LoadHsaLibrary():
                         break
                     except OSError:
                         pass
+                if hsaLib is None:
+                    raise HSAError(HSA_STATUS_ERROR_LIBRARY_NOT_FOUND)
         finally:
+            # lock is always released
             libLoadLock.release()
 
 

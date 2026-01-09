@@ -1,13 +1,12 @@
 ##
 # Python bindings for the HGML library
 ##
-
-import os
 import string
 import sys
 import threading
 from ctypes import *
 from functools import wraps
+from pathlib import Path
 
 ## C Type mappings ##
 ## Enums
@@ -2403,21 +2402,25 @@ def _LoadHgmlLibrary():
     if hgmlLib is None:
         # lock to ensure only one caller loads the library
         libLoadLock.acquire()
-
         try:
             # ensure the library still isn't loaded
             if hgmlLib is None:
-                try:
-                    if sys.platform.startswith("win"):
-                        # HGML is typically used on Linux, but for completeness,
-                        # Windows support would require different path handling.
-                        _hgmlCheckReturn(HGML_ERROR_LIBRARY_NOT_FOUND)
-                    else:
-                        hgmlLib = CDLL("libhgml.so")
-                except OSError:
-                    _hgmlCheckReturn(HGML_ERROR_LIBRARY_NOT_FOUND)
+                if sys.platform.startswith("win"):
+                    # Do not support Windows yet.
+                    raise HGMLError(HGML_ERROR_LIBRARY_NOT_FOUND)
+                # Linux path
+                locs = [
+                    "libhgml.so",
+                    str(Path(__file__).resolve().parent / "libhgml.so"),
+                ]
+                for loc in locs:
+                    try:
+                        hgmlLib = CDLL(loc)
+                        break
+                    except OSError:
+                        pass
                 if hgmlLib is None:
-                    _hgmlCheckReturn(HGML_ERROR_LIBRARY_NOT_FOUND)
+                    raise HGMLError(HGML_ERROR_LIBRARY_NOT_FOUND)
         finally:
             # lock is always freed
             libLoadLock.release()

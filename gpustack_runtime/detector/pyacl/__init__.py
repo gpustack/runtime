@@ -384,13 +384,20 @@ def convertStrBytes(func):
 
 
 def _LoadAclLibrary():
+    """
+    Load the library if it isn't loaded already.
+    """
     global aclLib
+
     if aclLib is None:
+        # lock to ensure only one caller loads the library
         libLoadLock.acquire()
+
         try:
+            # ensure the library still isn't loaded
             if aclLib is None:
                 if sys.platform.startswith("win"):
-                    # ACL not supported on Windows
+                    # Do not support Windows yet.
                     raise ACLError(ACL_ERROR_LIBRARY_NOT_FOUND)
                 # Linux path
                 locs = [
@@ -419,6 +426,7 @@ def _LoadAclLibrary():
                 if aclLib is None:
                     raise ACLError(ACL_ERROR_LIBRARY_NOT_FOUND)
         finally:
+            # lock is always freed
             libLoadLock.release()
 
 

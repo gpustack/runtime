@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import contextlib
 import string
 import sys
 import threading
 from ctypes import *
+from functools import wraps
 from typing import ClassVar
 
 ## C Type mappings ##
@@ -390,10 +390,17 @@ def convertStrBytes(func):
 
 
 def _LoadCudaLibrary():
+    """
+    Load the library if it isn't loaded already.
+    """
     global cudaLib
+
     if cudaLib is None:
+        # lock to ensure only one caller loads the library
         libLoadLock.acquire()
+
         try:
+            # ensure the library still isn't loaded
             if cudaLib is None:
                 if sys.platform.startswith("win"):
                     # Do not support Windows yet.
@@ -411,6 +418,7 @@ def _LoadCudaLibrary():
                 if cudaLib is None:
                     raise CUDAError(CUDA_ERROR_LIBRARY_NOT_FOUND)
         finally:
+            # lock is always freed
             libLoadLock.release()
 
 
