@@ -381,7 +381,7 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES": lambda: to_dict(
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES",
-            "amd.com/devices=HIP_VISIBLE_DEVICES,ROCR_VISIBLE_DEVICES;"
+            "amd.com/devices=HIP_VISIBLE_DEVICES;"
             "huawei.com/devices=ASCEND_RT_VISIBLE_DEVICES,NPU_VISIBLE_DEVICES;"
             "cambricon.com/devices=MLU_VISIBLE_DEVICES;"
             "hygon.com/devices=HIP_VISIBLE_DEVICES;"
