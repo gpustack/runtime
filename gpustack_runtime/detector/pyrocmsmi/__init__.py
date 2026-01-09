@@ -46,6 +46,16 @@ if rocmsmi_lib_loc.exists():
             rocmsmi_bindings_path = p
             break
 
+    # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
+    # Add bindings path to sys.path for importing rsmiBindings
+    if rocmsmi_bindings_path and rocmsmi_bindings_path.exists():
+        if str(rocmsmi_bindings_path) not in sys.path:
+            sys.path.append(str(rocmsmi_bindings_path))
+        try:
+            from rsmiBindings import *
+        except ImportError:
+            pass
+
 ## Enums ##
 ROCMSMI_IOLINK_TYPE_UNDEFINED = 0
 ROCMSMI_IOLINK_TYPE_PCIE = 1
@@ -78,13 +88,6 @@ def _LoadRocmSmiLibrary():
                 and rocmsmi_lib_loc.is_file()
             ):
                 try:
-                    # Refer to https://github.com/ROCm/rocm_smi_lib/blob/amd-staging_deprecated/python_smi_tools/rsmiBindings.py.
-                    # Add bindings path to sys.path for importing rsmiBindings
-                    if rocmsmi_bindings_path and rocmsmi_bindings_path.exists():
-                        if str(rocmsmi_bindings_path) not in sys.path:
-                            sys.path.append(str(rocmsmi_bindings_path))
-                    from rsmiBindings import *
-
                     rocmsmiLib = CDLL(str(rocmsmi_lib_loc))
                 except OSError:
                     pass
