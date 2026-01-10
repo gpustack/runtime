@@ -487,6 +487,21 @@ ENV NVIDIA_DISABLE_REQUIRE="true" \
     NVIDIA_VISIBLE_DEVICES="all" \
     NVIDIA_DRIVER_CAPABILITIES="compute,utility"
 
+## Active all T-Head devices detection,
+## works with (default) T-Head container runtime and privileged mode.
+## See https://help.aliyun.com/document_detail/2996754.html.
+## Runs:
+## - With container runtime installed:
+##   [TODO, TBD]
+## - Without container runtime installed:
+##   + Allowing privileged, try with:
+##     docker run --rm -it -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/PPU_SDK:/usr/local/PPU_SDK:ro ...
+##   + Disallowing privileged, try with:
+##     docker run --rm -it -v /var/run/docker.sock:/var/run/docker.sock --security-opt seccomp=unconfined -v /dev:/dev:ro -v /usr/local/PPU_SDK:/usr/local/PPU_SDK:ro ...
+ENV PPU_HOME="/usr/local/PPU_SDK" \
+    LD_LIBRARY_PATH="/usr/local/PPU_SDK/CUDA_SDK/lib64:/usr/local/PPU_SDK/lib:${LD_LIBRARY_PATH}" \
+    GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES="/usr/local/PPU_SDK;${GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES}"
+
 ## Active GPUStack runtime mirrored deployment mode,
 ## if getting an error like, "Found multiple Containers with the same hostname ...",
 ## please use `--env GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=...` to specify the exact container name.

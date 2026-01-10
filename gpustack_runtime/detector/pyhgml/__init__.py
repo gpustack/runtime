@@ -2411,11 +2411,19 @@ def _LoadHgmlLibrary():
                 # Linux path
                 locs = [
                     "libhgml.so",
-                    str(Path(__file__).resolve().parent / "libhgml.so"),
+                    [
+                        str(Path(__file__).resolve().parent / "libuki.so"),
+                        str(Path(__file__).resolve().parent / "libhgml.so"),
+                    ],
                 ]
                 for loc in locs:
                     try:
-                        hgmlLib = CDLL(loc)
+                        if isinstance(loc, str):
+                            hgmlLib = CDLL(loc)
+                        else:
+                            for pre_loc in loc[:-1]:
+                                CDLL(pre_loc)
+                            hgmlLib = CDLL(loc[-1])
                         break
                     except OSError:
                         pass

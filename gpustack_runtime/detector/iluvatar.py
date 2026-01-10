@@ -54,6 +54,7 @@ class IluvatarDetector(Detector):
         pci_devs = IluvatarDetector.detect_pci_devices()
         if not pci_devs and not envs.GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK:
             logger.debug("No Iluvatar PCI devices found")
+            return supported
 
         try:
             pyixml.nvmlInit()

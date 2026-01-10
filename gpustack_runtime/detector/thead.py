@@ -54,6 +54,7 @@ class THeadDetector(Detector):
         pci_devs = THeadDetector.detect_pci_devices()
         if not pci_devs and not envs.GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK:
             logger.debug("No T-Head PCI devices found")
+            return supported
 
         try:
             pyhgml.hgmlInit()
@@ -68,7 +69,7 @@ class THeadDetector(Detector):
     @lru_cache
     def detect_pci_devices() -> dict[str, PCIDevice]:
         # See https://pcisig.com/membership/member-companies?combine=Alibaba.
-        pci_devs = get_pci_devices(vendor=["0x05b7", "0x1ded"])
+        pci_devs = get_pci_devices(vendor="0x1ded")
         if not pci_devs:
             return {}
         return {dev.address: dev for dev in pci_devs}
@@ -98,10 +99,23 @@ class THeadDetector(Detector):
 
             sys_driver_ver = pyhgml.hgmlSystemGetDriverVersion()
 
-            sys_runtime_ver_original = pyhgml.hgmlSystemGetHGMLVersion()
-            sys_runtime_ver = get_brief_version(
-                sys_runtime_ver_original,
-            )
+            sys_runtime_ver_original = None
+            sys_runtime_ver = None
+            with contextlib.suppress(pyhgml.HGMLError):
+                sys_runtime_ver_original = pyhgml.hgmlSystemGetHggcDriverVersion()
+                sys_runtime_ver_original = ".".join(
+                    map(
+                        str,
+                        [
+                            sys_runtime_ver_original // 1000,
+                            (sys_runtime_ver_original % 1000) // 10,
+                            (sys_runtime_ver_original % 10),
+                        ],
+                    ),
+                )
+                sys_runtime_ver = get_brief_version(
+                    sys_runtime_ver_original,
+                )
 
             dev_count = pyhgml.hgmlDeviceGetCount()
             for dev_idx in range(dev_count):

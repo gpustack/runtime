@@ -64,6 +64,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          lfs: true
           fetch-depth: 1
           persist-credentials: false
       - name: Setup UV
