@@ -1477,7 +1477,6 @@ class c_hgmlValue_t(Union):
         ("ullVal", c_ulonglong),
         ("sllVal", c_longlong),
         ("siVal", c_int),
-        ("usVal", c_ushort),
     ]
 
 

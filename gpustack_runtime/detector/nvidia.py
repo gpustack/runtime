@@ -6,7 +6,6 @@ import math
 import time
 from _ctypes import byref
 from functools import lru_cache
-from math import ceil
 
 import pynvml
 
@@ -78,7 +77,7 @@ class NVIDIADetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.NVIDIA)
 
-    def detect(self) -> Devices | None:  # noqa: PLR0915
+    def detect(self) -> Devices | None:
         """
         Detect NVIDIA GPUs using pynvml.
 
@@ -140,6 +139,7 @@ class NVIDIADetector(Detector):
                     dev_mig_mode, _ = pynvml.nvmlDeviceGetMigMode(dev)
 
                 # With MIG disabled, treat as a single device.
+
                 if dev_mig_mode == pynvml.NVML_DEVICE_MIG_DISABLE:
                     dev_index = dev_idx
                     if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
@@ -218,18 +218,11 @@ class NVIDIADetector(Detector):
                     if dev_bdf:
                         dev_appendix["bdf"] = dev_bdf
 
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_fabric = pynvml.c_nvmlGpuFabricInfoV_t()
-                        r = pynvml.nvmlDeviceGetGpuFabricInfoV(dev, byref(dev_fabric))
-                        if r != pynvml.NVML_SUCCESS:
-                            dev_fabric = None
-                        if dev_fabric.state != pynvml.NVML_GPU_FABRIC_STATE_COMPLETED:
-                            dev_fabric = None
-                        if dev_fabric:
-                            dev_appendix["fabric_cluster_uuid"] = stringify_uuid(
-                                bytes(dev_fabric.clusterUuid),
-                            )
-                            dev_appendix["fabric_clique_id"] = dev_fabric.cliqueId
+                    if dev_links_state := _get_links_state(dev):
+                        dev_appendix.update(dev_links_state)
+
+                    if dev_fabric_info := _get_fabric_info(dev):
+                        dev_appendix.update(dev_fabric_info)
 
                     ret.append(
                         Device(
@@ -259,7 +252,7 @@ class NVIDIADetector(Detector):
                 # inspired by https://github.com/NVIDIA/go-nvlib/blob/fdfe25d0ffc9d7a8c166f4639ef236da81116262/pkg/nvlib/device/mig_device.go#L61-L154.
 
                 mdev_name = ""
-                mdev_cores = 1
+                mdev_cores = None
                 mdev_count = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
                 for mdev_idx in range(mdev_count):
                     mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
@@ -307,8 +300,6 @@ class NVIDIADetector(Detector):
                     mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
 
                     if not mdev_name:
-                        mdev_attrs = pynvml.nvmlDeviceGetAttributes(mdev)
-
                         mdev_gi = pynvml.nvmlDeviceGetGpuInstanceById(dev, mdev_gi_id)
                         mdev_ci = pynvml.nvmlGpuInstanceGetComputeInstanceById(
                             mdev_gi,
@@ -326,11 +317,6 @@ class NVIDIADetector(Detector):
                                 )
                                 if dev_gi_prf.id != mdev_gi_info.profileId:
                                     continue
-                                mdev_cores = getattr(
-                                    dev_gi_prf,
-                                    "multiprocessorCount",
-                                    1,
-                                )
                             except pynvml.NVMLError:
                                 continue
 
@@ -351,31 +337,31 @@ class NVIDIADetector(Detector):
                                     except pynvml.NVMLError:
                                         continue
 
-                                    gi_slices = _get_gpu_instance_slices(dev_gi_prf_id)
-                                    gi_attrs = _get_gpu_instance_attrs(dev_gi_prf_id)
-                                    gi_neg_attrs = _get_gpu_instance_negative_attrs(
-                                        dev_gi_prf_id,
-                                    )
-                                    ci_slices = _get_compute_instance_slices(
+                                    ci_slice = _get_compute_instance_slice(
                                         dev_ci_prf_id,
                                     )
-                                    ci_mem = _get_compute_instance_memory_in_gib(
+                                    gi_slice = _get_gpu_instance_slice(dev_gi_prf_id)
+                                    gi_mem = _get_gpu_instance_memory(
                                         dev_mem_info,
-                                        mdev_attrs,
+                                        dev_gi_prf,
+                                    )
+                                    gi_attrs = _get_gpu_instance_attrs(dev_gi_prf_id)
+                                    gi_neg_attrs = _get_gpu_instance_negattrs(
+                                        dev_gi_prf_id,
                                     )
 
-                                    if gi_slices == ci_slices:
-                                        mdev_name = f"{gi_slices}g.{ci_mem}gb"
+                                    if ci_slice == gi_slice:
+                                        mdev_name = f"{gi_slice}g.{gi_mem}gb"
+                                        mdev_cores = mdev_ci_prf.multiprocessorCount
                                     else:
                                         mdev_name = (
-                                            f"{ci_slices}c.{gi_slices}g.{ci_mem}gb"
+                                            f"{ci_slice}c.{gi_slice}g.{gi_mem}gb"
                                         )
+                                        mdev_cores = ci_slice
                                     if gi_attrs:
                                         mdev_name += f"+{gi_attrs}"
                                     if gi_neg_attrs:
                                         mdev_name += f"-{gi_neg_attrs}"
-
-                                    mdev_cores = ci_slices
 
                                     break
 
@@ -484,8 +470,7 @@ class NVIDIADetector(Detector):
                             dev_i_handle,
                             dev_j_handle,
                         )
-                        # In practice, there may not be NVLINK nodes that are not interconnected.
-                        if "fabric_cluster_uuid" in dev_i.appendix:
+                        if dev_i.appendix.get("links_state", 0) > 0:
                             distance = TopologyDistanceEnum.LINK
                     except pynvml.NVMLError:
                         debug_log_exception(
@@ -600,6 +585,110 @@ def _get_sm_util_from_gpm_metrics(
     return None
 
 
+def _extract_field_value(
+    field_value: pynvml.c_nvmlFieldValue_t,
+) -> int | float | None:
+    """
+    Extract the value from a NVML field value structure.
+
+    Args:
+        field_value:
+            The NVML field value structure.
+
+    Returns:
+        The extracted value as int, float, or None if unknown.
+
+    """
+    if field_value.nvmlReturn != pynvml.NVML_SUCCESS:
+        return None
+    match field_value.valueType:
+        case pynvml.NVML_VALUE_TYPE_DOUBLE:
+            return field_value.value.dVal.value
+        case pynvml.NVML_VALUE_TYPE_UNSIGNED_INT:
+            return field_value.value.uiVal.value
+        case pynvml.NVML_VALUE_TYPE_UNSIGNED_LONG:
+            return field_value.value.ulVal.value
+        case pynvml.NVML_VALUE_TYPE_UNSIGNED_LONG_LONG:
+            return field_value.value.ullVal.value
+        case pynvml.NVML_VALUE_TYPE_SIGNED_LONG_LONG:
+            return field_value.value.sllVal.value
+        case pynvml.NVML_VALUE_TYPE_SIGNED_INT:
+            return field_value.value.siVal.value
+        case pynvml.NVML_VALUE_TYPE_UNSIGNED_SHORT:
+            return field_value.value.usVal.value
+    return None
+
+
+def _get_links_state(
+    dev: pynvml.c_nvmlDevice_t,
+) -> dict | None:
+    """
+    Get the NVLink links count and state for a device.
+
+    Args:
+        dev:
+            The NVML device handle.
+
+    Returns:
+        A dict includes links state or None if failed.
+
+    """
+    dev_links_count = 0
+    try:
+        dev_fields = pynvml.nvmlDeviceGetFieldValues(
+            dev,
+            fieldIds=[pynvml.NVML_FI_DEV_NVLINK_LINK_COUNT],
+        )
+        dev_links_count = _extract_field_value(dev_fields[0])
+    except pynvml.NVMLError:
+        debug_log_warning(logger, "Failed to get NVLink links count")
+    if not dev_links_count:
+        return None
+
+    dev_links_state = 0
+    try:
+        for link_idx in range(int(dev_links_count)):
+            dev_link_state = pynvml.nvmlDeviceGetNvLinkState(dev, link_idx)
+            if dev_link_state:
+                dev_links_state |= 1 << link_idx
+    except pynvml.NVMLError:
+        debug_log_warning(logger, "Failed to get NVLink link state")
+
+    return {
+        "links_count": dev_links_count,
+        "links_state": dev_links_state,
+    }
+
+
+def _get_fabric_info(
+    dev: pynvml.c_nvmlDevice_t,
+) -> dict | None:
+    """
+    Get the NVSwitch fabric information for a device.
+
+    Args:
+        dev:
+            The NVML device handle.
+
+    Returns:
+        A dict includes fabric info or None if failed.
+
+    """
+    try:
+        dev_fabric = pynvml.c_nvmlGpuFabricInfoV_t()
+        ret = pynvml.nvmlDeviceGetGpuFabricInfoV(dev, byref(dev_fabric))
+        if ret != pynvml.NVML_SUCCESS:
+            return None
+        if dev_fabric.state != pynvml.NVML_GPU_FABRIC_STATE_COMPLETED:
+            return None
+        return {
+            "fabric_cluster_uuid": stringify_uuid(bytes(dev_fabric.clusterUuid)),
+            "fabric_clique_id": dev_fabric.cliqueId,
+        }
+    except pynvml.NVMLError:
+        debug_log_warning(logger, "Failed to get NVSwitch fabric info")
+
+
 def _get_arch_family(dev_cc_t: list[int]) -> str:
     """
     Get the architecture family based on the CUDA compute capability.
@@ -636,9 +725,9 @@ def _get_arch_family(dev_cc_t: list[int]) -> str:
     return "Unknown"
 
 
-def _get_gpu_instance_slices(dev_gi_prf_id: int) -> int:
+def _get_gpu_instance_slice(dev_gi_prf_id: int) -> int:
     """
-    Get the number of slices for a given GPU Instance Profile ID.
+    Get the number of slice for a given GPU Instance Profile ID.
 
     Args:
         dev_gi_prf_id:
@@ -684,61 +773,33 @@ def _get_gpu_instance_slices(dev_gi_prf_id: int) -> int:
     raise AttributeError(msg)
 
 
-def _get_gpu_instance_attrs(dev_gi_prf_id: int) -> str:
+def _get_gpu_instance_memory(dev_mem, dev_gi_prf) -> int:
     """
-    Get attributes for a given GPU Instance Profile ID.
+    Compute the memory size of a MIG compute instance in GiB.
 
     Args:
-        dev_gi_prf_id:
-            The GPU Instance Profile ID.
+        dev_mem:
+            The total memory info of the parent GPU device.
+        dev_gi_prf:
+            The profile info of the GPU instance.
 
     Returns:
-        A string representing the attributes, or an empty string if none.
+        The memory size in GiB.
 
     """
-    match dev_gi_prf_id:
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_REV1
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_REV1
-        ):
-            return "me"
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME
-        ):
-            return "me.all"
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_GFX
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_GFX
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_4_SLICE_GFX
-        ):
-            return "gfx"
-    return ""
+    mem = dev_gi_prf.memorySizeMB * (1 << 20)  # MiB to byte
+
+    gib = round(
+        math.ceil(mem / dev_mem.total * 8)
+        / 8
+        * ((dev_mem.total + (1 << 30) - 1) / (1 << 30)),
+    )
+    return gib
 
 
-def _get_gpu_instance_negative_attrs(dev_gi_prf_id) -> str:
+def _get_compute_instance_slice(dev_ci_prf_id: int) -> int:
     """
-    Get negative attributes for a given GPU Instance Profile ID.
-
-    Args:
-        dev_gi_prf_id:
-            The GPU Instance Profile ID.
-
-    Returns:
-        A string representing the negative attributes, or an empty string if none.
-
-    """
-    if dev_gi_prf_id in [
-        pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
-        pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_NO_ME,
-    ]:
-        return "me"
-    return ""
-
-
-def _get_compute_instance_slices(dev_ci_prf_id: int) -> int:
-    """
-    Get the number of slices for a given Compute Instance Profile ID.
+    Get the number of slice for a given Compute Instance Profile ID.
 
     Args:
         dev_ci_prf_id:
@@ -771,28 +832,56 @@ def _get_compute_instance_slices(dev_ci_prf_id: int) -> int:
     raise AttributeError(msg)
 
 
-def _get_compute_instance_memory_in_gib(dev_mem, mdev_attrs) -> int:
+def _get_gpu_instance_attrs(dev_gi_prf_id: int) -> str:
     """
-    Compute the memory size of a MIG compute instance in GiB.
+    Get attributes for a given GPU Instance Profile ID.
 
     Args:
-        dev_mem:
-            The total memory info of the parent GPU device.
-        mdev_attrs:
-            The attributes of the MIG device.
+        dev_gi_prf_id:
+            The GPU Instance Profile ID.
 
     Returns:
-        The memory size in GiB.
+        A string representing the attributes, or an empty string if none.
 
     """
-    gib = round(
-        ceil(
-            (mdev_attrs.memorySizeMB * (1 << 20)) / dev_mem.total * 8,
-        )
-        / 8
-        * ((dev_mem.total + (1 << 30) - 1) / (1 << 30)),
-    )
-    return gib
+    match dev_gi_prf_id:
+        case (
+            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_REV1
+            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_REV1
+        ):
+            return "me"
+        case (
+            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME
+            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME
+        ):
+            return "me.all"
+        case (
+            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_GFX
+            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_GFX
+            | pynvml.NVML_GPU_INSTANCE_PROFILE_4_SLICE_GFX
+        ):
+            return "gfx"
+    return ""
+
+
+def _get_gpu_instance_negattrs(dev_gi_prf_id) -> str:
+    """
+    Get negative attributes for a given GPU Instance Profile ID.
+
+    Args:
+        dev_gi_prf_id:
+            The GPU Instance Profile ID.
+
+    Returns:
+        A string representing the negative attributes, or an empty string if none.
+
+    """
+    if dev_gi_prf_id in [
+        pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
+        pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_NO_ME,
+    ]:
+        return "me"
+    return ""
 
 
 def _is_vgpu(dev_config: bytes) -> bool:

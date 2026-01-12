@@ -1,0 +1,23 @@
+[
+  {
+    "manufacturer": "thead",
+    "devices_distances": [
+      [
+        0,
+        20
+      ],
+      [
+        20,
+        0
+      ]
+    ],
+    "devices_cpu_affinities": [
+      "0-15",
+      "0-15"
+    ],
+    "devices_numa_affinities": [
+      "0",
+      "0"
+    ]
+  }
+]
