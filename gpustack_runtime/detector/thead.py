@@ -576,21 +576,21 @@ def _extract_field_value(
         The extracted value as int, float, or None if unknown.
 
     """
-    if field_value.nvmlReturn != pyhgml.HGML_SUCCESS:
+    if field_value.hgmlReturn != pyhgml.HGML_SUCCESS:
         return None
     match field_value.valueType:
         case pyhgml.HGML_VALUE_TYPE_DOUBLE:
-            return field_value.value.dVal.value
+            return field_value.value.dVal
         case pyhgml.HGML_VALUE_TYPE_UNSIGNED_INT:
-            return field_value.value.uiVal.value
+            return field_value.value.uiVal
         case pyhgml.HGML_VALUE_TYPE_UNSIGNED_LONG:
-            return field_value.value.ulVal.value
+            return field_value.value.ulVal
         case pyhgml.HGML_VALUE_TYPE_UNSIGNED_LONG_LONG:
-            return field_value.value.ullVal.value
+            return field_value.value.ullVal
         case pyhgml.HGML_VALUE_TYPE_SIGNED_LONG_LONG:
-            return field_value.value.sllVal.value
+            return field_value.value.sllVal
         case pyhgml.HGML_VALUE_TYPE_SIGNED_INT:
-            return field_value.value.siVal.value
+            return field_value.value.siVal
     return None
 
 

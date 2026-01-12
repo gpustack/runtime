@@ -3,7 +3,7 @@
     "manufacturer": "thead",
     "index": 0,
     "name": "PPU-ZW810E",
-    "uuid": "GPU-011ef111-08c0-040c-0000-00008032f238",
+    "uuid": "GPU-011ef111-8330-0426-0000-00006093bb5b",
     "driver_version": "1.4.1-816bc0",
     "runtime_version": "12.3",
     "runtime_version_original": "12.3.0",
@@ -13,19 +13,21 @@
     "memory": 97920,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 26,
+    "temperature": 29,
     "power": 400,
-    "power_used": 60,
+    "power_used": 58,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:05:00.0"
+      "bdf": "0000:05:00.0",
+      "links_count": 7,
+      "links_state": 6
     }
   },
   {
     "manufacturer": "thead",
     "index": 1,
     "name": "PPU-ZW810E",
-    "uuid": "GPU-019ec20c-c870-022c-0000-000000ed1f53",
+    "uuid": "GPU-011ef111-8251-0426-0000-00006035ca38",
     "driver_version": "1.4.1-816bc0",
     "runtime_version": "12.3",
     "runtime_version_original": "12.3.0",
@@ -35,12 +37,14 @@
     "memory": 97920,
     "memory_used": 2,
     "memory_utilization": 0.0,
-    "temperature": 25,
+    "temperature": 32,
     "power": 400,
     "power_used": 59,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:0b:00.0"
+      "bdf": "0000:0b:00.0",
+      "links_count": 7,
+      "links_state": 6
     }
   }
 ]

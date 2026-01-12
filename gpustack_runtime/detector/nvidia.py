@@ -603,19 +603,19 @@ def _extract_field_value(
         return None
     match field_value.valueType:
         case pynvml.NVML_VALUE_TYPE_DOUBLE:
-            return field_value.value.dVal.value
+            return field_value.value.dVal
         case pynvml.NVML_VALUE_TYPE_UNSIGNED_INT:
-            return field_value.value.uiVal.value
+            return field_value.value.uiVal
         case pynvml.NVML_VALUE_TYPE_UNSIGNED_LONG:
-            return field_value.value.ulVal.value
+            return field_value.value.ulVal
         case pynvml.NVML_VALUE_TYPE_UNSIGNED_LONG_LONG:
-            return field_value.value.ullVal.value
+            return field_value.value.ullVal
         case pynvml.NVML_VALUE_TYPE_SIGNED_LONG_LONG:
-            return field_value.value.sllVal.value
+            return field_value.value.sllVal
         case pynvml.NVML_VALUE_TYPE_SIGNED_INT:
-            return field_value.value.siVal.value
+            return field_value.value.siVal
         case pynvml.NVML_VALUE_TYPE_UNSIGNED_SHORT:
-            return field_value.value.usVal.value
+            return field_value.value.usVal
     return None
 
 
