@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     """
     The detected backend mapping to resource keys,
     e.g `{"cuda": "nvidia.com/devices", "rocm": "amd.com/devices"}`.
+    Used to map the gpustack-runner's backend name to the corresponding resource key.
     """
     GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY: bool = True
     """
