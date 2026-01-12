@@ -625,7 +625,7 @@ def _get_links_state(
         for link_idx in range(int(dev_links_count)):
             dev_link_state = pyhgml.hgmlDeviceGetIcnLinkState(dev, link_idx)
             if dev_link_state:
-                dev_links_state |= 1 << link_idx
+                dev_links_state |= 1 << (link_idx + 1)
     except pyhgml.HGMLError:
         debug_log_warning(logger, "Failed to get ICNLink link state")
 
