@@ -333,12 +333,12 @@ class THeadDetector(Detector):
 
                                     if ci_slice == gi_slice:
                                         mdev_name = f"{gi_slice}g.{gi_mem}gb"
-                                        mdev_cores = mdev_ci_prf.multiprocessorCount
                                     else:
                                         mdev_name = (
-                                            f"{ci_slice}c.{gi_slice}g.{gi_mem}gb"
+                                            f"{ci_slice}u.{gi_slice}g.{gi_mem}gb"
                                         )
-                                        mdev_cores = ci_slice
+
+                                    mdev_cores = mdev_ci_prf.multiprocessorCount
 
                                     break
 

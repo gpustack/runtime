@@ -352,16 +352,16 @@ class NVIDIADetector(Detector):
 
                                     if ci_slice == gi_slice:
                                         mdev_name = f"{gi_slice}g.{gi_mem}gb"
-                                        mdev_cores = mdev_ci_prf.multiprocessorCount
                                     else:
                                         mdev_name = (
                                             f"{ci_slice}c.{gi_slice}g.{gi_mem}gb"
                                         )
-                                        mdev_cores = ci_slice
                                     if gi_attrs:
                                         mdev_name += f"+{gi_attrs}"
                                     if gi_neg_attrs:
                                         mdev_name += f"-{gi_neg_attrs}"
+
+                                    mdev_cores = mdev_ci_prf.multiprocessorCount
 
                                     break
 
