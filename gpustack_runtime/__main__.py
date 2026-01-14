@@ -7,6 +7,7 @@ import time
 from argparse import ArgumentParser
 
 import argcomplete
+from gpustack_runner.cmds import LoadImagesSubCommand
 
 from . import deployer, detector
 from ._version import commit_id, version
@@ -78,6 +79,7 @@ def main():
     CDIGenerateSubCommand.register(subcommand_parser)
     ListImagesSubCommand.register(subcommand_parser)
     SaveImagesSubCommand.register(subcommand_parser)
+    LoadImagesSubCommand.register(subcommand_parser)
     CopyImagesSubCommand.register(subcommand_parser)
 
     # Autocomplete

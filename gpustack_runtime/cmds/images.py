@@ -3,6 +3,7 @@ from __future__ import annotations
 from gpustack_runner.cmds import (
     CopyImagesSubCommand,
     ListImagesSubCommand,
+    LoadImagesSubCommand,
     PlatformedImage,
     SaveImagesSubCommand,
     append_images,
@@ -20,6 +21,7 @@ append_images(
 __all__ = [
     "CopyImagesSubCommand",
     "ListImagesSubCommand",
+    "LoadImagesSubCommand",
     "PlatformedImage",
     "SaveImagesSubCommand",
     "append_images",
