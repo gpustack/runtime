@@ -23,7 +23,7 @@ import podman.domain.images
 import podman.domain.volumes
 import podman.errors
 from dataclasses_json import dataclass_json
-from podman.api import parse_repository
+from gpustack_runner import replace_image_with, split_image
 from podman.domain.containers_create import CreateMixin
 from tqdm import tqdm
 
@@ -52,7 +52,6 @@ from .__types__ import (
 from .__utils__ import (
     _MiB,
     bytes_to_human_readable,
-    replace_image_with,
     safe_json,
     sensitive_env_var,
 )
@@ -149,16 +148,17 @@ class PodmanWorkloadPlan(WorkloadPlan):
         # Default and validate in the base class.
         super().validate_and_default()
 
-        # Adjust default image namespace if needed.
-        if namespace := envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE:
-            self.pause_image = replace_image_with(
-                image=self.pause_image,
-                namespace=namespace,
-            )
-            self.unhealthy_restart_image = replace_image_with(
-                image=self.unhealthy_restart_image,
-                namespace=namespace,
-            )
+        # Adjust pause and unhealthy restart images.
+        self.pause_image = replace_image_with(
+            image=self.pause_image,
+            registry=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY,
+            namespace=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE,
+        )
+        self.unhealthy_restart_image = replace_image_with(
+            image=self.unhealthy_restart_image,
+            registry=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY,
+            namespace=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE,
+        )
 
 
 @dataclass_json
@@ -431,8 +431,7 @@ class PodmanDeployer(EndoscopicDeployer):
         try:
             logger.info("Pulling image %s", image)
 
-            repo, tag = parse_repository(image)
-            tag = tag or "latest"
+            repo, tag = split_image(image, fill_blank_tag=True)
             auth_config = None
             if (
                 envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME

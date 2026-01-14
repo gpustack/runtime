@@ -11,6 +11,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from dataclasses_json import dataclass_json
+from gpustack_runner import replace_image_with
 
 from .. import envs
 from ..detector import (
@@ -1018,20 +1019,12 @@ class WorkloadPlan(WorkloadSecurity):
                 c.files.append(command_script)
                 c.execution.command = [command_script_name]  # Override command.
                 c.execution.command_script = None
-            # Add default registry if needed.
-            if (
-                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY
-                and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY
-                not in ["docker.io", "index.docker.io"]
-            ):
-                image_registry = (
-                    envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE
-                )
-                image_split = c.image.split("/")
-                if len(image_split) == 1:
-                    c.image = f"{image_registry}/library/{c.image}"
-                elif len(image_split) == 2:
-                    c.image = f"{image_registry}/{c.image}"
+            # Adjust image.
+            c.image = replace_image_with(
+                c.image,
+                registry=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY,
+                namespace=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE,
+            )
             # Correct runner image if needed.
             if envs.GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE:
                 c.image, ok = correct_runner_image(c.image)
