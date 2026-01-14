@@ -109,6 +109,8 @@ spec:
     #     Change this if you want to deploy workloads into another namespace.
     # - GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME:
     #     Make sure that deploy workloads on the same node.
+    # - GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY:
+    #    Specify the directory of CDI device interface specs.
     #
           env:
             - name: GPUSTACK_RUNTIME_DEPLOY
@@ -127,6 +129,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY
+              value: "/var/run/cdi"
 
     # Mount necessary volume for gpustack-runtime to work properly.
     # - Mount gpustack data volume for persistent data storage.
@@ -135,14 +139,19 @@ spec:
           volumeMounts:
             - name: gpustack-runtime-data
               mountPath: /var/lib/gpustack
+            - name: cdi
+              mountPath: /var/run/cdi
     #       - name: toolkit
     #         mountPath: /opt/...
       volumes:
         - name: gpustack-runtime-data
           emptyDir: { }
+        - name: cdi
+          hostPath:
+            path: /var/run/cdi
     #   - name: toolkit
     #     hostPath:
-    #     name: /opt/...
+    #       path: /opt/...
 
     # Inject service account to the Pod for accessing Kubernetes API.
     #

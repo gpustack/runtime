@@ -32,12 +32,15 @@ services:
   #    see https://github.com/gpustack/runtime/blob/016531084000df8075d53772a3c33f41d829ba37/gpustack_runtime/envs.py#L48-L55 for details.
   # - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME:
   #    Specify the name of this Container for gpustack-runtime identify itself.
+  # - GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY:
+  #    Specify the directory of CDI device interface specs.
   #
     container_name: gpustack-runtime
     environment:
       - GPUSTACK_RUNTIME_DEPLOY=Docker
       - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT=true
       - GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME=gpustack-runtime
+      - GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY=/var/run/cdi
 
   # Mount necessary volume for gpustack-runtime to work properly.
   # - Mount docker socket for docker runtime.
@@ -47,6 +50,7 @@ services:
     volumes:
       - gpustack-runtime-data:/var/lib/gpustack
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/cdi:/var/run/cdi
   #   - /opt/...:/opt/...:ro
 volumes:
   gpustack-runtime-data: { }

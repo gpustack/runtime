@@ -14,6 +14,7 @@ from dataclasses_json import dataclass_json
 
 from .. import envs
 from ..detector import (
+    ManufacturerEnum,
     Topology,
     detect_devices,
     get_devices_topologies,
@@ -1268,6 +1269,17 @@ class Deployer(ABC):
     """
     Thread pool for the deployer.
     """
+    _visible_devices_manufacturers: dict[str, ManufacturerEnum] | None = None
+    """
+    Recorded visible devices manufacturers,
+    the key is the runtime visible devices env name,
+    the value is the corresponding manufacturer.
+    For example:
+    {
+        "NVIDIA_VISIBLE_DEVICES": ManufacturerEnum.NVIDIA,
+        "AMD_VISIBLE_DEVICES": ManufacturerEnum.AMD
+    }.
+    """
     _visible_devices_env: dict[str, list[str]] | None = None
     """
     Recorded visible devices envs,
@@ -1347,14 +1359,16 @@ class Deployer(ABC):
 
     def _prepare(self):
         """
-        Detect devices once, and construct critical elements for post processing, including:
+        Detect devices once, and construct critical elements for post-processing, including:
+        - Prepare visible devices manufacturers mapping.
         - Prepare visible devices environment variables mapping.
         - Prepare visible devices values mapping.
-        - Prepare topology.
+        - Prepare visible devices topologies mapping.
         """
-        if self._visible_devices_env:
+        if self._visible_devices_manufacturers is not None:
             return
 
+        self._visible_devices_manufacturers = {}
         self._visible_devices_env = {}
         self._visible_devices_cdis = {}
         self._visible_devices_values = {}
@@ -1368,15 +1382,19 @@ class Deployer(ABC):
         if group_devices:
             for manu, devs in group_devices.items():
                 backend = manufacturer_to_backend(manu)
-                rk = envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
+                resource_key = (
+                    envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
+                )
+                if resource_key is None:
+                    continue
                 ren = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.get(
-                    rk,
+                    resource_key,
                 )
                 ben_list = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES.get(
-                    rk,
+                    resource_key,
                 )
-                cdi = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES.get(
-                    rk,
+                cdi = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI.get(
+                    resource_key,
                 )
                 if ren and ben_list:
                     valued_uuid = (
@@ -1390,6 +1408,8 @@ class Deployer(ABC):
                         dev_uuids.append(dev.uuid)
                         dev_indexes.append(str(dev.index))
                         dev_indexes_alignment[str(dev.index)] = str(dev_i)
+                    # Map runtime visible devices env <-> manufacturer.
+                    self._visible_devices_manufacturers[ren] = manu
                     # Map runtime visible devices env <-> backend visible devices env list.
                     self._visible_devices_env[ren] = ben_list
                     # Map runtime visible devices env <-> CDI key.
@@ -1422,16 +1442,28 @@ class Deployer(ABC):
                 return
 
         # Fallback to unknown backend
-        self._visible_devices_env["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = []
-        self._visible_devices_values["UNKNOWN_RUNTIME_VISIBLE_DEVICES"] = ["all"]
+        ren = "UNKNOWN_RUNTIME_VISIBLE_DEVICES"
+        self._visible_devices_manufacturers[ren] = ManufacturerEnum.UNKNOWN
+        self._visible_devices_env[ren] = []
+        self._visible_devices_cdis[ren] = "unknown/devices"
+        self._visible_devices_values[ren] = ["all"]
 
-    def get_visible_devices_values(
+    def get_visible_devices_materials(
         self,
-    ) -> (dict[str, list[str]], dict[str, str], dict[str, list[str]]):
+    ) -> (
+        dict[str, ManufacturerEnum],
+        dict[str, list[str]],
+        dict[str, str],
+        dict[str, list[str]],
+    ):
         """
         Return the visible devices environment variables, cdis and values mappings.
         For example:
         (
+            {
+                "NVIDIA_VISIBLE_DEVICES": ManufacturerEnum.NVIDIA,
+                "AMD_VISIBLE_DEVICES": ManufacturerEnum.AMD
+            },
             {
                 "NVIDIA_VISIBLE_DEVICES": ["CUDA_VISIBLE_DEVICES"],
                 "AMD_VISIBLE_DEVICES": ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]
@@ -1447,10 +1479,12 @@ class Deployer(ABC):
         ).
 
         Returns:
-            A tuple of two dictionaries:
+            A tuple of four dictionaries:
             - The first dictionary maps runtime visible devices environment variable names
-              to lists of backend visible devices environment variable names.
+              to corresponding manufacturers.
             - The second dictionary maps runtime visible devices environment variable names
+              to lists of backend visible devices environment variable names.
+            - The third dictionary maps runtime visible devices environment variable names
               to corresponding CDI keys.
             - The last dictionary maps runtime visible devices environment variable names
               to lists of device indexes or UUIDs.
@@ -1458,6 +1492,7 @@ class Deployer(ABC):
         """
         self._prepare()
         return (
+            self._visible_devices_manufacturers,
             self._visible_devices_env,
             self._visible_devices_cdis,
             self._visible_devices_values,

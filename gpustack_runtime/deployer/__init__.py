@@ -31,6 +31,7 @@ from .__types__ import (
     WorkloadStatus,
     WorkloadStatusStateEnum,
 )
+from .cdi import generate_config as cdi_generate_config
 from .docker import (
     DockerDeployer,
     DockerWorkloadPlan,
@@ -602,6 +603,7 @@ __all__ = [
     "WorkloadStatusStateEnum",
     "async_logs_self",
     "async_logs_workload",
+    "cdi_generate_config",
     "create_workload",
     "delete_workload",
     "exec_self",

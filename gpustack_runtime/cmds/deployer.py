@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import time
-from argparse import REMAINDER
+from argparse import OPTIONAL, REMAINDER
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,6 +25,7 @@ from ..deployer import (
     WorkloadStatusStateEnum,
     async_logs_self,
     async_logs_workload,
+    cdi_generate_config,
     create_workload,
     delete_workload,
     exec_self,
@@ -34,7 +35,7 @@ from ..deployer import (
     inspect_workload,
     list_workloads,
 )
-from ..detector import supported_backends
+from ..detector import supported_backends, supported_manufacturers
 from .__types__ import SubCommand
 
 if TYPE_CHECKING:
@@ -954,6 +955,76 @@ class InspectSelfSubCommand(SubCommand):
 
     def run(self):
         print(inspect_self())
+
+
+class CDIGenerateSubCommand(SubCommand):
+    """
+    Command to generate CDI configurations.
+    """
+
+    format: str
+    output: Path | None
+
+    @staticmethod
+    def register(parser: _SubParsersAction):
+        cdi_parser = parser.add_parser(
+            "cdi-generate",
+            help="Generate CDI configurations according to the current environment",
+            aliases=["cdi-gen"],
+        )
+
+        cdi_parser.add_argument(
+            "--format",
+            type=str,
+            choices=["yaml", "json"],
+            default="yaml",
+            help="Format of the CDI configurations",
+        )
+
+        cdi_parser.add_argument(
+            "output",
+            nargs=OPTIONAL,
+            help="Output directory to save CDI configurations (default: current directory)",
+        )
+
+        cdi_parser.set_defaults(func=CDIGenerateSubCommand)
+
+    def __init__(self, args: Namespace):
+        self.format = args.format
+        self.output = Path(args.output) if args.output else None
+
+        if self.output:
+            try:
+                if not self.output.exists():
+                    self.output.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                msg = f"Failed to prepare output directory '{self.output}' for CDI configurations"
+                raise RuntimeError(msg) from e
+
+            if not self.output.is_dir():
+                msg = f"The output path '{self.output}' is not a directory"
+                raise RuntimeError(msg)
+
+    def run(self):
+        print("\033[2J\033[H", end="")
+
+        generated = False
+        for manu in supported_manufacturers():
+            content, path = cdi_generate_config(
+                manufacturer=manu,
+                output=self.output,
+            )
+            if content:
+                generated = True
+                if path:
+                    print(f"Generated CDI configuration for '{manu}' at {path}:\n")
+                else:
+                    print(f"Generated CDI configuration for '{manu}':\n")
+                print(content)
+                print()
+
+        if not generated:
+            print("No CDI configurations were generated.")
 
 
 def format_workloads_json(sts: list[WorkloadStatus]) -> str:

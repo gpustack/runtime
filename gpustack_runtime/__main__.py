@@ -11,6 +11,7 @@ import argcomplete
 from . import deployer, detector
 from ._version import commit_id, version
 from .cmds import (
+    CDIGenerateSubCommand,
     CopyImagesSubCommand,
     CreateWorkloadSubCommand,
     DeleteWorkloadsSubCommand,
@@ -71,12 +72,13 @@ def main():
     InspectWorkloadSubCommand.register(subcommand_parser)
     DetectDevicesSubCommand.register(subcommand_parser)
     GetDevicesTopologySubCommand.register(subcommand_parser)
-    ListImagesSubCommand.register(subcommand_parser)
-    SaveImagesSubCommand.register(subcommand_parser)
-    CopyImagesSubCommand.register(subcommand_parser)
     LogsSelfSubCommand.register(subcommand_parser)
     ExecSelfSubCommand.register(subcommand_parser)
     InspectSelfSubCommand.register(subcommand_parser)
+    CDIGenerateSubCommand.register(subcommand_parser)
+    ListImagesSubCommand.register(subcommand_parser)
+    SaveImagesSubCommand.register(subcommand_parser)
+    CopyImagesSubCommand.register(subcommand_parser)
 
     # Autocomplete
     argcomplete.autocomplete(parser)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .deployer import (
+    CDIGenerateSubCommand,
     CreateWorkloadSubCommand,
     DeleteWorkloadsSubCommand,
     DeleteWorkloadSubCommand,
@@ -24,6 +25,7 @@ from .images import (
 )
 
 __all__ = [
+    "CDIGenerateSubCommand",
     "CopyImagesSubCommand",
     "CreateWorkloadSubCommand",
     "DeleteWorkloadSubCommand",

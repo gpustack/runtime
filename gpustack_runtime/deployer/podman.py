@@ -57,6 +57,7 @@ from .__utils__ import (
     safe_json,
     sensitive_env_var,
 )
+from .cdi import generate_config as cdi_generate_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -952,7 +953,9 @@ class PodmanDeployer(EndoscopicDeployer):
             if c.resources:
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
                 r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                vd_env, vd_cdis, vd_values = self.get_visible_devices_values()
+                vd_manus, vd_env, vd_cdis, vd_values = (
+                    self.get_visible_devices_materials()
+                )
                 for r_k, r_v in c.resources.items():
                     match r_k:
                         case "cpu":
@@ -993,6 +996,14 @@ class PodmanDeployer(EndoscopicDeployer):
                                 )
 
                             privileged = create_options.get("privileged", False)
+
+                            # Generate CDI config if not yet.
+                            if envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE:
+                                for re in runtime_env:
+                                    cdi_generate_config(
+                                        manufacturer=vd_manus[re],
+                                        output=envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY,
+                                    )
 
                             # Configure device access environment variable.
                             if r_v == "all" and backend_env:

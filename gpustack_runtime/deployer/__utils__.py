@@ -6,6 +6,7 @@ import json
 import platform
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -342,6 +343,49 @@ def safe_yaml(obj: Any, **kwargs) -> str:
     """
     dict_data = safe_dict(obj)
     return yaml.dump(dict_data, **kwargs)
+
+
+def load_yaml_or_json(path: str | Path) -> list[dict] | dict:
+    """
+    Load a YAML or JSON string into to a dict.
+
+    Args:
+        path:
+            The path to the CDI configuration file.
+
+    Returns:
+        The loaded dict.
+
+    """
+    if isinstance(path, str):
+        path = Path(path)
+
+    if not path.exists():
+        msg = f"File not found: {path}"
+        raise FileNotFoundError(msg)
+
+    content = path.read_text(encoding="utf-8")
+
+    if path.suffix in {".yaml", ".yml"}:
+        try:
+            ret = list(yaml.safe_load_all(content))
+        except yaml.YAMLError as e:
+            msg = f"Failed to parse YAML file: {path}"
+            raise RuntimeError(msg) from e
+        else:
+            if len(ret) == 1:
+                return ret[0]
+            return ret
+
+    if path.suffix == ".json":
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            msg = f"Failed to parse JSON file: {path}"
+            raise RuntimeError(msg) from e
+
+    msg = f"Unsupported file format: {path.suffix}"
+    raise RuntimeError(msg)
 
 
 @lru_cache

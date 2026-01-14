@@ -993,7 +993,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                 resources: dict[str, str] = {}
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
                 r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                vd_env, _, vd_values = self.get_visible_devices_values()
+                _, vd_env, _, vd_values = self.get_visible_devices_materials()
                 for r_k, r_v in c.resources.items():
                     if r_k in ("cpu", "memory"):
                         resources[r_k] = str(r_v)

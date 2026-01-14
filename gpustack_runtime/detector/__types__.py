@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from typing import Any
 
 from dataclasses_json import dataclass_json
@@ -75,6 +76,7 @@ which should map to the gpustack-runner's backend names.
 """
 
 
+@lru_cache
 def manufacturer_to_backend(manufacturer: ManufacturerEnum) -> str:
     """
     Convert manufacturer to runtime backend,
@@ -97,6 +99,7 @@ def manufacturer_to_backend(manufacturer: ManufacturerEnum) -> str:
     return ManufacturerEnum.UNKNOWN.value
 
 
+@lru_cache
 def backend_to_manufacturer(backend: str) -> ManufacturerEnum:
     """
     Convert runtime backend to manufacturer,
@@ -454,6 +457,9 @@ class Detector(ABC):
     """
 
     manufacturer: ManufacturerEnum = ManufacturerEnum.UNKNOWN
+    """
+    Manufacturer of the detector.
+    """
 
     @staticmethod
     @abstractmethod

@@ -62,7 +62,10 @@ def supported_list() -> list[Detector]:
     return [det for det in _DETECTORS if det.is_supported()]
 
 
-def detect_backend(fast: bool = True) -> str | list[str]:
+def detect_backend(
+    fast: bool = True,
+    manufacturer: ManufacturerEnum = None,
+) -> str | list[str]:
     """
     Detect all supported backend.
 
@@ -70,12 +73,21 @@ def detect_backend(fast: bool = True) -> str | list[str]:
         fast:
             If True, return the first detected backend.
             Otherwise, return a list of all detected backends.
+        manufacturer:
+            Manufacturer to filter the detection, implies `fast=True`.
+            If None, detect all available manufacturers.
 
     Returns:
         A string of the detected backend if `fast` is True and a backend is found.
         A list of detected backends if `fast` is False.
 
     """
+    if manufacturer:
+        det = _DETECTORS_MAP.get(manufacturer)
+        if det and det.is_supported():
+            return det.backend
+        return ""
+
     backends: list[str] = []
 
     for det in _DETECTORS:
@@ -90,7 +102,10 @@ def detect_backend(fast: bool = True) -> str | list[str]:
     return backends
 
 
-def detect_devices(fast: bool = True) -> Devices:
+def detect_devices(
+    fast: bool = True,
+    manufacturer: ManufacturerEnum = None,
+) -> Devices:
     """
     Detect all available devices.
 
@@ -98,6 +113,9 @@ def detect_devices(fast: bool = True) -> Devices:
         fast:
             If True, return devices from the first supported detector.
             Otherwise, return devices from all supported detectors.
+        manufacturer:
+            Manufacturer to filter the detection, implies `fast=True`.
+            If None, detect all available manufacturers.
 
     Returns:
         A list of detected devices.
@@ -107,6 +125,18 @@ def detect_devices(fast: bool = True) -> Devices:
         If detection fails for the target detector specified by the `GPUSTACK_RUNTIME_DETECT` environment variable.
 
     """
+    if manufacturer:
+        det = _DETECTORS_MAP.get(manufacturer)
+        if det and det.is_supported():
+            try:
+                return det.detect()
+            except Exception:
+                detect_target = envs.GPUSTACK_RUNTIME_DETECT.lower()
+                if detect_target == det.name:
+                    raise
+                debug_log_exception(logger, "Failed to detect devices for %s", det.name)
+        return []
+
     devices: Devices = []
 
     for det in _DETECTORS:
@@ -130,6 +160,7 @@ def detect_devices(fast: bool = True) -> Devices:
 def get_devices_topologies(
     devices: Devices | None = None,
     fast: bool = True,
+    manufacturer: ManufacturerEnum = None,
 ) -> list[Topology]:
     """
     Get the topology information of the given devices.
@@ -142,6 +173,9 @@ def get_devices_topologies(
             If True, return topologies from the first supported detector.
             Otherwise, return topologies from all supported detectors.
             Only works when `devices` is None.
+        manufacturer:
+            Manufacturer to filter the detection.
+            If None, detect all available manufacturers.
 
     Returns:
         A list of Topology objects for each manufacturer group.
@@ -149,7 +183,7 @@ def get_devices_topologies(
     """
     group = False
     if not devices:
-        devices = detect_devices(fast=fast)
+        devices = detect_devices(fast=fast, manufacturer=manufacturer)
         if not devices:
             return []
         group = True and not fast
@@ -162,6 +196,7 @@ def get_devices_topologies(
 
     # Get topology for each group.
     topologies: list[Topology] = []
+
     for manu, devs in group_devices.items():
         det = _DETECTORS_MAP.get(manu)
         if det is not None:
@@ -174,6 +209,7 @@ def get_devices_topologies(
                 if detect_target == det.name:
                     raise
                 debug_log_exception(logger, "Failed to get topology for %s", det.name)
+
     return topologies
 
 
@@ -199,6 +235,26 @@ def group_devices_by_manufacturer(
     return group_devices
 
 
+def filter_devices_by_manufacturer(
+    devices: Devices | None,
+    manufacturer: ManufacturerEnum,
+) -> Devices:
+    """
+    Filter devices by their manufacturer.
+
+    Args:
+        devices:
+            A list of devices to be filtered.
+        manufacturer:
+            The manufacturer to filter by.
+
+    Returns:
+        A list of devices that match the specified manufacturer.
+
+    """
+    return [dev for dev in devices or [] if dev.manufacturer == manufacturer]
+
+
 __all__ = [
     "Device",
     "Devices",
@@ -207,6 +263,7 @@ __all__ = [
     "backend_to_manufacturer",
     "detect_backend",
     "detect_devices",
+    "filter_devices_by_manufacturer",
     "get_devices_topologies",
     "group_devices_by_manufacturer",
     "manufacturer_to_backend",

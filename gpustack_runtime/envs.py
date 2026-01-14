@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     """
     GPUSTACK_RUNTIME_LOG_TO_FILE: Path | None = None
     """
-    Log to file instead of stdout.
+    Path of file to log to, instead of stderr.
     """
     GPUSTACK_RUNTIME_LOG_WARNING: bool = False
     """
@@ -147,15 +147,24 @@ if TYPE_CHECKING:
     """
     Label prefix for the deployer.
     """
+    GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE: bool = True
+    """
+    During deployment, enable automatic generation of Container Device Interface (CDI) specifications
+    for detected devices.
+    """
+    GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY: Path | None = None
+    """
+    During deployment, path of directory containing Container Device Interface (CDI) specifications,
+    or the directory to generate CDI specifications into.
+    If not set, it should be "/var/run/cdi".
+    """
     GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY: str | None = None
     """
     The resource key to use for automatic mapping of container backend visible devices environment variables,
     which is used to tell deployer do a device detection and get the corresponding resource key before mapping.
     e.g., "gpustack.ai/devices".
     """
-    GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES: (
-        dict[str, str] | None
-    ) = None
+    GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI: dict[str, str] | None = None
     """
     Manual mapping of container device interfaces,
     which is used to tell the Container Runtime which devices to inject into the container,
@@ -237,7 +246,7 @@ if TYPE_CHECKING:
     """
     Resource injection policy for the Docker deployer (e.g., Env, CDI).
     `Env`: Injects resources using standard environment variable, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`.
-    `CDI`: Injects resources using CDI, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES`.
+    `CDI`: Injects resources using CDI, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI`.
     """
     ## Kubernetes
     GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME: str | None = None
@@ -309,13 +318,22 @@ variables: dict[str, Callable[[], Any]] = {
         "INFO",
     ),
     "GPUSTACK_RUNTIME_LOG_TO_FILE": lambda: mkdir_path(
-        getenv("GPUSTACK_RUNTIME_LOG_TO_FILE", None),
+        getenv(
+            "GPUSTACK_RUNTIME_LOG_TO_FILE",
+        ),
+        parents_only=True,
     ),
     "GPUSTACK_RUNTIME_LOG_WARNING": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_LOG_WARNING", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_LOG_WARNING",
+            "0",
+        ),
     ),
     "GPUSTACK_RUNTIME_LOG_EXCEPTION": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_LOG_EXCEPTION", "1"),
+        getenv(
+            "GPUSTACK_RUNTIME_LOG_EXCEPTION",
+            "1",
+        ),
     ),
     ## Detector
     "GPUSTACK_RUNTIME_DETECT": lambda: getenv(
@@ -328,7 +346,10 @@ variables: dict[str, Callable[[], Any]] = {
         lambda: any(x in get_os_release() for x in ("microsoft", "wsl")),
     ),
     "GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL",
+            "0",
+        ),
     ),
     "GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY": lambda: to_dict(
         getenv(
@@ -345,7 +366,10 @@ variables: dict[str, Callable[[], Any]] = {
         ),
     ),
     "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", "1"),
+        getenv(
+            "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY",
+            "1",
+        ),
     ),
     ## Deployer
     "GPUSTACK_RUNTIME_DEPLOY": lambda: getenv(
@@ -353,19 +377,33 @@ variables: dict[str, Callable[[], Any]] = {
         "Auto",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL", "1"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL",
+            "1",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION",
+            "0",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_ASYNC": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_ASYNC", "1"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_ASYNC",
+            "1",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS": lambda: to_int(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_ASYNC_THREADS",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT",
+            "0",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_NAME",
@@ -383,11 +421,14 @@ variables: dict[str, Callable[[], Any]] = {
         sep=";",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE", "1"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE",
+            "1",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY": lambda: trim_str(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY",
                 # TODO(thxCode): Backward compatibility, remove in v0.1.45 later.
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY",
@@ -400,7 +441,7 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME": lambda: trim_str(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME",
                 # TODO(thxCode): Backward compatibility, remove in v0.1.45 later.
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_USERNAME",
@@ -410,7 +451,7 @@ variables: dict[str, Callable[[], Any]] = {
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD": lambda: getenvs(
-        keys=[
+        [
             "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD",
             # TODO(thxCode): Backward compatibility, remove in v0.1.45 later.
             "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_REGISTRY_PASSWORD",
@@ -420,7 +461,7 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE": lambda: trim_str(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE",
                 # Legacy compatibility.
                 "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_IMAGE_NAMESPACE",
@@ -430,7 +471,6 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY_IMAGE_PULL_POLICY": lambda: choice(
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_IMAGE_PULL_POLICY",
-            "IfNotPresent",
         ),
         options=["Always", "IfNotPresent", "Never"],
         default="IfNotPresent",
@@ -439,13 +479,25 @@ variables: dict[str, Callable[[], Any]] = {
         "GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX",
         "runtime.gpustack.ai",
     ),
+    "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE": lambda: to_bool(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE",
+            "1",
+        ),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY": lambda: mkdir_path(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY",
+            "/var/run/cdi",
+        ),
+    ),
     "GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY": lambda: getenv(
         "GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY",
         "gpustack.ai/devices",
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES": lambda: to_dict(
+    "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI": lambda: to_dict(
         getenv(
-            "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CONTAINER_DEVICE_INTERFACES",
+            "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI",
             "amd.com/devices=amd.com/gpu;"
             "huawei.com/devices=huawei.com/npu;"
             "cambricon.com/devices=cambricon.com/mlu;"
@@ -500,21 +552,27 @@ variables: dict[str, Callable[[], Any]] = {
         sep=",",
     ),
     "GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY",
+            "0",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY",
+            "0",
+        ),
     ),
     # Deployer
     ## Docker
     "GPUSTACK_RUNTIME_DOCKER_HOST": lambda: trim_str(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_DOCKER_HOST",
                 # Fallback to standard Docker environment variable.
                 "DOCKER_HOST",
             ],
-            default="http+unix:///var/run/docker.sock",
+            "http+unix:///var/run/docker.sock",
         ),
     ),
     "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS": lambda: to_dict(
@@ -524,7 +582,10 @@ variables: dict[str, Callable[[], Any]] = {
         sep=";",
     ),
     "GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION",
+            "0",
+        ),
     ),
     "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE": lambda: getenv(
         "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE",
@@ -535,12 +596,14 @@ variables: dict[str, Callable[[], Any]] = {
         "gpustack/runtime:health",
     ),
     "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK", "1"),
+        getenv(
+            "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK",
+            "1",
+        ),
     ),
     "GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY": lambda: choice(
         getenv(
             "GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY",
-            "Env",
         ),
         options=["Env", "CDI"],
         default="Env",
@@ -548,7 +611,6 @@ variables: dict[str, Callable[[], Any]] = {
     ## Kubernetes
     "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME": lambda: getenv(
         "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME",
-        None,
     ),
     "GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE": lambda: getenv(
         "GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE",
@@ -561,18 +623,19 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_KUBERNETES_SERVICE_TYPE": lambda: choice(
         getenv(
             "GPUSTACK_RUNTIME_KUBERNETES_SERVICE_TYPE",
-            "ClusterIP",
         ),
         options=["ClusterIP", "NodePort", "LoadBalancer"],
         default="ClusterIP",
     ),
     "GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ": lambda: to_bool(
-        getenv("GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ", "0"),
+        getenv(
+            "GPUSTACK_RUNTIME_KUBERNETES_QUORUM_READ",
+            "0",
+        ),
     ),
     "GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY": lambda: choice(
         getenv(
             "GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY",
-            "Foreground",
         ),
         options=["Foreground", "Background", "Orphan"],
         default="Foreground",
@@ -580,17 +643,17 @@ variables: dict[str, Callable[[], Any]] = {
     ## Podman
     "GPUSTACK_RUNTIME_PODMAN_HOST": lambda: trim_str(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_PODMAN_HOST",
                 # Fallback to standard Podman environment variable.
                 "CONTAINER_HOST",
             ],
-            default="http+unix:///run/podman/podman.sock",
+            "http+unix:///run/podman/podman.sock",
         ),
     ),
     "GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS": lambda: to_dict(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_PODMAN_MIRRORED_NAME_FILTER_LABELS",
                 # Fallback to Docker's setting.
                 "GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS",
@@ -600,42 +663,41 @@ variables: dict[str, Callable[[], Any]] = {
     ),
     "GPUSTACK_RUNTIME_PODMAN_IMAGE_NO_PULL_VISUALIZATION": lambda: to_bool(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_PODMAN_IMAGE_NO_PULL_VISUALIZATION",
                 # Fallback to Docker's setting.
                 "GPUSTACK_RUNTIME_DOCKER_IMAGE_NO_PULL_VISUALIZATION",
             ],
-            default="0",
+            "0",
         ),
     ),
     "GPUSTACK_RUNTIME_PODMAN_PAUSE_IMAGE": lambda: getenvs(
-        keys=[
+        [
             "GPUSTACK_RUNTIME_PODMAN_PAUSE_IMAGE",
             # Fallback to Docker's setting.
             "GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE",
         ],
-        default="gpustack/runtime:pause",
+        "gpustack/runtime:pause",
     ),
     "GPUSTACK_RUNTIME_PODMAN_UNHEALTHY_RESTART_IMAGE": lambda: getenvs(
-        keys=[
+        [
             "GPUSTACK_RUNTIME_PODMAN_UNHEALTHY_RESTART_IMAGE",
             # Fallback to Docker's setting.
             "GPUSTACK_RUNTIME_DOCKER_UNHEALTHY_RESTART_IMAGE",
         ],
-        default="gpustack/runtime:health",
+        "gpustack/runtime:health",
     ),
     "GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK": lambda: to_bool(
         getenvs(
-            keys=[
+            [
                 "GPUSTACK_RUNTIME_PODMAN_MUTE_ORIGINAL_HEALTHCHECK",
                 # Fallback to Docker's setting.
                 "GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK",
             ],
-            default="1",
+            "1",
         ),
     ),
 }
-
 
 # --8<-- [end:env-vars-definition]
 
@@ -669,19 +731,23 @@ def expand_path(path: Path | str) -> Path | str:
     return path.expanduser().resolve()
 
 
-def mkdir_path(path: Path | str | None) -> Path | None:
+def mkdir_path(path: Path | str | None, parents_only: bool = False) -> Path | None:
     """
     Create a directory if it does not exist.
 
     Args:
         path (str | Path): The path to the directory.
+        parents_only (bool): If True, only create parent directories.
 
     """
     if not path:
         return None
     if isinstance(path, str):
         path = Path(path)
-    path.mkdir(parents=True, exist_ok=True)
+    if parents_only:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -840,7 +906,7 @@ def to_set(value: str | None, sep: str = ",") -> set[str]:
     return {item.strip() for item in value.split(sep) if item.strip()}
 
 
-def choice(value: str, options: list[str], default: str = "") -> str:
+def choice(value: str | None, options: list[str], default: str = "") -> str:
     """
     Check if a value is one of the given options.
 
@@ -853,6 +919,8 @@ def choice(value: str, options: list[str], default: str = "") -> str:
         The value if it is in the options, otherwise the default value.
 
     """
+    if value is None:
+        return default
     if value in options:
         return value
     return default
