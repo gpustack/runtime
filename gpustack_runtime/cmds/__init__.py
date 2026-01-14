@@ -18,6 +18,7 @@ from .detector import DetectDevicesSubCommand, GetDevicesTopologySubCommand
 from .images import (
     CopyImagesSubCommand,
     ListImagesSubCommand,
+    LoadImagesSubCommand,
     PlatformedImage,
     SaveImagesSubCommand,
     append_images,
@@ -39,6 +40,7 @@ __all__ = [
     "InspectWorkloadSubCommand",
     "ListImagesSubCommand",
     "ListWorkloadsSubCommand",
+    "LoadImagesSubCommand",
     "LogsSelfSubCommand",
     "LogsWorkloadSubCommand",
     "PlatformedImage",
