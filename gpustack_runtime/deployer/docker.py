@@ -49,6 +49,7 @@ from .__types__ import (
 from .__utils__ import (
     _MiB,
     bytes_to_human_readable,
+    isexception,
     safe_json,
     sensitive_env_var,
 )
@@ -330,7 +331,7 @@ class DockerDeployer(EndoscopicDeployer):
         if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", _NAME):
             return supported
 
-        client = DockerDeployer._get_client()
+        client = DockerDeployer._get_client(timeout=3)
         if client:
             try:
                 supported = client.ping()
@@ -340,15 +341,23 @@ class DockerDeployer(EndoscopicDeployer):
                         "Connected to Docker API server: %s",
                         version_info,
                     )
-            except docker.errors.APIError:
-                debug_log_exception(logger, "Failed to connect to Docker API server")
+            except docker.errors.APIError as e:
+                if not isexception(e, FileNotFoundError):
+                    debug_log_exception(
+                        logger,
+                        "Failed to connect to Docker API server",
+                    )
 
         return supported
 
     @staticmethod
-    def _get_client() -> docker.DockerClient | None:
+    def _get_client(**kwargs) -> docker.DockerClient | None:
         """
         Return a Docker client.
+
+        Args:
+            **kwargs:
+                Additional arguments to pass to docker.from_env().
 
         Returns:
             A Docker client if available, None otherwise.
@@ -365,9 +374,9 @@ class DockerDeployer(EndoscopicDeployer):
                 os_env = os.environ.copy()
                 if envs.GPUSTACK_RUNTIME_DOCKER_HOST:
                     os_env["DOCKER_HOST"] = envs.GPUSTACK_RUNTIME_DOCKER_HOST
-                client = docker.from_env(environment=os_env)
+                client = docker.from_env(environment=os_env, **kwargs)
         except docker.errors.DockerException as e:
-            if "FileNotFoundError" not in str(e):
+            if not isexception(e, FileNotFoundError):
                 debug_log_exception(logger, "Failed to get Docker client")
 
         return client

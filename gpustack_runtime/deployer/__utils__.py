@@ -685,3 +685,31 @@ def sensitive_env_var(name: str) -> bool:
 
     """
     return name.lower().endswith(_SENSITIVE_ENVS_SUFFIX)
+
+
+def isexception(
+    e: Exception,
+    target_exception_types: type[Exception] | tuple[type[Exception], ...],
+) -> bool:
+    """
+    Check if the given exception is caused by any of the target exception types.
+
+    Args:
+        e:
+            The exception to check.
+        target_exception_types:
+            A tuple of target exception types.
+
+    Returns:
+        True if the exception is caused by any of the target exception types, False otherwise.
+
+    """
+    if isinstance(e, target_exception_types):
+        return True
+
+    cause = getattr(e, "__cause__", None)
+    if cause and isexception(cause, target_exception_types):
+        return True
+
+    context = getattr(e, "__context__", None)
+    return bool(context and isexception(context, target_exception_types))

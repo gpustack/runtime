@@ -319,7 +319,7 @@ class KubernetesDeployer(EndoscopicDeployer):
         if client:
             try:
                 version_api = kubernetes.client.VersionApi(client)
-                version_info = version_api.get_code()
+                version_info = version_api.get_code(_request_timeout=3)
                 supported = version_info is not None
                 if envs.GPUSTACK_RUNTIME_LOG_EXCEPTION:
                     logger.debug(
@@ -337,9 +337,13 @@ class KubernetesDeployer(EndoscopicDeployer):
         return supported
 
     @staticmethod
-    def _get_client() -> kubernetes.client.ApiClient | None:
+    def _get_client(**kwargs) -> kubernetes.client.ApiClient | None:
         """
         Return a Kubernetes API client.
+
+        Args:
+            **kwargs:
+                Additional arguments to pass to the Kubernetes config loader.
 
         Returns:
             A Kubernetes API client if the configuration is valid, None otherwise.
@@ -353,7 +357,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                 contextlib.redirect_stdout(dev_null),
                 contextlib.redirect_stderr(dev_null),
             ):
-                kubernetes.config.load_config()
+                kubernetes.config.load_config(**kwargs)
                 client = kubernetes.client.ApiClient()
                 client.user_agent = "gpustack/runtime"
         except kubernetes.config.config_exception.ConfigException:

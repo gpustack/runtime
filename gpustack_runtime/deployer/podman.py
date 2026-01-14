@@ -52,6 +52,7 @@ from .__types__ import (
 from .__utils__ import (
     _MiB,
     bytes_to_human_readable,
+    isexception,
     safe_json,
     sensitive_env_var,
 )
@@ -333,7 +334,7 @@ class PodmanDeployer(EndoscopicDeployer):
         if envs.GPUSTACK_RUNTIME_DEPLOY.lower() not in ("auto", _NAME):
             return supported
 
-        client = PodmanDeployer._get_client()
+        client = PodmanDeployer._get_client(timeout=3)
         if client:
             try:
                 supported = client.ping()
@@ -343,15 +344,23 @@ class PodmanDeployer(EndoscopicDeployer):
                         "Connected to Podman API server: %s",
                         version_info,
                     )
-            except podman.errors.APIError:
-                debug_log_exception(logger, "Failed to connect to Podman API server")
+            except podman.errors.APIError as e:
+                if not isexception(e, FileNotFoundError):
+                    debug_log_exception(
+                        logger,
+                        "Failed to connect to Podman API server",
+                    )
 
         return supported
 
     @staticmethod
-    def _get_client() -> podman.PodmanClient | None:
+    def _get_client(**kwargs) -> podman.PodmanClient | None:
         """
         Return a Podman client.
+
+        Args:
+            **kwargs:
+                Additional arguments to pass to podman.from_env().
 
         Returns:
             A Podman client if available, None otherwise.
@@ -368,9 +377,9 @@ class PodmanDeployer(EndoscopicDeployer):
                 os_env = os.environ.copy()
                 if envs.GPUSTACK_RUNTIME_PODMAN_HOST:
                     os_env["CONTAINER_HOST"] = envs.GPUSTACK_RUNTIME_PODMAN_HOST
-                client = podman.from_env(environment=os_env)
+                client = podman.from_env(environment=os_env, **kwargs)
         except podman.errors.DockerException as e:
-            if "FileNotFoundError" not in str(e):
+            if not isexception(e, FileNotFoundError):
                 debug_log_exception(logger, "Failed to get Podman client")
 
         return client
