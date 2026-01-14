@@ -23,7 +23,7 @@ import podman.domain.images
 import podman.domain.volumes
 import podman.errors
 from dataclasses_json import dataclass_json
-from gpustack_runner import replace_image_with, split_image
+from gpustack_runner import split_image
 from podman.domain.containers_create import CreateMixin
 from tqdm import tqdm
 
@@ -51,6 +51,7 @@ from .__types__ import (
 )
 from .__utils__ import (
     _MiB,
+    adjust_image_with_envs,
     bytes_to_human_readable,
     isexception,
     safe_json,
@@ -149,16 +150,10 @@ class PodmanWorkloadPlan(WorkloadPlan):
         # Default and validate in the base class.
         super().validate_and_default()
 
-        # Adjust pause and unhealthy restart images.
-        self.pause_image = replace_image_with(
-            image=self.pause_image,
-            registry=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY,
-            namespace=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE,
-        )
-        self.unhealthy_restart_image = replace_image_with(
-            image=self.unhealthy_restart_image,
-            registry=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY,
-            namespace=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE,
+        # Adjust images.
+        self.pause_image = adjust_image_with_envs(self.pause_image)
+        self.unhealthy_restart_image = adjust_image_with_envs(
+            self.unhealthy_restart_image,
         )
 
 

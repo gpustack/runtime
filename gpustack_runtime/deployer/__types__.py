@@ -11,7 +11,6 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from dataclasses_json import dataclass_json
-from gpustack_runner import replace_image_with
 
 from .. import envs
 from ..detector import (
@@ -22,6 +21,7 @@ from ..detector import (
     manufacturer_to_backend,
 )
 from .__utils__ import (
+    adjust_image_with_envs,
     correct_runner_image,
     fnv1a_32_hex,
     fnv1a_64_hex,
@@ -1019,12 +1019,8 @@ class WorkloadPlan(WorkloadSecurity):
                 c.files.append(command_script)
                 c.execution.command = [command_script_name]  # Override command.
                 c.execution.command_script = None
-            # Adjust image.
-            c.image = replace_image_with(
-                c.image,
-                registry=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY,
-                namespace=envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE,
-            )
+            # Adjust images.
+            c.image = adjust_image_with_envs(c.image)
             # Correct runner image if needed.
             if envs.GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE:
                 c.image, ok = correct_runner_image(c.image)

@@ -9,8 +9,14 @@ from functools import lru_cache
 from typing import Any
 
 import yaml
-from gpustack_runner import DockerImage, list_backend_runners
+from gpustack_runner import (
+    DockerImage,
+    list_backend_runners,
+    parse_image,
+    replace_image_with,
+)
 
+from .. import envs
 from ..detector import backend_to_manufacturer, detect_backend, detect_devices
 from ..detector.ascend import get_ascend_cann_variant
 
@@ -713,3 +719,36 @@ def isexception(
 
     context = getattr(e, "__context__", None)
     return bool(context and isexception(context, target_exception_types))
+
+
+@lru_cache
+def adjust_image_with_envs(image: str) -> str:
+    """
+    Replace the registry and namespace of the given image
+    with the default ones from environment variables if applicable.
+
+    Args:
+        image:
+            The image to replace.
+
+    Returns:
+        The replaced image.
+
+    """
+    original_reg, original_ns, _, _ = parse_image(image)
+
+    target_reg = original_reg or envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY
+    target_ns = (
+        original_ns
+        if original_ns != "gpustack"
+        else envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_NAMESPACE
+    )
+
+    if original_reg == target_reg and original_ns == target_ns:
+        return image
+
+    return replace_image_with(
+        image,
+        registry=target_reg,
+        namespace=target_ns,
+    )
