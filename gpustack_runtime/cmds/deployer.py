@@ -277,6 +277,7 @@ class CreateWorkloadSubCommand(SubCommand):
             name=self.name,
             namespace=self.namespace,
             host_network=self.host_network,
+            shm_size=10 * 1 << 30,  # 10 GiB
             containers=[
                 Container(
                     restart_policy=(
