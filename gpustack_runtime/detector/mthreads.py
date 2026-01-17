@@ -229,7 +229,7 @@ class MThreadsDetector(Detector):
 
                 try:
                     # Get affinity with PCIe BDF if possible.
-                    if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                    if dev_i_bdf := dev_i.appendix.get("bdf"):
                         ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                             dev_i_bdf,
                         )

@@ -171,20 +171,17 @@ class IluvatarDetector(Detector):
                     if dev_cc_t:
                         dev_cc = ".".join(map(str, dev_cc_t))
 
-                dev_bdf = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
-                    dev_bdf = str(dev_pci_info.busIdLegacy).lower()
+                dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
+                dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
-                dev_is_vgpu = False
-                if dev_bdf:
-                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+                dev_is_vgpu = (
+                    dev_bdf and get_physical_function_by_bdf(dev_bdf) != dev_bdf
+                )
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
+                    "bdf": dev_bdf,
                 }
-                if dev_bdf:
-                    dev_appendix["bdf"] = dev_bdf
 
                 ret.append(
                     Device(
@@ -248,7 +245,7 @@ class IluvatarDetector(Detector):
                 dev_i_handle = pyixml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
 
                 # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                if dev_i_bdf := dev_i.appendix.get("bdf"):
                     ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )

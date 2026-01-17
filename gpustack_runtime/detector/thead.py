@@ -128,10 +128,8 @@ class THeadDetector(Detector):
                 dev_cc_t = pyhgml.hgmlDeviceGetHggcComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
 
-                dev_bdf = None
-                with contextlib.suppress(pyhgml.HGMLError):
-                    dev_pci_info = pyhgml.hgmlDeviceGetPciInfo(dev)
-                    dev_bdf = str(dev_pci_info.busIdLegacy).lower()
+                dev_pci_info = pyhgml.hgmlDeviceGetPciInfo(dev)
+                dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
                 dev_mig_mode = pyhgml.HGML_DEVICE_MIG_DISABLE
                 with contextlib.suppress(pyhgml.HGMLError):
@@ -204,9 +202,8 @@ class THeadDetector(Detector):
 
                     dev_appendix = {
                         "vgpu": dev_is_vgpu,
+                        "bdf": dev_bdf,
                     }
-                    if dev_bdf:
-                        dev_appendix["bdf"] = dev_bdf
 
                     if dev_links_state := _get_links_state(dev):
                         dev_appendix.update(dev_links_state)
@@ -273,9 +270,8 @@ class THeadDetector(Detector):
 
                     mdev_appendix = {
                         "vgpu": True,
+                        "bdf": dev_bdf,
                     }
-                    if dev_bdf:
-                        mdev_appendix["bdf"] = dev_bdf
 
                     mdev_gi_id = pyhgml.hgmlDeviceGetGpuInstanceId(mdev)
                     mdev_appendix["gpu_instance_id"] = mdev_gi_id
@@ -404,7 +400,7 @@ class THeadDetector(Detector):
                 dev_i_handle = pyhgml.hgmlDeviceGetHandleByUUID(dev_i.uuid)
 
                 # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                if dev_i_bdf := dev_i.appendix.get("bdf"):
                     ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )

@@ -132,12 +132,8 @@ class AMDDetector(Detector):
                                 dev_idx,
                             )
 
-                dev_bdf = None
-                dev_card_id = None
-                dev_renderd_id = None
-                with contextlib.suppress(pyamdsmi.AmdSmiException):
-                    dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
-                    dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
+                dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
+                dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
 
                 dev_cores = dev_hsa_agent.compute_units
                 dev_asic_family_id = dev_hsa_agent.asic_family_id
@@ -205,16 +201,15 @@ class AMDDetector(Detector):
                         dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                         dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
-                dev_is_vgpu = False
-                if dev_bdf:
-                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+                dev_is_vgpu = (
+                    dev_bdf and get_physical_function_by_bdf(dev_bdf) != dev_bdf
+                )
 
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_asic_family_id),
                     "vgpu": dev_is_vgpu,
+                    "bdf": dev_bdf,
                 }
-                if dev_bdf:
-                    dev_appendix["bdf"] = dev_bdf
                 if dev_card_id is not None:
                     dev_appendix["card_id"] = dev_card_id
                 if dev_renderd_id is not None:
@@ -285,9 +280,9 @@ class AMDDetector(Detector):
         devs_mapping = None
 
         def get_device_handle(dev: Device):
-            if bdf := dev.appendix.get("bdf", None):
-                with contextlib.suppress(pyamdsmi.AmdSmiException):
-                    return pyamdsmi.amdsmi_get_processor_handle_from_bdf(bdf)
+            with contextlib.suppress(pyamdsmi.AmdSmiException):
+                bdf = dev.appendix.get("bdf")
+                return pyamdsmi.amdsmi_get_processor_handle_from_bdf(bdf)
             nonlocal devs_mapping
             if devs_mapping is None:
                 devs = pyamdsmi.amdsmi_get_processor_handles()

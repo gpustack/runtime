@@ -208,12 +208,11 @@ class AscendDetector(Detector):
                     if dev_roce_gateway:
                         dev_appendix["roce_gateway"] = str(dev_roce_gateway)
 
-                    with contextlib.suppress(pydcmi.DCMIError):
-                        dev_bdf = pydcmi.dcmi_get_device_bdf(
-                            dev_card_id,
-                            dev_device_id,
-                        )
-                        dev_appendix["bdf"] = dev_bdf
+                    dev_bdf = pydcmi.dcmi_get_device_bdf(
+                        dev_card_id,
+                        dev_device_id,
+                    )
+                    dev_appendix["bdf"] = dev_bdf
 
                     ret.append(
                         Device(
@@ -274,7 +273,7 @@ class AscendDetector(Detector):
                 dev_i_device_id = dev_i.appendix["device_id"]
 
                 # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                if dev_i_bdf := dev_i.appendix.get("bdf"):
                     ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )

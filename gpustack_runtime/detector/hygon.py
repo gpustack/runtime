@@ -120,12 +120,8 @@ class HygonDetector(Detector):
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
 
-                dev_bdf = None
-                dev_card_id = None
-                dev_renderd_id = None
-                with contextlib.suppress(Exception):
-                    dev_bdf = pyrocmsmi.rsmi_dev_pci_id_get(dev_idx)
-                    dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
+                dev_bdf = pyrocmsmi.rsmi_dev_pci_id_get(dev_idx)
+                dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
 
                 dev_cores = dev_hsa_agent.compute_units
                 if not dev_cores and dev_card_id is not None:
@@ -157,15 +153,14 @@ class HygonDetector(Detector):
                 dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                 dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
-                dev_is_vgpu = False
-                if dev_bdf:
-                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+                dev_is_vgpu = (
+                    dev_bdf and get_physical_function_by_bdf(dev_bdf) != dev_bdf
+                )
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
+                    "bdf": dev_bdf,
                 }
-                if dev_bdf is not None:
-                    dev_appendix["bdf"] = dev_bdf
                 if dev_card_id is not None:
                     dev_appendix["card_id"] = dev_card_id
                 if dev_renderd_id is not None:
@@ -256,7 +251,7 @@ class HygonDetector(Detector):
             # Get NUMA and CPU affinities.
             for i, dev_i in enumerate(devices):
                 # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf", ""):
+                if dev_i_bdf := dev_i.appendix.get("bdf"):
                     ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
                         dev_i_bdf,
                     )
@@ -306,8 +301,8 @@ class HygonDetector(Detector):
                                 )
                                 if dev_i_numa and dev_i_numa == dev_j_numa:
                                     distance = distance_pci_devices(
-                                        dev_i.appendix.get("bdf", ""),
-                                        dev_j.appendix.get("bdf", ""),
+                                        dev_i.appendix.get("bdf"),
+                                        dev_j.appendix.get("bdf"),
                                     )
                                 else:
                                     distance = TopologyDistanceEnum.SYS
