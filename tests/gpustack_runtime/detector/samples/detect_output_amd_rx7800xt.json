@@ -20,6 +20,7 @@
       "arch_family": "GC 11.0.0",
       "vgpu": false,
       "bdf": "0000:03:00.0",
+      "numa": "0",
       "card_id": 1,
       "renderd_id": 128
     }

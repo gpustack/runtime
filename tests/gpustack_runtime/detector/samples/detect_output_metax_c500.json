@@ -18,7 +18,8 @@
     "power_used": 72,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:0c:00.0"
+      "bdf": "0000:0c:00.0",
+      "numa": "0"
     }
   },
   {
@@ -40,7 +41,8 @@
     "power_used": 68,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:32:00.0"
+      "bdf": "0000:32:00.0",
+      "numa": "0"
     }
   },
   {
@@ -62,7 +64,8 @@
     "power_used": 70,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:45:00.0"
+      "bdf": "0000:45:00.0",
+      "numa": "0"
     }
   },
   {
@@ -84,7 +87,8 @@
     "power_used": 68,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:58:00.0"
+      "bdf": "0000:58:00.0",
+      "numa": "0"
     }
   },
   {
@@ -106,7 +110,8 @@
     "power_used": 59,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:84:00.0"
+      "bdf": "0000:84:00.0",
+      "numa": "1"
     }
   },
   {
@@ -128,7 +133,8 @@
     "power_used": 56,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:ac:00.0"
+      "bdf": "0000:ac:00.0",
+      "numa": "1"
     }
   },
   {
@@ -150,7 +156,8 @@
     "power_used": 57,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:c0:00.0"
+      "bdf": "0000:c0:00.0",
+      "numa": "1"
     }
   },
   {
@@ -172,7 +179,8 @@
     "power_used": 69,
     "appendix": {
       "vgpu": false,
-      "bdf": "0000:d4:00.0"
+      "bdf": "0000:d4:00.0",
+      "numa": "1"
     }
   }
 ]

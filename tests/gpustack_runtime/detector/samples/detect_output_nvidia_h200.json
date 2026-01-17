@@ -20,6 +20,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:18:00.0",
+      "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }
@@ -45,6 +46,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:29:00.0",
+      "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }
@@ -70,6 +72,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:3a:00.0",
+      "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }
@@ -95,6 +98,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:4b:00.0",
+      "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }
@@ -120,6 +124,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:9a:00.0",
+      "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }
@@ -145,6 +150,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:aa:00.0",
+      "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }
@@ -170,6 +176,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:ba:00.0",
+      "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }
@@ -195,6 +202,7 @@
       "arch_family": "Hopper",
       "vgpu": false,
       "bdf": "0000:ca:00.0",
+      "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
       "fabric_clique_id": 0
     }

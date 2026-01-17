@@ -174,13 +174,21 @@ class IluvatarDetector(Detector):
                 dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
                 dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
-                dev_is_vgpu = (
-                    dev_bdf and get_physical_function_by_bdf(dev_bdf) != dev_bdf
-                )
+                dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    dev_node_affinity = pyixml.nvmlDeviceGetMemoryAffinity(
+                        dev,
+                        get_numa_nodeset_size(),
+                        pyixml.NVML_AFFINITY_SCOPE_NODE,
+                    )
+                    dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
+                    "numa": dev_numa,
                 }
 
                 ret.append(
@@ -244,36 +252,11 @@ class IluvatarDetector(Detector):
             for i, dev_i in enumerate(devices):
                 dev_i_handle = pyixml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
 
-                # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf"):
-                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
-                        dev_i_bdf,
-                    )
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
-                # Otherwise, get affinity via IXML.
-                if not ret.devices_cpu_affinities[i]:
-                    # Get NUMA affinity.
-                    try:
-                        dev_i_memset = pyixml.nvmlDeviceGetMemoryAffinity(
-                            dev_i_handle,
-                            get_numa_nodeset_size(),
-                            pyixml.NVML_AFFINITY_SCOPE_NODE,
-                        )
-                        ret.devices_numa_affinities[i] = bitmask_to_str(
-                            list(dev_i_memset),
-                        )
-                    except pyixml.NVMLError:
-                        debug_log_exception(
-                            logger,
-                            "Failed to get NUMA affinity for device %d",
-                            dev_i.index,
-                        )
-                    # Get CPU affinity.
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
+                # Get NUMA and CPU affinities.
+                ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
+                ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                    ret.devices_numa_affinities[i],
+                )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
@@ -299,9 +282,6 @@ class IluvatarDetector(Detector):
 
                     ret.devices_distances[i][j] = distance
                     ret.devices_distances[j][i] = distance
-        except pyixml.NVMLError:
-            debug_log_exception(logger, "Failed to fetch topology")
-            raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise

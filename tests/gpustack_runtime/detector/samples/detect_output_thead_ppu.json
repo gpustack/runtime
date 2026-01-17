@@ -19,6 +19,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:05:00.0",
+      "numa": "0",
       "links_count": 7,
       "links_state": 12
     }
@@ -43,6 +44,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:0b:00.0",
+      "numa": "0",
       "links_count": 7,
       "links_state": 12
     }

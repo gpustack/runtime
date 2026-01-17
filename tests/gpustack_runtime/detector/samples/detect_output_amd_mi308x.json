@@ -20,6 +20,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:25:00.0",
+      "numa": "0",
       "card_id": 0,
       "renderd_id": 128
     }
@@ -45,6 +46,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:2a:00.0",
+      "numa": "0",
       "card_id": 8,
       "renderd_id": 136
     }
@@ -70,6 +72,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:45:00.0",
+      "numa": "0",
       "card_id": 16,
       "renderd_id": 144
     }
@@ -95,6 +98,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:4a:00.0",
+      "numa": "0",
       "card_id": 24,
       "renderd_id": 152
     }
@@ -120,6 +124,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:a5:00.0",
+      "numa": "1",
       "card_id": 32,
       "renderd_id": 160
     }
@@ -145,6 +150,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:a8:00.0",
+      "numa": "1",
       "card_id": 40,
       "renderd_id": 168
     }
@@ -170,6 +176,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:c5:00.0",
+      "numa": "1",
       "card_id": 48,
       "renderd_id": 176
     }
@@ -195,6 +202,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:c8:00.0",
+      "numa": "1",
       "card_id": 56,
       "renderd_id": 184
     }

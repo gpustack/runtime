@@ -19,7 +19,8 @@
     "appendix": {
       "arch_family": "Blackwell",
       "vgpu": false,
-      "bdf": "0000:ca:00.0"
+      "bdf": "0000:ca:00.0",
+      "numa": "0"
     }
   }
 ]

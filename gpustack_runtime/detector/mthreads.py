@@ -117,6 +117,7 @@ class MThreadsDetector(Detector):
                 dev_cores = 0
                 dev_power_used = None
                 dev_pci_info = None
+                dev_is_vgpu = False
                 dev = pymtml.mtmlLibraryInitDeviceByIndex(dev_idx)
                 try:
                     dev_props = pymtml.mtmlDeviceGetProperty(dev)
@@ -163,9 +164,20 @@ class MThreadsDetector(Detector):
 
                 dev_bdf = f"{dev_pci_info.segment:04x}:{dev_pci_info.bus:02x}:{dev_pci_info.device:02x}.0"
 
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    dev_node_affinity = pymtml.mtmlDeviceGetMemoryAffinityWithinNode(
+                        dev,
+                        get_numa_nodeset_size(),
+                    )
+                    dev_numa = bitmask_to_str(
+                        list(dev_node_affinity),
+                    )
+
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
+                    "numa": dev_numa,
                 }
 
                 ret.append(
@@ -228,35 +240,11 @@ class MThreadsDetector(Detector):
                 dev_i_handle = pymtml.mtmlLibraryInitDeviceByIndex(dev_i.index)
 
                 try:
-                    # Get affinity with PCIe BDF if possible.
-                    if dev_i_bdf := dev_i.appendix.get("bdf"):
-                        ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
-                            dev_i_bdf,
-                        )
-                        ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                            ret.devices_numa_affinities[i],
-                        )
-                    # Otherwise, get affinity via MTML.
-                    if not ret.devices_cpu_affinities[i]:
-                        # Get NUMA affinity.
-                        try:
-                            dev_i_memset = pymtml.mtmlDeviceGetMemoryAffinityWithinNode(
-                                dev_i_handle,
-                                get_numa_nodeset_size(),
-                            )
-                            ret.devices_numa_affinities[i] = bitmask_to_str(
-                                list(dev_i_memset),
-                            )
-                        except pymtml.MTMLError:
-                            debug_log_warning(
-                                logger,
-                                "Failed to get NUMA affinity for device %d",
-                                dev_i.index,
-                            )
-                        # Get CPU affinity.
-                        ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                            ret.devices_numa_affinities[i],
-                        )
+                    # Get NUMA and CPU affinities.
+                    ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
+                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                        ret.devices_numa_affinities[i],
+                    )
 
                     # Get distances to other devices.
                     for j, dev_j in enumerate(devices):
@@ -295,9 +283,6 @@ class MThreadsDetector(Detector):
                 finally:
                     pymtml.mtmlLibraryFreeDevice(dev_i_handle)
 
-        except pymtml.MTMLError:
-            debug_log_exception(logger, "Failed to fetch topology")
-            raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise

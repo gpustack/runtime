@@ -20,6 +20,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:26:00.0",
+      "numa": "0",
       "card_id": 9,
       "renderd_id": 136
     }
@@ -45,6 +46,7 @@
       "arch_family": "Arctic Islands",
       "vgpu": false,
       "bdf": "0000:46:00.0",
+      "numa": "0",
       "card_id": 17,
       "renderd_id": 144
     }

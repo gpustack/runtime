@@ -19,6 +19,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:07:00.0",
+      "numa": "0",
       "card_id": 1,
       "renderd_id": 128
     }
@@ -43,6 +44,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:0a:00.0",
+      "numa": "0",
       "card_id": 2,
       "renderd_id": 129
     }
@@ -67,6 +69,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:0f:00.0",
+      "numa": "0",
       "card_id": 3,
       "renderd_id": 130
     }
@@ -91,6 +94,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:16:00.0",
+      "numa": "0",
       "card_id": 4,
       "renderd_id": 131
     }
@@ -115,6 +119,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:1d:00.0",
+      "numa": "0",
       "card_id": 5,
       "renderd_id": 132
     }
@@ -139,6 +144,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:20:00.0",
+      "numa": "0",
       "card_id": 6,
       "renderd_id": 133
     }
@@ -163,6 +169,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:25:00.0",
+      "numa": "0",
       "card_id": 7,
       "renderd_id": 134
     }
@@ -187,6 +194,7 @@
     "appendix": {
       "vgpu": false,
       "bdf": "0000:2c:00.0",
+      "numa": "0",
       "card_id": 8,
       "renderd_id": 135
     }

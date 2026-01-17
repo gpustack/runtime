@@ -19,7 +19,8 @@
     "appendix": {
       "arch_family": "Ada-Lovelace",
       "vgpu": false,
-      "bdf": "0000:04:00.0"
+      "bdf": "0000:04:00.0",
+      "numa": "0"
     }
   }
 ]

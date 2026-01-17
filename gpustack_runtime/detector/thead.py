@@ -131,6 +131,15 @@ class THeadDetector(Detector):
                 dev_pci_info = pyhgml.hgmlDeviceGetPciInfo(dev)
                 dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    dev_node_affinity = pyhgml.hgmlDeviceGetMemoryAffinity(
+                        dev,
+                        get_numa_nodeset_size(),
+                        pyhgml.HGML_AFFINITY_SCOPE_NODE,
+                    )
+                    dev_numa = bitmask_to_str(list(dev_node_affinity))
+
                 dev_mig_mode = pyhgml.HGML_DEVICE_MIG_DISABLE
                 with contextlib.suppress(pyhgml.HGMLError):
                     dev_mig_mode, _ = pyhgml.hgmlDeviceGetMigMode(dev)
@@ -203,6 +212,7 @@ class THeadDetector(Detector):
                     dev_appendix = {
                         "vgpu": dev_is_vgpu,
                         "bdf": dev_bdf,
+                        "numa": dev_numa,
                     }
 
                     if dev_links_state := _get_links_state(dev):
@@ -271,6 +281,7 @@ class THeadDetector(Detector):
                     mdev_appendix = {
                         "vgpu": True,
                         "bdf": dev_bdf,
+                        "numa": dev_numa,
                     }
 
                     mdev_gi_id = pyhgml.hgmlDeviceGetGpuInstanceId(mdev)
@@ -399,36 +410,11 @@ class THeadDetector(Detector):
             for i, dev_i in enumerate(devices):
                 dev_i_handle = pyhgml.hgmlDeviceGetHandleByUUID(dev_i.uuid)
 
-                # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf"):
-                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
-                        dev_i_bdf,
-                    )
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
-                # Otherwise, get affinity via IXML.
-                if not ret.devices_cpu_affinities[i]:
-                    # Get NUMA affinity.
-                    try:
-                        dev_i_memset = pyhgml.hgmlDeviceGetMemoryAffinity(
-                            dev_i_handle,
-                            get_numa_nodeset_size(),
-                            pyhgml.HGML_AFFINITY_SCOPE_NODE,
-                        )
-                        ret.devices_numa_affinities[i] = bitmask_to_str(
-                            list(dev_i_memset),
-                        )
-                    except pyhgml.HGMLError:
-                        debug_log_exception(
-                            logger,
-                            "Failed to get NUMA affinity for device %d",
-                            dev_i.index,
-                        )
-                    # Get CPU affinity.
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
+                # Get NUMA and CPU affinities.
+                ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
+                ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                    ret.devices_numa_affinities[i],
+                )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
@@ -455,9 +441,6 @@ class THeadDetector(Detector):
 
                     ret.devices_distances[i][j] = distance
                     ret.devices_distances[j][i] = distance
-        except pyhgml.HGMLError:
-            debug_log_exception(logger, "Failed to fetch topology")
-            raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise

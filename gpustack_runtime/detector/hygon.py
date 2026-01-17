@@ -153,13 +153,16 @@ class HygonDetector(Detector):
                 dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                 dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
-                dev_is_vgpu = (
-                    dev_bdf and get_physical_function_by_bdf(dev_bdf) != dev_bdf
-                )
+                dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    dev_numa = str(pyrocmsmi.rsmi_topo_get_numa_node_number(dev_idx))
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
+                    "numa": dev_numa,
                 }
                 if dev_card_id is not None:
                     dev_appendix["card_id"] = dev_card_id
@@ -248,37 +251,14 @@ class HygonDetector(Detector):
 
             pyrocmsmi.rsmi_init()
 
-            # Get NUMA and CPU affinities.
             for i, dev_i in enumerate(devices):
-                # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf"):
-                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
-                        dev_i_bdf,
-                    )
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
-                # Otherwise, get affinity via ROCM SMI.
-                if not ret.devices_numa_affinities[i]:
-                    # Get NUMA affinity.
-                    try:
-                        dev_i_numa_node = pyrocmsmi.rsmi_topo_get_numa_node_number(
-                            dev_i.index,
-                        )
-                        ret.devices_numa_affinities[i] = str(dev_i_numa_node)
-                    except pyrocmsmi.ROCMSMIError:
-                        debug_log_exception(
-                            logger,
-                            "Failed to get NUMA affinity for device %d",
-                            dev_i.index,
-                        )
-                    # Get CPU affinity.
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
+                # Get NUMA and CPU affinities.
+                ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
+                ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                    ret.devices_numa_affinities[i],
+                )
 
-            # Get distances to other devices.
-            for i, dev_i in enumerate(devices):
+                # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
@@ -301,8 +281,8 @@ class HygonDetector(Detector):
                                 )
                                 if dev_i_numa and dev_i_numa == dev_j_numa:
                                     distance = distance_pci_devices(
-                                        dev_i.appendix.get("bdf"),
-                                        dev_j.appendix.get("bdf"),
+                                        dev_i.appendix.get("bdf", ""),
+                                        dev_j.appendix.get("bdf", ""),
                                     )
                                 else:
                                     distance = TopologyDistanceEnum.SYS
@@ -321,9 +301,6 @@ class HygonDetector(Detector):
 
                     ret.devices_distances[i][j] = distance
                     ret.devices_distances[j][i] = distance
-        except pyrocmsmi.ROCMSMIError:
-            debug_log_exception(logger, "Failed to fetch topology")
-            raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise

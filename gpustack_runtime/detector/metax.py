@@ -124,7 +124,6 @@ class MetaXDetector(Detector):
                 dev_name = dev_info.deviceName
                 if dev_info.mode == pymxsml.MXSML_VIRTUALIZATION_MODE_PF:
                     continue
-                dev_is_vgpu = dev_info.mode == pymxsml.MXSML_VIRTUALIZATION_MODE_VF
 
                 dev_core_util = pymxsml.mxSmlGetDeviceIpUsage(
                     dev_idx,
@@ -165,9 +164,22 @@ class MetaXDetector(Detector):
                         // 1000  # mW to W
                     )
 
+                dev_bdf = dev_info.bdfId
+
+                dev_is_vgpu = dev_info.mode == pymxsml.MXSML_VIRTUALIZATION_MODE_VF
+
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    dev_node_affinity = pymxsml.mxSmlGetNodeAffinity(
+                        dev_idx,
+                        get_numa_nodeset_size(),
+                    )
+                    dev_numa = bitmask_to_str(list(dev_node_affinity))
+
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
-                    "bdf": dev_info.bdfId,
+                    "bdf": dev_bdf,
+                    "numa": dev_numa,
                 }
 
                 ret.append(
@@ -226,35 +238,11 @@ class MetaXDetector(Detector):
             pymxsml.mxSmlInit()
 
             for i, dev_i in enumerate(devices):
-                # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf"):
-                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
-                        dev_i_bdf,
-                    )
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
-                # Otherwise, get affinity by MXSML.
-                if not ret.devices_cpu_affinities[i]:
-                    # Get NUMA affinity.
-                    try:
-                        dev_i_nodeaff = pymxsml.mxSmlGetNodeAffinity(
-                            dev_i.index,
-                            get_numa_nodeset_size(),
-                        )
-                        ret.devices_numa_affinities[i] = bitmask_to_str(
-                            list(dev_i_nodeaff),
-                        )
-                    except pymxsml.MXSMLError:
-                        debug_log_warning(
-                            logger,
-                            "Failed to get device %d NUMA node affinity",
-                            dev_i.index,
-                        )
-                    # Get CPU affinity.
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
+                # Get NUMA and CPU affinities.
+                ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
+                ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                    ret.devices_numa_affinities[i],
+                )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
@@ -281,9 +269,6 @@ class MetaXDetector(Detector):
 
                     ret.devices_distances[i][j] = distance
                     ret.devices_distances[j][i] = distance
-        except pymxsml.MXSMLError:
-            debug_log_exception(logger, "Failed to fetch topology")
-            raise
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise

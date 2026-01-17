@@ -184,12 +184,29 @@ class AscendDetector(Detector):
                     if dev_power_used:
                         dev_power_used = dev_power_used / 10  # 0.1W to W
 
+                    dev_bdf = pydcmi.dcmi_get_device_bdf(
+                        dev_card_id,
+                        dev_device_id,
+                    )
+
+                    dev_numa = get_numa_node_by_bdf(dev_bdf)
+                    if not dev_numa:
+                        dev_cpu_affinity = (
+                            pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
+                                dev_card_id,
+                                dev_device_id,
+                            )
+                        )
+                        dev_numa = map_cpu_affinity_to_numa_node(dev_cpu_affinity)
+
                     dev_appendix = {
                         "arch_family": (
                             pyacl.aclrtGetSocName()
                             or _guess_soc_name_from_dev_name(dev_name)
                         ),
                         "vgpu": dev_is_vgpu,
+                        "bdf": dev_bdf,
+                        "numa": dev_numa,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
                         "device_id_max": device_num_in_card - 1,
@@ -207,12 +224,6 @@ class AscendDetector(Detector):
                         dev_appendix["roce_mask"] = str(dev_roce_mask)
                     if dev_roce_gateway:
                         dev_appendix["roce_gateway"] = str(dev_roce_gateway)
-
-                    dev_bdf = pydcmi.dcmi_get_device_bdf(
-                        dev_card_id,
-                        dev_device_id,
-                    )
-                    dev_appendix["bdf"] = dev_bdf
 
                     ret.append(
                         Device(
@@ -269,44 +280,22 @@ class AscendDetector(Detector):
             pydcmi.dcmi_init()
 
             for i, dev_i in enumerate(devices):
-                dev_i_card_id = dev_i.appendix["card_id"]
-                dev_i_device_id = dev_i.appendix["device_id"]
+                dev_i_card_id = dev_i.appendix.get("card_id", i)
+                dev_i_device_id = dev_i.appendix.get("device_id", 0)
 
-                # Get affinity with PCIe BDF if possible.
-                if dev_i_bdf := dev_i.appendix.get("bdf"):
-                    ret.devices_numa_affinities[i] = get_numa_node_by_bdf(
-                        dev_i_bdf,
-                    )
-                    ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
-                        ret.devices_numa_affinities[i],
-                    )
-                # Otherwise, get affinity via DCMI.
-                if not ret.devices_cpu_affinities[i]:
-                    # Get CPU affinity.
-                    try:
-                        cpu_affinity = pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
-                            dev_i.appendix["card_id"],
-                            dev_i.appendix["device_id"],
-                        )
-                        ret.devices_cpu_affinities[i] = cpu_affinity
-                    except pydcmi.DCMIError:
-                        debug_log_exception(
-                            slogger,
-                            "Failed to get CPU affinity for device %d",
-                            dev_i.index,
-                        )
-                    # Get NUMA affinity.
-                    ret.devices_numa_affinities[i] = map_cpu_affinity_to_numa_node(
-                        ret.devices_cpu_affinities[i],
-                    )
+                # Get NUMA and CPU affinities.
+                ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
+                ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
+                    ret.devices_numa_affinities[i],
+                )
 
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
 
-                    dev_j_card_id = dev_j.appendix["card_id"]
-                    dev_j_device_id = dev_j.appendix["device_id"]
+                    dev_j_card_id = dev_j.appendix.get("card_id", j)
+                    dev_j_device_id = dev_j.appendix.get("device_id", 0)
 
                     # If two devices are the same card,
                     # skip distance calculation.
