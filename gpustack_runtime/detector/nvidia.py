@@ -225,9 +225,6 @@ class NVIDIADetector(Detector):
                         "numa": dev_numa,
                     }
 
-                    if dev_links_state := _get_links_state(dev):
-                        dev_appendix.update(dev_links_state)
-
                     if dev_fabric_info := _get_fabric_info(dev):
                         dev_appendix.update(dev_fabric_info)
 
@@ -439,6 +436,19 @@ class NVIDIADetector(Detector):
                     ret.devices_numa_affinities[i],
                 )
 
+                # Get links state if applicable.
+                if dev_i_links_state := _get_links_state(dev_i_handle):
+                    ret.appendices[i].update(dev_i_links_state)
+                    # In practice, if a card has an active *Link,
+                    # then other cards in the same machine should be interconnected with it through the *Link.
+                    if dev_i_links_state.get("links_active_count", 0) > 0:
+                        for j, dev_j in enumerate(devices):
+                            if dev_i.index == dev_j.index:
+                                continue
+                            ret.devices_distances[i][j] = TopologyDistanceEnum.LINK
+                            ret.devices_distances[j][i] = TopologyDistanceEnum.LINK
+                        continue
+
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
@@ -452,8 +462,6 @@ class NVIDIADetector(Detector):
                             dev_i_handle,
                             dev_j_handle,
                         )
-                        if dev_i.appendix.get("links_state", 0) > 0:
-                            distance = TopologyDistanceEnum.LINK
                     except pynvml.NVMLError:
                         debug_log_exception(
                             logger,
@@ -598,47 +606,6 @@ def _extract_field_value(
     return None
 
 
-def _get_links_state(
-    dev: pynvml.c_nvmlDevice_t,
-) -> dict | None:
-    """
-    Get the NVLink links count and state for a device.
-
-    Args:
-        dev:
-            The NVML device handle.
-
-    Returns:
-        A dict includes links state or None if failed.
-
-    """
-    dev_links_count = 0
-    try:
-        dev_fields = pynvml.nvmlDeviceGetFieldValues(
-            dev,
-            fieldIds=[pynvml.NVML_FI_DEV_NVLINK_LINK_COUNT],
-        )
-        dev_links_count = _extract_field_value(dev_fields[0])
-    except pynvml.NVMLError:
-        debug_log_warning(logger, "Failed to get NVLink links count")
-    if not dev_links_count:
-        return None
-
-    dev_links_state = 0
-    try:
-        for link_idx in range(int(dev_links_count)):
-            dev_link_state = pynvml.nvmlDeviceGetNvLinkState(dev, link_idx)
-            if dev_link_state:
-                dev_links_state |= 1 << (link_idx + 1)
-    except pynvml.NVMLError:
-        debug_log_warning(logger, "Failed to get NVLink link state")
-
-    return {
-        "links_count": dev_links_count,
-        "links_state": dev_links_state,
-    }
-
-
 def _get_fabric_info(
     dev: pynvml.c_nvmlDevice_t,
 ) -> dict | None:
@@ -666,6 +633,52 @@ def _get_fabric_info(
         }
     except pynvml.NVMLError:
         debug_log_warning(logger, "Failed to get NVSwitch fabric info")
+
+    return None
+
+
+def _get_links_state(
+    dev: pynvml.c_nvmlDevice_t,
+) -> dict | None:
+    """
+    Get the NVLink links count and state for a device.
+
+    Args:
+        dev:
+            The NVML device handle.
+
+    Returns:
+        A dict includes links state or None if failed.
+
+    """
+    dev_links_count = 0
+    try:
+        dev_fields = pynvml.nvmlDeviceGetFieldValues(
+            dev,
+            fieldIds=[pynvml.NVML_FI_DEV_NVLINK_LINK_COUNT],
+        )
+        dev_links_count = _extract_field_value(dev_fields[0])
+    except pynvml.NVMLError:
+        debug_log_warning(logger, "Failed to get NVLink links count")
+    if not dev_links_count:
+        return None
+
+    dev_links_state = 0
+    dev_links_active_count = 0
+    try:
+        for link_idx in range(int(dev_links_count)):
+            dev_link_state = pynvml.nvmlDeviceGetNvLinkState(dev, link_idx)
+            if dev_link_state:
+                dev_links_state |= 1 << link_idx
+                dev_links_active_count += 1
+    except pynvml.NVMLError:
+        debug_log_warning(logger, "Failed to get NVLink link state")
+
+    return {
+        "links_count": dev_links_count,
+        "links_state": dev_links_state,
+        "links_active_count": dev_links_active_count,
+    }
 
 
 def _get_arch_family(dev_cc_t: list[int]) -> str:

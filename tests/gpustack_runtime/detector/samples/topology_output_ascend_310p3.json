@@ -18,6 +18,10 @@
     "devices_numa_affinities": [
       "2",
       "2"
+    ],
+    "appendices": [
+      {},
+      {}
     ]
   }
 ]

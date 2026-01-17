@@ -258,6 +258,11 @@ class Topology:
     A list representing the NUMA affinity associated with each device.
     The value at index i represents the Memory set for device i.
     """
+    appendices: list[dict[str, Any]]
+    """
+    Appendices information of devices.
+    Each entry corresponds to a device and contains additional metadata.
+    """
 
     def __init__(
         self,
@@ -278,6 +283,7 @@ class Topology:
         self.devices_distances = [[0] * devices_count for _ in range(devices_count)]
         self.devices_cpu_affinities = [""] * devices_count
         self.devices_numa_affinities = [""] * devices_count
+        self.appendices = [{}] * devices_count
 
     def stringify(self) -> list[list[str]]:
         """

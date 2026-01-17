@@ -218,12 +218,8 @@ class AMDDetector(Detector):
                 if dev_renderd_id is not None:
                     dev_appendix["renderd_id"] = dev_renderd_id
 
-                with contextlib.suppress(pyamdsmi.AmdSmiException):
-                    dev_xgmi = pyamdsmi.amdsmi_get_xgmi_info(dev)
-                    if xgmi_lanes := dev_xgmi.get("xgmi_lanes", None):
-                        dev_appendix["xgmi_lanes"] = xgmi_lanes
-                        dev_appendix["xgmi_hive_id"] = dev_xgmi.get("xgmi_hive_id")
-                        dev_appendix["xgmi_node_id"] = dev_xgmi.get("xgmi_node_id")
+                if dev_xgmi_info := _get_xgmi_info(dev):
+                    dev_appendix.update(dev_xgmi_info)
 
                 ret.append(
                     Device(
@@ -322,6 +318,8 @@ class AMDDetector(Detector):
             pyamdsmi.amdsmi_init()
 
             for i, dev_i in enumerate(devices):
+                dev_i_handle = get_device_handle(dev_i)
+
                 # Get NUMA and CPU affinities.
                 ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
                 ret.devices_cpu_affinities[i] = map_numa_node_to_cpu_affinity(
@@ -329,7 +327,6 @@ class AMDDetector(Detector):
                 )
 
                 # Get distances to other devices.
-                dev_i_handle = get_device_handle(dev_i)
                 for j, dev_j in enumerate(devices):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
@@ -443,3 +440,29 @@ def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
                 renderd_id = int(dir_path.name[7:])
 
     return card_id, renderd_id
+
+
+def _get_xgmi_info(dev) -> dict | None:
+    """
+    Get the XGMI information for a given device.
+
+    Args:
+        dev:
+            The device handle.
+
+    Returns:
+        A dictionary containing XGMI information, or None if not available.
+
+    """
+    try:
+        dev_xgmi = pyamdsmi.amdsmi_get_xgmi_info(dev)
+        if xgmi_lanes := dev_xgmi.get("xgmi_lanes", None):
+            return {
+                "xgmi_lanes": xgmi_lanes,
+                "xgmi_hive_id": dev_xgmi.get("xgmi_hive_id"),
+                "xgmi_node_id": dev_xgmi.get("xgmi_node_id"),
+            }
+    except pyamdsmi.AmdSmiException:
+        debug_log_exception(logger, "Failed to get XGMI information")
+
+    return None

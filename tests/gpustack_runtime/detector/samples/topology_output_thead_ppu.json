@@ -18,6 +18,18 @@
     "devices_numa_affinities": [
       "0",
       "0"
+    ],
+    "appendices": [
+      {
+        "links_count": 7,
+        "links_state": 12,
+        "links_active_count": 2
+      },
+      {
+        "links_count": 7,
+        "links_state": 12,
+        "links_active_count": 2
+      }
     ]
   }
 ]

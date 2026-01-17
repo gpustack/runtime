@@ -246,6 +246,19 @@ class MThreadsDetector(Detector):
                         ret.devices_numa_affinities[i],
                     )
 
+                    # Get links state if applicable.
+                    if dev_i_links_state := _get_links_state(dev_i_handle):
+                        ret.appendices[i].update(dev_i_links_state)
+                        # In practice, if a card has an active *Link,
+                        # then other cards in the same machine should be interconnected with it through the *Link.
+                        if dev_i_links_state.get("links_active_count", 0) > 0:
+                            for j, dev_j in enumerate(devices):
+                                if dev_i.index == dev_j.index:
+                                    continue
+                                ret.devices_distances[i][j] = TopologyDistanceEnum.LINK
+                                ret.devices_distances[j][i] = TopologyDistanceEnum.LINK
+                            continue
+
                     # Get distances to other devices.
                     for j, dev_j in enumerate(devices):
                         if (
@@ -266,7 +279,6 @@ class MThreadsDetector(Detector):
                                 topo,
                                 distance,
                             )
-                            # TODO(thxCode): Support LINK distance.
                         except pymtml.MTMLError:
                             debug_log_warning(
                                 logger,
@@ -290,3 +302,44 @@ class MThreadsDetector(Detector):
             pymtml.mtmlLibraryShutDown()
 
         return ret
+
+
+def _get_links_state(
+    dev: pymtml.c_mtmlDevice_t,
+) -> dict | None:
+    """
+    Get the MTLink links count and state for a device.
+
+    Args:
+        dev:
+            The MTLink device handle.
+
+    Returns:
+        A dict includes links state or None if failed.
+
+    """
+    dev_links_count = 0
+    try:
+        dev_link_spec = pymtml.mtmlDeviceGetMtLinkSpec(dev)
+        dev_links_count = dev_link_spec.linkNum
+    except pymtml.MTMLError:
+        debug_log_warning(logger, "Failed to get MTLink links count")
+    if not dev_links_count:
+        return None
+
+    dev_links_state = 0
+    dev_links_active_count = 0
+    try:
+        for link_idx in range(int(dev_links_count)):
+            dev_link_state = pymtml.mtmlDeviceGetMtLinkState(dev, link_idx)
+            if dev_link_state == pymtml.MTML_MTLINK_STATE_UP:
+                dev_links_state |= 1 << link_idx
+                dev_links_active_count += 1
+    except pymtml.MTMLError:
+        debug_log_warning(logger, "Failed to get MTLink link state")
+
+    return {
+        "links_count": dev_links_count,
+        "links_state": dev_links_state,
+        "links_active_count": dev_links_active_count,
+    }

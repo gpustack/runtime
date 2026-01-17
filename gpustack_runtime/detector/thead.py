@@ -215,9 +215,6 @@ class THeadDetector(Detector):
                         "numa": dev_numa,
                     }
 
-                    if dev_links_state := _get_links_state(dev):
-                        dev_appendix.update(dev_links_state)
-
                     ret.append(
                         Device(
                             manufacturer=self.manufacturer,
@@ -416,6 +413,19 @@ class THeadDetector(Detector):
                     ret.devices_numa_affinities[i],
                 )
 
+                # Get links state if applicable.
+                if dev_i_links_state := _get_links_state(dev_i_handle):
+                    ret.appendices[i].update(dev_i_links_state)
+                    # In practice, if a card has an active *Link,
+                    # then other cards in the same machine should be interconnected with it through the *Link.
+                    if dev_i_links_state.get("links_active_count", 0) > 0:
+                        for j, dev_j in enumerate(devices):
+                            if dev_i.index == dev_j.index:
+                                continue
+                            ret.devices_distances[i][j] = TopologyDistanceEnum.LINK
+                            ret.devices_distances[j][i] = TopologyDistanceEnum.LINK
+                        continue
+
                 # Get distances to other devices.
                 for j, dev_j in enumerate(devices):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
@@ -429,8 +439,6 @@ class THeadDetector(Detector):
                             dev_i_handle,
                             dev_j_handle,
                         )
-                        if dev_i.appendix.get("links_state", 0) > 0:
-                            distance = TopologyDistanceEnum.LINK
                     except pyhgml.HGMLError:
                         debug_log_exception(
                             logger,
@@ -600,17 +608,20 @@ def _get_links_state(
         return None
 
     dev_links_state = 0
+    dev_links_active_count = 0
     try:
         for link_idx in range(int(dev_links_count)):
             dev_link_state = pyhgml.hgmlDeviceGetIcnLinkState(dev, link_idx)
             if dev_link_state:
-                dev_links_state |= 1 << (link_idx + 1)
+                dev_links_state |= 1 << link_idx
+                dev_links_active_count += 1
     except pyhgml.HGMLError:
         debug_log_warning(logger, "Failed to get ICNLink link state")
 
     return {
         "links_count": dev_links_count,
         "links_state": dev_links_state,
+        "links_active_count": dev_links_active_count,
     }
 
 
