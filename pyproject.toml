@@ -28,6 +28,7 @@ dependencies = [
     "mthreads-ml-py>=2.2.10",
     "argcomplete>=3.6.3",
     "tqdm",
+    "cachetools>=5.5.2",
 ]
 dynamic = ["version"]
 

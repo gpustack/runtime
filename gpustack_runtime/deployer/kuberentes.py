@@ -7,13 +7,14 @@ import operator
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import lru_cache, reduce
+from functools import reduce
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import kubernetes
 import kubernetes.stream.ws_client
 import urllib3.connection
+from cachetools.func import ttl_cache
 from dataclasses_json import dataclass_json
 
 from .. import envs
@@ -302,7 +303,7 @@ class KubernetesDeployer(EndoscopicDeployer):
     """
 
     @staticmethod
-    @lru_cache
+    @ttl_cache(maxsize=1, ttl=60)
     def is_supported() -> bool:
         """
         Check if the deployer is supported in the current environment.

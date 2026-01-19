@@ -10,7 +10,7 @@ import socket
 import sys
 import tarfile
 from dataclasses import dataclass, field
-from functools import lru_cache, reduce
+from functools import reduce
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +22,7 @@ import podman.domain.containers
 import podman.domain.images
 import podman.domain.volumes
 import podman.errors
+from cachetools.func import ttl_cache
 from dataclasses_json import dataclass_json
 from gpustack_runner import split_image
 from podman.domain.containers_create import CreateMixin
@@ -317,7 +318,7 @@ class PodmanDeployer(EndoscopicDeployer):
     """
 
     @staticmethod
-    @lru_cache
+    @ttl_cache(maxsize=1, ttl=60)
     def is_supported() -> bool:
         """
         Check if Podman is supported in the current environment.

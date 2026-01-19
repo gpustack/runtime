@@ -30,7 +30,7 @@ class AMDDetector(Detector):
     """
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def is_supported() -> bool:
         """
         Check if the AMD detector is supported.
@@ -59,7 +59,7 @@ class AMDDetector(Detector):
         return supported
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def detect_pci_devices() -> dict[str, PCIDevice]:
         # See https://pcisig.com/membership/member-companies?combine=AMD.
         pci_devs = get_pci_devices(vendor="0x1002")
@@ -289,7 +289,7 @@ class AMDDetector(Detector):
             return devs_mapping.get(dev.index)
 
         try:
-            pci_devices = self.detect_pci_devices()
+            pci_devs = self.detect_pci_devices()
 
             def distance_pci_devices(bdf_a: str, bdf_b: str) -> TopologyDistanceEnum:
                 """
@@ -305,8 +305,8 @@ class AMDDetector(Detector):
                     The TopologyDistanceEnum representing the distance.
 
                 """
-                pcid_a = pci_devices.get(bdf_a, None)
-                pcid_b = pci_devices.get(bdf_b, None)
+                pcid_a = pci_devs.get(bdf_a, None)
+                pcid_b = pci_devs.get(bdf_b, None)
 
                 score = compare_pci_devices(pcid_a, pcid_b)
                 if score > 0:

@@ -176,7 +176,7 @@ def correct_runner_image(
     return corrected_image, True
 
 
-@lru_cache
+@lru_cache(maxsize=1)
 def _get_backend() -> str:
     """
     Get the first detected backend name.

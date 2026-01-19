@@ -275,6 +275,7 @@ name = "gpustack-runtime"
 source = { editable = "." }
 dependencies = [
     { name = "argcomplete" },
+    { name = "cachetools" },
     { name = "docker" },
     { name = "gpustack-runner" },
     { name = "kubernetes" },
@@ -303,6 +304,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argcomplete", specifier = ">=3.6.3" },
+    { name = "cachetools", specifier = ">=5.5.2" },
     { name = "docker", specifier = ">=7.1.0" },
     { name = "gpustack-runner", specifier = ">=0.1.24.post1" },
     { name = "kubernetes", specifier = ">=33.1.0" },

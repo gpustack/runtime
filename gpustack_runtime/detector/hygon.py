@@ -30,7 +30,7 @@ class HygonDetector(Detector):
     """
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def is_supported() -> bool:
         """
         Check if the Hygon detector is supported.
@@ -58,7 +58,7 @@ class HygonDetector(Detector):
         return supported
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def detect_pci_devices() -> dict[str, PCIDevice]:
         # See https://pcisig.com/membership/member-companies?combine=Higon.
         pci_devs = get_pci_devices(vendor="0x1d94")

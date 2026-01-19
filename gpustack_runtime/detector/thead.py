@@ -40,7 +40,7 @@ class THeadDetector(Detector):
     """
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def is_supported() -> bool:
         """
         Check if the T-Head detector is supported.
@@ -69,7 +69,7 @@ class THeadDetector(Detector):
         return supported
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def detect_pci_devices() -> dict[str, PCIDevice]:
         # See https://pcisig.com/membership/member-companies?combine=Alibaba.
         pci_devs = get_pci_devices(vendor="0x1ded")

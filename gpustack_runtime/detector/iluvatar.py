@@ -37,7 +37,7 @@ class IluvatarDetector(Detector):
     """
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def is_supported() -> bool:
         """
         Check if the Iluvatar detector is supported.
@@ -66,7 +66,7 @@ class IluvatarDetector(Detector):
         return supported
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def detect_pci_devices() -> dict[str, PCIDevice]:
         # See https://pcisig.com/membership/member-companies?combine=Iluvatar.
         pci_devs = get_pci_devices(vendor="0x1e3e")

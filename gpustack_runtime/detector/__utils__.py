@@ -746,7 +746,7 @@ def get_numa_node_cpu_mapping() -> dict[int, list[int]]:
     return numa_cpu_mapping
 
 
-@lru_cache(maxsize=128)
+@lru_cache
 def get_numa_node_by_bdf(bdf: str) -> str:
     """
     Get the NUMA node for a given PCI device BDF (Bus:Device.Function) address.

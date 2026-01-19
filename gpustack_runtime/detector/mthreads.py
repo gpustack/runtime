@@ -47,7 +47,7 @@ class MThreadsDetector(Detector):
     """
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def is_supported() -> bool:
         """
         Check if the MThreads detector is supported.
@@ -76,7 +76,7 @@ class MThreadsDetector(Detector):
         return supported
 
     @staticmethod
-    @lru_cache
+    @lru_cache(maxsize=1)
     def detect_pci_devices() -> dict[str, PCIDevice]:
         # See https://pcisig.com/membership/member-companies?combine=Moore+Threads.
         pci_devs = get_pci_devices(vendor="0x1ed5")
