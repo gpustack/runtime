@@ -1,7 +1,7 @@
 ##
 # Python bindings for the DCMI library
 ##
-from __future__ import annotations
+from __future__ import annotations as __future_annotations__
 
 import string
 import sys

@@ -3,7 +3,7 @@
 # https://github.com/ROCm/rocm_smi_lib/blob/rocm-6.2.4/python_smi_tools/rsmiBindings.py,
 # https://rocm.docs.amd.com/projects/rocm_smi_lib/en/latest/doxygen/html/rocm__smi_8h_source.html,
 # https://rocm.docs.amd.com/projects/rocm_smi_lib/en/latest/doxygen/html/rocm__smi_8h.html.
-from __future__ import annotations
+from __future__ import annotations as __future_annotations__
 
 import os
 import sys

@@ -1,5 +1,5 @@
 # Borrowed from https://github.com/libp2p/py-libp2p/blob/main/libp2p/utils/logging.py.
-from __future__ import annotations
+from __future__ import annotations as __future_annotations__
 
 import atexit
 import logging

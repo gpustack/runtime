@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations as __future_annotations__
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

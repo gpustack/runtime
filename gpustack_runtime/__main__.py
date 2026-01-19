@@ -1,5 +1,5 @@
 # PYTHON_ARGCOMPLETE_OK
-from __future__ import annotations
+from __future__ import annotations as __future_annotations__
 
 import contextlib
 import sys
