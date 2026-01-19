@@ -122,28 +122,6 @@ def backend_to_manufacturer(backend: str) -> ManufacturerEnum:
     return ManufacturerEnum.UNKNOWN
 
 
-def supported_manufacturers() -> list[ManufacturerEnum]:
-    """
-    Get a list of supported manufacturers.
-
-    Returns:
-        A list of supported manufacturers.
-
-    """
-    return list(_MANUFACTURER_BACKEND_MAPPING.keys())
-
-
-def supported_backends() -> list[str]:
-    """
-    Get a list of supported backends.
-
-    Returns:
-        A list of supported backends.
-
-    """
-    return list(_MANUFACTURER_BACKEND_MAPPING.values())
-
-
 @dataclass_json
 @dataclass
 class Device:

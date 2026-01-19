@@ -26,6 +26,8 @@ from ..deployer import (
     async_logs_self,
     async_logs_workload,
     cdi_generate_config,
+    cdi_supported_backends,
+    cdi_supported_manufacturers,
     create_workload,
     delete_workload,
     exec_self,
@@ -35,7 +37,13 @@ from ..deployer import (
     inspect_workload,
     list_workloads,
 )
-from ..detector import supported_backends, supported_manufacturers
+from ..detector import (
+    ManufacturerEnum,
+    backend_to_manufacturer,
+    manufacturer_to_backend,
+    supported_backends,
+    supported_manufacturers,
+)
 from .__types__ import SubCommand
 
 if TYPE_CHECKING:
@@ -106,6 +114,14 @@ class CreateWorkloadSubCommand(SubCommand):
         deploy_parser = parser.add_parser(
             "create",
             help="Create a workload deployment",
+        )
+
+        deploy_parser.add_argument(
+            "--manufacturer",
+            "--manu",
+            type=str,
+            help="Manufacturer to use (default: detect from current environment)",
+            choices=list(map(str, supported_manufacturers())),
         )
 
         deploy_parser.add_argument(
@@ -200,6 +216,18 @@ class CreateWorkloadSubCommand(SubCommand):
         self.image = args.image
         self.volume = args.volume
         self.extra_args = args.extra_args
+
+        if args.manufacturer:
+            if not self.backend:
+                self.backend = manufacturer_to_backend(
+                    ManufacturerEnum(args.manufacturer),
+                )
+            elif args.manufacturer != backend_to_manufacturer(self.backend):
+                msg = (
+                    f"The backend '{self.backend}' is not compatible with "
+                    f"the manufacturer '{args.manufacturer}'."
+                )
+                raise ValueError(msg)
 
         if not self.name or not self.image or not self.volume:
             msg = "The name, image, and volume arguments are required."
@@ -963,6 +991,7 @@ class CDIGenerateSubCommand(SubCommand):
     Command to generate CDI configurations.
     """
 
+    backend: str
     format: str
     output: Path | None
 
@@ -972,6 +1001,21 @@ class CDIGenerateSubCommand(SubCommand):
             "cdi-generate",
             help="Generate CDI configurations according to the current environment",
             aliases=["cdi-gen"],
+        )
+
+        cdi_parser.add_argument(
+            "--manufacturer",
+            "--manu",
+            type=str,
+            help="Manufacturer to generate (default: all)",
+            choices=list(map(str, cdi_supported_manufacturers())),
+        )
+
+        cdi_parser.add_argument(
+            "--backend",
+            type=str,
+            help="Backend to generate (default: all)",
+            choices=cdi_supported_backends(),
         )
 
         cdi_parser.add_argument(
@@ -991,8 +1035,21 @@ class CDIGenerateSubCommand(SubCommand):
         cdi_parser.set_defaults(func=CDIGenerateSubCommand)
 
     def __init__(self, args: Namespace):
+        self.backend = args.backend
         self.format = args.format
         self.output = Path(args.output) if args.output else None
+
+        if args.manufacturer:
+            if not self.backend:
+                self.backend = manufacturer_to_backend(
+                    ManufacturerEnum(args.manufacturer),
+                )
+            elif args.manufacturer != backend_to_manufacturer(self.backend):
+                msg = (
+                    f"The backend '{self.backend}' is not compatible with "
+                    f"the manufacturer '{args.manufacturer}'."
+                )
+                raise ValueError(msg)
 
         if self.output:
             try:
@@ -1010,7 +1067,10 @@ class CDIGenerateSubCommand(SubCommand):
         print("\033[2J\033[H", end="")
 
         generated = False
-        for manu in supported_manufacturers():
+        for backend in cdi_supported_backends():
+            if self.backend and self.backend != backend:
+                continue
+            manu = backend_to_manufacturer(backend)
             content, path = cdi_generate_config(
                 manufacturer=manu,
                 output=self.output,

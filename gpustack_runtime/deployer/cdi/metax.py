@@ -17,17 +17,17 @@ from .__types__ import (
 )
 
 
-class THeadGenerator(Generator):
+class MetaXGenerator(Generator):
     """
-    CDI generator for T-Head devices.
+    CDI generator for MetaX devices.
     """
 
     def __init__(self):
-        super().__init__(ManufacturerEnum.THEAD)
+        super().__init__(ManufacturerEnum.METAX)
 
     def generate(self, devices: Devices | None = None) -> Config | None:
         """
-        Generate the CDI configuration for T-Head devices.
+        Generate the CDI configuration for MetaX devices.
 
         Args:
             devices: The detected devices.
@@ -56,8 +56,9 @@ class THeadGenerator(Generator):
 
         common_device_nodes = []
         for p in [
-            "/dev/alixpu",
-            "/dev/alixpu_ctl",
+            "/dev/mxcd",
+            "/dev/mxnd",
+            "/dev/mxgd",
         ]:
             if Path(p).exists():
                 common_device_nodes.append(p)
@@ -72,9 +73,16 @@ class THeadGenerator(Generator):
 
             container_device_nodes = list(common_device_nodes)
 
-            dn = f"/dev/alixpu_ppu{dev.index}"
-            all_device_nodes.append(dn)
-            container_device_nodes.append(dn)
+            card_id = dev.appendix.get("card_id")
+            if card_id is not None:
+                dn = f"/dev/dri/card{card_id}"
+                all_device_nodes.append(dn)
+                container_device_nodes.append(dn)
+            renderd_id = dev.appendix.get("renderd_id")
+            if renderd_id is not None:
+                dn = f"/dev/dri/renderD{renderd_id}"
+                all_device_nodes.append(dn)
+                container_device_nodes.append(dn)
 
             # Add specific container edits for each device.
             cdi_container_edits = ConfigContainerEdits(

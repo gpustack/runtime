@@ -2,6 +2,7 @@ from __future__ import annotations as __future_annotations__
 
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
@@ -165,6 +166,7 @@ class MetaXDetector(Detector):
                     )
 
                 dev_bdf = dev_info.bdfId
+                dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
 
                 dev_is_vgpu = dev_info.mode == pymxsml.MXSML_VIRTUALIZATION_MODE_VF
 
@@ -181,6 +183,10 @@ class MetaXDetector(Detector):
                     "bdf": dev_bdf,
                     "numa": dev_numa,
                 }
+                if dev_card_id is not None:
+                    dev_appendix["card_id"] = dev_card_id
+                if dev_renderd_id is not None:
+                    dev_appendix["renderd_id"] = dev_renderd_id
 
                 ret.append(
                     Device(
@@ -274,3 +280,29 @@ class MetaXDetector(Detector):
             raise
 
         return ret
+
+
+def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
+    """
+    Get the card ID and renderD ID for a given device bdf.
+
+    Args:
+        dev_bdf:
+            The device bdf.
+
+    Returns:
+        A tuple of (card_id, renderd_id).
+
+    """
+    card_id = None
+    renderd_id = None
+
+    drm_path = Path(f"/sys/module/metax/drivers/pci:metax/{dev_bdf}/drm")
+    if drm_path.exists():
+        for dir_path in drm_path.iterdir():
+            if dir_path.name.startswith("card"):
+                card_id = int(dir_path.name[4:])
+            elif dir_path.name.startswith("renderD"):
+                renderd_id = int(dir_path.name[7:])
+
+    return card_id, renderd_id

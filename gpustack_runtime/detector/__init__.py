@@ -13,8 +13,6 @@ from .__types__ import (
     backend_to_manufacturer,
     manufacturer_to_backend,
     reduce_devices_distances,
-    supported_backends,
-    supported_manufacturers,
 )
 from .amd import AMDDetector
 from .ascend import AscendDetector
@@ -60,6 +58,28 @@ def supported_list() -> list[Detector]:
 
     """
     return [det for det in _DETECTORS if det.is_supported()]
+
+
+def supported_manufacturers() -> list[ManufacturerEnum]:
+    """
+    Get a list of supported manufacturers.
+
+    Returns:
+        A list of supported manufacturers.
+
+    """
+    return list(_DETECTORS_MAP.keys())
+
+
+def supported_backends() -> list[str]:
+    """
+    Get a list of supported backends.
+
+    Returns:
+        A list of supported backends.
+
+    """
+    return [manufacturer_to_backend(manu) for manu in _DETECTORS_MAP]
 
 
 def detect_backend(

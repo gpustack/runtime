@@ -323,12 +323,12 @@ def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
     card_id = None
     renderd_id = None
 
-    for path in [
+    for drm_path in [
         Path(f"/sys/module/hycu/drivers/pci:hycu/{dev_bdf}/drm"),
         Path(f"/sys/module/hydcu/drivers/pci:hydcu/{dev_bdf}/drm"),
     ]:
-        if path.exists():
-            for dir_path in path.iterdir():
+        if drm_path.exists():
+            for dir_path in drm_path.iterdir():
                 if dir_path.name.startswith("card"):
                     card_id = int(dir_path.name[4:])
                 elif dir_path.name.startswith("renderD"):

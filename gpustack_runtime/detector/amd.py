@@ -431,6 +431,7 @@ def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
     """
     card_id = None
     renderd_id = None
+
     drm_path = Path(f"/sys/module/amdgpu/drivers/pci:amdgpu/{dev_bdf}/drm")
     if drm_path.exists():
         for dir_path in drm_path.iterdir():

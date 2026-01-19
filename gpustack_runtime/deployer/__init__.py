@@ -31,7 +31,15 @@ from .__types__ import (
     WorkloadStatus,
     WorkloadStatusStateEnum,
 )
-from .cdi import generate_config as cdi_generate_config
+from .cdi import (
+    generate_config as cdi_generate_config,
+)
+from .cdi import (
+    supported_backends as cdi_supported_backends,
+)
+from .cdi import (
+    supported_manufacturers as cdi_supported_manufacturers,
+)
 from .docker import (
     DockerDeployer,
     DockerWorkloadPlan,
@@ -604,6 +612,8 @@ __all__ = [
     "async_logs_self",
     "async_logs_workload",
     "cdi_generate_config",
+    "cdi_supported_backends",
+    "cdi_supported_manufacturers",
     "create_workload",
     "delete_workload",
     "exec_self",
