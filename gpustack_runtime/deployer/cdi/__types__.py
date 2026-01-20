@@ -29,10 +29,11 @@ class ConfigDeviceNode(dict):
         self,
         path: str,
         host_path: str | None = None,
-        permissions: str | None = None,
         type_: str = "c",
         major: int | None = None,
         minor: int | None = None,
+        file_mode: int | None = None,
+        permissions: str | None = None,
         uid: int | None = None,
         gid: int | None = None,
     ):
@@ -44,14 +45,22 @@ class ConfigDeviceNode(dict):
                 The path inside the container.
             host_path:
                 The path on the host system. Optional.
-            permissions:
-                The permissions for the device. Optional.
+                None means same as path.
             type_:
-                The type of the device. Default is "c".
+                The type of the device.
             major:
                 The major number of the device. Optional.
             minor:
                 The minor number of the device. Optional.
+            file_mode:
+                The file mode for the device. Optional.
+            permissions:
+                The permissions for the device. Optional.
+                CGroup permissions of the device, candidates are one or more of
+                'r' (read), 'w' (write), 'm' (mknod).
+                'r': allows container to read from the device.
+                'w': allows container to write to the device.
+                'm': allows container to create device files that do not yet exist.
             uid:
                 The user ID for the device. Optional.
             gid:
@@ -67,13 +76,15 @@ class ConfigDeviceNode(dict):
         self["path"] = path
         if host_path is not None:
             self["hostPath"] = host_path
-        if permissions is not None:
-            self["permissions"] = permissions
         if type_ is not None:
             self["type"] = type_
         if major is not None and minor is not None:
             self["major"] = major
             self["minor"] = minor
+        if file_mode is not None:
+            self["fileMode"] = file_mode
+        if permissions is not None:
+            self["permissions"] = permissions
         if uid is not None:
             self["uid"] = uid
         if gid is not None:
@@ -177,9 +188,9 @@ class ConfigMount(dict):
     def __init__(
         self,
         host_path: str,
-        container_path: str,
-        options: list[str] | None = None,
+        container_path: str | None = None,
         type_: str | None = None,
+        options: list[str] | None = None,
     ):
         """
         Initialize a CDI mount configuration.
@@ -188,28 +199,26 @@ class ConfigMount(dict):
             host_path:
                 The path on the host system.
             container_path:
-                The path inside the container.
-            options:
-                The mount options. Optional.
+                The path inside the container. Optional.
+                None means same as host_path.
             type_:
                 The mount type. Optional.
+            options:
+                The mount options. Optional.
 
         """
         if not host_path:
             msg = "host_path cannot be empty"
             raise ValueError(msg)
-        if not container_path:
-            msg = "container_path cannot be empty"
-            raise ValueError(msg)
 
         super().__init__()
 
         self["hostPath"] = host_path
-        self["containerPath"] = container_path
-        if options is not None:
-            self["options"] = options
+        self["containerPath"] = host_path or container_path
         if type_ is not None:
             self["type"] = type_
+        if options is not None:
+            self["options"] = options
 
     @property
     def host_path(self) -> str:
@@ -333,7 +342,7 @@ class ConfigContainerEdits(dict):
     def __init__(
         self,
         env: list[str] | None = None,
-        device_nodes: list[ConfigDeviceNode | str] | None = None,
+        device_nodes: list[ConfigDeviceNode] | None = None,
         mounts: list[ConfigMount] | None = None,
         hooks: list[ConfigHook] | None = None,
     ):
@@ -360,10 +369,7 @@ class ConfigContainerEdits(dict):
         if env is not None:
             self["env"] = env
         if device_nodes is not None:
-            self["deviceNodes"] = [
-                n if not isinstance(n, str) else ConfigDeviceNode(n)
-                for n in device_nodes
-            ]
+            self["deviceNodes"] = device_nodes
         if mounts is not None:
             self["mounts"] = mounts
         if hooks is not None:
@@ -521,6 +527,7 @@ class Config(dict):
         self,
         kind: str,
         devices: list[ConfigDevice],
+        container_edits: list[ConfigContainerEdits] | None = None,
         cdi_version: str = _DEFAULT_CDI_VERSION,
         annotations: dict[str, str] | None = None,
     ):
@@ -528,10 +535,17 @@ class Config(dict):
         Initialize a CDI configuration.
 
         Args:
-            kind: The kind of the CDI configuration.
-            devices: The list of devices in the CDI configuration.
-            cdi_version: The CDI version. Default is "0.5.0".
-            annotations: Optional annotations for the CDI configuration.
+            kind:
+                The kind of the CDI configuration.
+            devices:
+                The list of devices in the CDI configuration.
+            container_edits:
+                The list of container edits in the CDI configuration.
+                Applies to all devices. Optional.
+            cdi_version:
+                The CDI version. Default is "0.5.0".
+            annotations:
+                Optional annotations for the CDI configuration.
 
         """
         super().__init__()
@@ -539,6 +553,8 @@ class Config(dict):
         self["cdiVersion"] = cdi_version
         self["kind"] = kind
         self["devices"] = devices
+        if container_edits is not None:
+            self["containerEdits"] = container_edits
         if annotations is not None:
             self["annotations"] = annotations
 
@@ -563,6 +579,17 @@ class Config(dict):
 
         """
         return self["kind"]
+
+    @property
+    def container_edits(self) -> list[ConfigContainerEdits] | None:
+        """
+        Return the list of container edits in the CDI configuration.
+
+        Returns:
+            The list of container edits if present, else None.
+
+        """
+        return self.get("containerEdits", None)
 
     @property
     def cdi_version(self) -> str:
@@ -605,11 +632,13 @@ class Config(dict):
 
 
 @lru_cache
-def manufacturer_to_config_kind(manufacturer: ManufacturerEnum) -> str | None:
+def manufacturer_to_cdi_kind(manufacturer: ManufacturerEnum) -> str | None:
     """
     Map a manufacturer to its corresponding CDI config kind,
     based on `GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY`
     and `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI` envs.
+
+    It is in form of `{Vendor}/{Class}`.
 
     Args:
         manufacturer:
@@ -626,6 +655,32 @@ def manufacturer_to_config_kind(manufacturer: ManufacturerEnum) -> str | None:
         return None
     kind = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI.get(resource_key)
     return kind
+
+
+@lru_cache
+def manufacturer_to_runtime_env(manufacturer: ManufacturerEnum) -> str | None:
+    """
+    Map a manufacturer to its corresponding runtime environment variable prefix,
+    based on `GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY`
+    and `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES` envs.
+
+    Args:
+        manufacturer:
+            The manufacturer enum.
+
+    Returns:
+        The corresponding runtime environment variable prefix as a string.
+        None if not found.
+
+    """
+    backend = manufacturer_to_backend(manufacturer)
+    resource_key = envs.GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY.get(backend)
+    if not resource_key:
+        return None
+    env = envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.get(
+        resource_key,
+    )
+    return env
 
 
 class Generator(ABC):
@@ -653,12 +708,20 @@ class Generator(ABC):
         return str(self.manufacturer)
 
     @abstractmethod
-    def generate(self, devices: Devices | None = None) -> Config | None:
+    def generate(
+        self,
+        devices: Devices | None = None,
+        include_all_devices: bool = True,
+    ) -> Config | None:
         """
         Generate the CDI specification.
 
         Args:
-            devices: The devices to generate the CDI specification for.
+            devices:
+                The devices to generate the CDI specification for.
+                If None, all available devices are considered.
+            include_all_devices:
+                Whether to include a device entry that represents all AMD devices.
 
         Returns:
             The Config object, or None if not supported.

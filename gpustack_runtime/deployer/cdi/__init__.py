@@ -2,8 +2,13 @@ from __future__ import annotations as __future_annotations__
 
 from typing import TYPE_CHECKING, Literal
 
-from ...detector import manufacturer_to_backend
+from ...detector import Device, manufacturer_to_backend
+from ...detector import supported_manufacturers as detector_supported_manufacturers
+from .__types__ import Config, manufacturer_to_cdi_kind, manufacturer_to_runtime_env
+from .amd import AMDGenerator
+from .ascend import AscendGenerator
 from .hygon import HygonGenerator
+from .iluvatar import IluvatarGenerator
 from .metax import MetaXGenerator
 from .thead import THeadGenerator
 
@@ -13,9 +18,11 @@ if TYPE_CHECKING:
     from ...detector import ManufacturerEnum
     from .__types__ import Generator
 
-
 _GENERATORS: list[Generator] = [
+    AMDGenerator(),
+    AscendGenerator(),
     HygonGenerator(),
+    IluvatarGenerator(),
     MetaXGenerator(),
     THeadGenerator(),
 ]
@@ -31,13 +38,13 @@ Mapping from manufacturer to CDI generator.
 """
 
 
-def generate_config(
-    manufacturer: ManufacturerEnum | str,
+def dump_config(
+    manufacturer: ManufacturerEnum,
     output: Path | None = None,
     _format: Literal["yaml", "json"] = "yaml",
 ) -> tuple[str | None, str | None]:
     """
-    Generate the CDI configuration.
+    Dump the CDI configuration.
 
     Args:
         manufacturer:
@@ -81,30 +88,74 @@ def generate_config(
     return expected, str(cdi_path)
 
 
-def supported_manufacturers() -> list[ManufacturerEnum]:
+def generate_config(
+    device: Device,
+) -> Config | None:
     """
-    Get a list of supported manufacturers.
+    Generate the CDI configuration for the given devices.
+
+    Args:
+        device:
+            The detected device.
 
     Returns:
-        A list of supported manufacturers.
+        The Config object, or None if not supported.
+
+    """
+    gen = _GENERATORS_MAP.get(device.manufacturer)
+    if not gen:
+        return None
+
+    cfg = gen.generate(devices=[device])
+    return cfg
+
+
+def available_manufacturers() -> list[ManufacturerEnum]:
+    """
+    Get a list of available manufacturers,
+    which allow CDI generation,
+    regardless of whether they are supported or not.
+
+    Returns:
+        A list of available manufacturers.
 
     """
     return list(_GENERATORS_MAP.keys())
 
 
-def supported_backends() -> list[str]:
+def supported_manufacturers() -> list[ManufacturerEnum]:
     """
-    Get a list of supported backends.
+    Get a list of supported manufacturers,
+    which allow CDI generation,
+    and must be supported in the current environment.
 
     Returns:
-        A list of supported backends.
+        A list of supported manufacturers.
+
+    """
+    manus = detector_supported_manufacturers()
+    return [manu for manu in manus if manu in _GENERATORS_MAP]
+
+
+def available_backends() -> list[str]:
+    """
+    Get a list of available backends,
+    which allow CDI generation,
+    regardless of whether they are supported or not.
+
+    Returns:
+        A list of available backends.
 
     """
     return [manufacturer_to_backend(manu) for manu in _GENERATORS_MAP]
 
 
 __all__ = [
+    "available_backends",
+    "available_manufacturers",
+    "dump_config",
     "generate_config",
-    "supported_backends",
+    "manufacturer_to_cdi_kind",
+    "manufacturer_to_runtime_env",
     "supported_manufacturers",
 ]

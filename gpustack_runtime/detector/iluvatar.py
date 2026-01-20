@@ -99,28 +99,35 @@ class IluvatarDetector(Detector):
 
             sys_driver_ver = pyixml.nvmlSystemGetDriverVersion()
 
-            sys_runtime_ver_original = pyixml.nvmlSystemGetCudaDriverVersion()
-            sys_runtime_ver_original = ".".join(
-                map(
-                    str,
-                    [
-                        sys_runtime_ver_original // 1000,
-                        (sys_runtime_ver_original % 1000) // 10,
-                        (sys_runtime_ver_original % 10),
-                    ],
-                ),
-            )
-            sys_runtime_ver = get_brief_version(
-                sys_runtime_ver_original,
-            )
+            sys_runtime_ver_original = None
+            sys_runtime_ver = None
+            with contextlib.suppress(pyixml.NVMLError):
+                sys_runtime_ver_original = pyixml.nvmlSystemGetCudaDriverVersion()
+                sys_runtime_ver_original = ".".join(
+                    map(
+                        str,
+                        [
+                            sys_runtime_ver_original // 1000,
+                            (sys_runtime_ver_original % 1000) // 10,
+                            (sys_runtime_ver_original % 10),
+                        ],
+                    ),
+                )
+                sys_runtime_ver = get_brief_version(
+                    sys_runtime_ver_original,
+                )
 
             dev_count = pyixml.nvmlDeviceGetCount()
             for dev_idx in range(dev_count):
                 dev = pyixml.nvmlDeviceGetHandleByIndex(dev_idx)
 
                 dev_index = dev_idx
-                dev_uuid = pyixml.nvmlDeviceGetUUID(dev)
+                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                    dev_index = pyixml.nvmlDeviceGetMinorNumber(dev)
+
                 dev_name = pyixml.nvmlDeviceGetName(dev)
+
+                dev_uuid = pyixml.nvmlDeviceGetUUID(dev)
 
                 dev_cores = None
                 with contextlib.suppress(pyixml.NVMLError):

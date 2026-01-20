@@ -792,20 +792,7 @@ def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
     else:
         if not cpu_affinity:
             return ""
-        cpu_indices: list[int] = []
-        for part in cpu_affinity.split(","):
-            if "-" in part:
-                lo, hi = part.split("-")
-                lo_idx = safe_int(lo, -1)
-                hi_idx = safe_int(hi, -1)
-                if lo_idx == -1 or hi_idx == -1 or lo_idx > hi_idx:
-                    continue
-                cpu_indices.extend(list(range(lo_idx, hi_idx + 1)))
-            else:
-                idx = safe_int(part, -1)
-                if idx == -1:
-                    continue
-                cpu_indices.append(idx)
+        cpu_indices: list[int] = str_range_to_list(cpu_affinity)
 
     cpu_numa_mapping = get_cpu_numa_node_mapping()
 
@@ -818,7 +805,7 @@ def map_cpu_affinity_to_numa_node(cpu_affinity: int | str | None) -> str:
     if not numa_nodes:
         return ""
 
-    return list_to_range_str(sorted(numa_nodes))
+    return list_to_str_range(sorted(numa_nodes))
 
 
 @lru_cache
@@ -843,20 +830,7 @@ def map_numa_node_to_cpu_affinity(numa_node: int | str | None) -> str:
     else:
         if not numa_node:
             return ""
-        numa_indices: list[int] = []
-        for part in numa_node.split(","):
-            if "-" in part:
-                lo, hi = part.split("-")
-                lo_idx = safe_int(lo, -1)
-                hi_idx = safe_int(hi, -1)
-                if lo_idx == -1 or hi_idx == -1 or lo_idx > hi_idx:
-                    continue
-                numa_indices.extend(list(range(lo_idx, hi_idx + 1)))
-            else:
-                idx = safe_int(part, -1)
-                if idx == -1:
-                    continue
-                numa_indices.append(idx)
+        numa_indices: list[int] = str_range_to_list(numa_node)
 
     numa_cpu_mapping = get_numa_node_cpu_mapping()
 
@@ -867,7 +841,7 @@ def map_numa_node_to_cpu_affinity(numa_node: int | str | None) -> str:
     if not cpu_cores:
         return ""
 
-    return list_to_range_str(sorted(cpu_cores))
+    return list_to_str_range(sorted(cpu_cores))
 
 
 def bitmask_to_list(bitmask: int, offset: int = 0) -> list[int]:
@@ -889,7 +863,7 @@ def bitmask_to_list(bitmask: int, offset: int = 0) -> list[int]:
     return indices
 
 
-def list_to_range_str(indices: list[int]) -> str:
+def list_to_str_range(indices: list[int]) -> str:
     """
     Convert a list of indices to a comma-separated string with ranges.
 
@@ -919,15 +893,48 @@ def list_to_range_str(indices: list[int]) -> str:
             start, end = i, i
     ranges.append((start, end))
 
-    range_str_parts: list[str] = []
+    str_range_parts: list[str] = []
     for start, end in ranges:
         if start == end:
-            range_str_parts.append(f"{start}")
+            str_range_parts.append(f"{start}")
         else:
-            range_str_parts.append(f"{start}-{end}")
-    range_str = ",".join(range_str_parts)
+            str_range_parts.append(f"{start}-{end}")
+    str_range = ",".join(str_range_parts)
 
-    return range_str
+    return str_range
+
+
+def str_range_to_list(str_range: str) -> list[int]:
+    """
+    Convert a comma-separated string with ranges to a list of indices.
+
+    Args:
+        str_range:
+            A comma-separated string with ranges (e.g., "0,2-4,6").
+
+    Returns:
+        A list of indices.
+
+    """
+    str_range_parts = str_range.split(",")
+
+    indices: set[int] = set()
+    for _part in str_range_parts:
+        part = _part.strip()
+        if "-" in part:
+            lo, hi = part.split("-")
+            lo_idx = safe_int(lo, -1)
+            hi_idx = safe_int(hi, -1)
+            if lo_idx == -1 or hi_idx == -1 or lo_idx > hi_idx:
+                continue
+            indices.update(range(lo_idx, hi_idx + 1))
+        else:
+            idx = safe_int(part, -1)
+            if idx == -1:
+                continue
+            indices.add(idx)
+
+    return sorted(indices)
 
 
 def bitmask_to_str(bitmask_list: list) -> str:
@@ -950,7 +957,7 @@ def bitmask_to_str(bitmask_list: list) -> str:
             bits_lists.extend(bitmask_to_list(bitmask, offset))
         offset += get_bits_size()
 
-    return list_to_range_str(sorted(bits_lists))
+    return list_to_str_range(sorted(bits_lists))
 
 
 def get_physical_function_by_bdf(bdf: str) -> str:

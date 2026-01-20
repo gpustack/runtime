@@ -133,7 +133,11 @@ def setup_logging():
             module_logger.propagate = False
 
     # Configure 3rd-party loggers, set slightly higher level than package level
-    for _3rd in ["docker", "kubernetes"]:
+    for _3rd in [
+        "docker",
+        "kubernetes",
+        "grpc",
+    ]:
         _3rd_logger = logging.getLogger(_3rd)
         _3rd_logger.handlers.clear()
         _3rd_logger.addHandler(queue_handler)

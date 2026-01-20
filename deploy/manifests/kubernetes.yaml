@@ -110,7 +110,12 @@ spec:
     # - GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME:
     #     Make sure that deploy workloads on the same node.
     # - GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY:
-    #    Specify the directory of CDI device interface specs.
+    #     Specify the directory of CDI device interface specs.
+    # - GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY:
+    #     Specify the resource injection policy, "KDP" is recommended.
+    #     Change to "Env" if you want to use environment variable injection policy.
+    # - GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS:
+    #     Specify the maximum allocations for one device in "KDP" policy.
     #
           env:
             - name: GPUSTACK_RUNTIME_DEPLOY
@@ -131,6 +136,10 @@ spec:
                   fieldPath: spec.nodeName
             - name: GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY
               value: "/var/run/cdi"
+            - name: GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY
+              value: "KDP"
+            - name: GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS
+              value: "10"
 
     # Mount necessary volume for gpustack-runtime to work properly.
     # - Mount gpustack data volume for persistent data storage.
@@ -149,6 +158,11 @@ spec:
         - name: cdi
           hostPath:
             path: /var/run/cdi
+            type: DirectoryOrCreate
+        - name: kubelet-device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: DirectoryOrCreate
     #   - name: toolkit
     #     hostPath:
     #       path: /opt/...

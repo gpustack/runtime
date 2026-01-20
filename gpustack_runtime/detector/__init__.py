@@ -14,6 +14,7 @@ from .__types__ import (
     manufacturer_to_backend,
     reduce_devices_distances,
 )
+from .__utils__ import str_range_to_list
 from .amd import AMDDetector
 from .ascend import AscendDetector
 from .cambricon import CambriconDetector
@@ -60,23 +61,37 @@ def supported_list() -> list[Detector]:
     return [det for det in _DETECTORS if det.is_supported()]
 
 
-def supported_manufacturers() -> list[ManufacturerEnum]:
+def available_manufacturers() -> list[ManufacturerEnum]:
     """
-    Get a list of supported manufacturers.
+    Get a list of available manufacturers,
+    regardless of whether they are supported or not.
 
     Returns:
-        A list of supported manufacturers.
+        A list of available manufacturers.
 
     """
     return list(_DETECTORS_MAP.keys())
 
 
-def supported_backends() -> list[str]:
+def supported_manufacturers() -> list[ManufacturerEnum]:
     """
-    Get a list of supported backends.
+    Get a list of supported manufacturers,
+    must be supported in the current environment.
 
     Returns:
-        A list of supported backends.
+        A list of supported manufacturers.
+
+    """
+    return [det.manufacturer for det in _DETECTORS if det.is_supported()]
+
+
+def available_backends() -> list[str]:
+    """
+    Get a list of available backends,
+    regardless of whether they are supported or not.
+
+    Returns:
+        A list of available backends.
 
     """
     return [manufacturer_to_backend(manu) for manu in _DETECTORS_MAP]
@@ -206,7 +221,7 @@ def get_devices_topologies(
         devices = detect_devices(fast=fast, manufacturer=manufacturer)
         if not devices:
             return []
-        group = True and not fast
+        group = not fast
 
     # Group devices by manufacturer.
     if group:
@@ -280,6 +295,8 @@ __all__ = [
     "Devices",
     "ManufacturerEnum",
     "Topology",
+    "available_backends",
+    "available_manufacturers",
     "backend_to_manufacturer",
     "detect_backend",
     "detect_devices",
@@ -288,7 +305,7 @@ __all__ = [
     "group_devices_by_manufacturer",
     "manufacturer_to_backend",
     "reduce_devices_distances",
-    "supported_backends",
+    "str_range_to_list",
     "supported_list",
     "supported_manufacturers",
 ]

@@ -6,6 +6,8 @@ import math
 import time
 from _ctypes import byref
 from functools import lru_cache
+from pathlib import Path
+from typing import re
 
 import pynvml
 
@@ -18,7 +20,6 @@ from .__utils__ import (
     bitmask_to_str,
     byte_to_mebibyte,
     get_brief_version,
-    get_device_files,
     get_memory,
     get_numa_node_by_bdf,
     get_numa_nodeset_size,
@@ -122,7 +123,6 @@ class NVIDIADetector(Detector):
             )
 
             dev_count = pynvml.nvmlDeviceGetCount()
-            dev_files = None
             for dev_idx in range(dev_count):
                 dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
 
@@ -145,20 +145,13 @@ class NVIDIADetector(Detector):
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_mig_mode, _ = pynvml.nvmlDeviceGetMigMode(dev)
 
+                dev_index = dev_idx
+                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                    dev_index = pynvml.nvmlDeviceGetMinorNumber(dev)
+
                 # With MIG disabled, treat as a single device.
 
                 if dev_mig_mode == pynvml.NVML_DEVICE_MIG_DISABLE:
-                    dev_index = dev_idx
-                    if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                        if dev_files is None:
-                            dev_files = get_device_files(
-                                pattern=r"nvidia(?P<number>\d+)",
-                            )
-                        if len(dev_files) >= dev_count:
-                            dev_file = dev_files[dev_idx]
-                            if dev_file.number is not None:
-                                dev_index = dev_file.number
-
                     dev_name = pynvml.nvmlDeviceGetName(dev)
 
                     dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
@@ -255,6 +248,8 @@ class NVIDIADetector(Detector):
                 # Otherwise, get MIG devices,
                 # inspired by https://github.com/NVIDIA/go-nvlib/blob/fdfe25d0ffc9d7a8c166f4639ef236da81116262/pkg/nvlib/device/mig_device.go#L61-L154.
 
+                dev_mig_minors = _get_mig_minors()
+
                 mdev_name = ""
                 mdev_cores = None
                 mdev_count = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
@@ -300,6 +295,13 @@ class NVIDIADetector(Detector):
                     mdev_appendix["gpu_instance_id"] = mdev_gi_id
                     mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
                     mdev_appendix["compute_instance_id"] = mdev_ci_id
+                    if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                        mdev_appendix["gpu_instance_index"] = dev_mig_minors.get(
+                            (dev_index, mdev_gi_id, None),
+                        )
+                        mdev_appendix["compute_instance_index"] = dev_mig_minors.get(
+                            (dev_index, mdev_gi_id, mdev_ci_id),
+                        )
 
                     mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
 
@@ -909,3 +911,46 @@ def _is_vgpu(dev_config: bytes) -> bool:
     # Check for vGPU signature,
     # which is either 0x56 (NVIDIA vGPU) or 0x46 (NVIDIA GRID).
     return dev_cap[3] == 0x56 or dev_cap[4] == 0x46
+
+
+def _get_mig_minors() -> dict[tuple, int] | None:
+    """
+    Get the minor mapping for MIG capability devices.
+
+    Returns:
+        A dict mapping (gpu_id, gi_id, ci_id) to minor number,
+        or None if not supported.
+
+    """
+    mig_minors_path = Path("/proc/driver/nvidia-caps/mig-minors")
+    if not mig_minors_path.exists():
+        return None
+
+    ret = {}
+    for _line in mig_minors_path.read_text(encoding="utf-8").splitlines():
+        line = _line.strip()
+        if not line:
+            continue
+
+        # Scan lines like:
+        # gpu%d/gi%d/ci%d/access %d
+        m = re.match(r"gpu(\d+)/gi(\d+)/ci(\d+)/access (\d+)", line)
+        if m:
+            gpu_id = int(m.group(1))
+            gi_id = int(m.group(2))
+            ci_id = int(m.group(3))
+            minor = int(m.group(4))
+            ret[(gpu_id, gi_id, ci_id)] = minor
+            continue
+
+        # Scan lines like:
+        # gpu%d/gi%d/access %d
+        m = re.match(r"gpu(\d+)/gi(\d+)/access (\d+)", line)
+        if m:
+            gpu_id = int(m.group(1))
+            gi_id = int(m.group(2))
+            minor = int(m.group(3))
+            ret[(gpu_id, gi_id, None)] = minor
+            continue
+
+    return ret

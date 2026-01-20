@@ -17,13 +17,13 @@ from .__types__ import (
 from .__utils__ import device_to_cdi_device_node
 
 
-class HygonGenerator(Generator):
+class AMDGenerator(Generator):
     """
-    CDI generator for Hygon devices.
+    CDI generator for AMD devices.
     """
 
     def __init__(self):
-        super().__init__(ManufacturerEnum.HYGON)
+        super().__init__(ManufacturerEnum.AMD)
 
     def generate(
         self,
@@ -31,14 +31,14 @@ class HygonGenerator(Generator):
         include_all_devices: bool = True,
     ) -> Config | None:
         """
-        Generate the CDI configuration for Hygon devices.
+        Generate the CDI configuration for AMD devices.
 
         Args:
             devices:
                 The detected devices.
                 If None, all available devices are considered.
             include_all_devices:
-                Whether to include a device entry that represents all Hygon devices.
+                Whether to include a device entry that represents all AMD devices.
 
         Returns:
             The Config object, or None if not supported.
@@ -62,7 +62,6 @@ class HygonGenerator(Generator):
         common_device_nodes = []
         for p in [
             "/dev/kfd",
-            "/dev/mkfd",
         ]:
             cdn = device_to_cdi_device_node(
                 path=p,

@@ -1,18 +1,19 @@
 from __future__ import annotations as __future_annotations__
 
 from .deployer import (
-    CDIGenerateSubCommand,
     CreateWorkloadSubCommand,
     DeleteWorkloadsSubCommand,
     DeleteWorkloadSubCommand,
     ExecSelfSubCommand,
     ExecWorkloadSubCommand,
+    GenerateCDIConfigSubCommand,
     GetWorkloadSubCommand,
     InspectSelfSubCommand,
     InspectWorkloadSubCommand,
     ListWorkloadsSubCommand,
     LogsSelfSubCommand,
     LogsWorkloadSubCommand,
+    ServeDevicePluginSubCommand,
 )
 from .detector import DetectDevicesSubCommand, GetDevicesTopologySubCommand
 from .images import (
@@ -26,7 +27,6 @@ from .images import (
 )
 
 __all__ = [
-    "CDIGenerateSubCommand",
     "CopyImagesSubCommand",
     "CreateWorkloadSubCommand",
     "DeleteWorkloadSubCommand",
@@ -34,6 +34,7 @@ __all__ = [
     "DetectDevicesSubCommand",
     "ExecSelfSubCommand",
     "ExecWorkloadSubCommand",
+    "GenerateCDIConfigSubCommand",
     "GetDevicesTopologySubCommand",
     "GetWorkloadSubCommand",
     "InspectSelfSubCommand",
@@ -45,6 +46,7 @@ __all__ = [
     "LogsWorkloadSubCommand",
     "PlatformedImage",
     "SaveImagesSubCommand",
+    "ServeDevicePluginSubCommand",
     "append_images",
     "list_images",
 ]

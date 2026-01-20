@@ -485,7 +485,7 @@ class Detector(ABC):
         """
         raise NotImplementedError
 
-    def get_topology(self, devices: Devices | None = None) -> Topology | None:  # noqa: ARG002
+    def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
         Get the Topology object between the given devices.
 

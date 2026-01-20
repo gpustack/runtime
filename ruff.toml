@@ -18,6 +18,7 @@ exclude = [
     ".tox",
     ".nox",
     ".ruff_cache",
+    "gpustack_runtime/deployer/k8s/types",
 ]
 
 [lint]
@@ -93,6 +94,7 @@ extend-select = [
 ]
 
 ignore = [
+    "ARG002", # Flake8-unused-arguments - unused function argument.
     "BLE001", # Flake8-blind-except - Blind except: consider specifying exception instead of using a bare except.
     "E501", # Pycodestyle - line too long.
     "D1", # Pydocstyle - missing docstring in public module, class, or function.

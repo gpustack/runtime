@@ -32,10 +32,16 @@ from .__types__ import (
     WorkloadStatusStateEnum,
 )
 from .cdi import (
-    generate_config as cdi_generate_config,
+    available_backends as cdi_available_backends,
 )
 from .cdi import (
-    supported_backends as cdi_supported_backends,
+    available_manufacturers as cdi_available_manufacturers,
+)
+from .cdi import (
+    dump_config as cdi_dump_config,
+)
+from .cdi import (
+    generate_config as cdi_generate_config,
 )
 from .cdi import (
     supported_manufacturers as cdi_supported_manufacturers,
@@ -44,6 +50,12 @@ from .docker import (
     DockerDeployer,
     DockerWorkloadPlan,
     DockerWorkloadStatus,
+)
+from .k8s.deviceplugin import (
+    serve as k8s_deviceplugin_serve,
+)
+from .k8s.deviceplugin import (
+    serve_async as k8s_deviceplugin_serve_async,
 )
 from .kuberentes import (
     KubernetesDeployer,
@@ -611,8 +623,10 @@ __all__ = [
     "WorkloadStatusStateEnum",
     "async_logs_self",
     "async_logs_workload",
+    "cdi_available_backends",
+    "cdi_available_manufacturers",
+    "cdi_dump_config",
     "cdi_generate_config",
-    "cdi_supported_backends",
     "cdi_supported_manufacturers",
     "create_workload",
     "delete_workload",
@@ -621,6 +635,8 @@ __all__ = [
     "get_workload",
     "inspect_self",
     "inspect_workload",
+    "k8s_deviceplugin_serve",
+    "k8s_deviceplugin_serve_async",
     "list_workloads",
     "logs_self",
     "logs_workload",

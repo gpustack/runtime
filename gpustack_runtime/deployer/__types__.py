@@ -1400,6 +1400,7 @@ class Deployer(ABC):
                     valued_uuid = (
                         ren
                         in envs.GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID
+                        and manu != ManufacturerEnum.ASCEND
                     )
                     dev_uuids: list[str] = []
                     dev_indexes: list[str] = []

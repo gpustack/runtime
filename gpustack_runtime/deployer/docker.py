@@ -55,7 +55,7 @@ from .__utils__ import (
     safe_json,
     sensitive_env_var,
 )
-from .cdi import generate_config as cdi_generate_config
+from .cdi import dump_config as cdi_dump_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -1003,9 +1003,9 @@ class DockerDeployer(EndoscopicDeployer):
                             privileged = create_options.get("privileged", False)
 
                             # Generate CDI config if not yet.
-                            if cdi and envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE:
+                            if cdi and envs.GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE:
                                 for re in runtime_env:
-                                    cdi_generate_config(
+                                    cdi_dump_config(
                                         manufacturer=vd_manus[re],
                                         output=envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY,
                                     )
@@ -1549,7 +1549,7 @@ class DockerDeployer(EndoscopicDeployer):
     def _get(
         self,
         name: WorkloadName,
-        namespace: WorkloadNamespace | None = None,  # noqa: ARG002
+        namespace: WorkloadNamespace | None = None,
     ) -> WorkloadStatus | None:
         """
         Get the status of a Docker workload.
@@ -1671,7 +1671,7 @@ class DockerDeployer(EndoscopicDeployer):
     @_supported
     def _list(
         self,
-        namespace: WorkloadNamespace | None = None,  # noqa: ARG002
+        namespace: WorkloadNamespace | None = None,
         labels: dict[str, str] | None = None,
     ) -> list[WorkloadStatus]:
         """

@@ -1,7 +1,5 @@
 from __future__ import annotations as __future_annotations__
 
-from pathlib import Path
-
 from ...detector import (
     Devices,
     ManufacturerEnum,
@@ -13,8 +11,10 @@ from .__types__ import (
     ConfigContainerEdits,
     ConfigDevice,
     Generator,
-    manufacturer_to_config_kind,
+    manufacturer_to_cdi_kind,
+    manufacturer_to_runtime_env,
 )
+from .__utils__ import device_to_cdi_device_node
 
 
 class THeadGenerator(Generator):
@@ -25,13 +25,20 @@ class THeadGenerator(Generator):
     def __init__(self):
         super().__init__(ManufacturerEnum.THEAD)
 
-    def generate(self, devices: Devices | None = None) -> Config | None:
+    def generate(
+        self,
+        devices: Devices | None = None,
+        include_all_devices: bool = True,
+    ) -> Config | None:
         """
         Generate the CDI configuration for T-Head devices.
 
         Args:
-            devices: The detected devices.
-            If None, all available devices are considered.
+            devices:
+                The detected devices.
+                If None, all available devices are considered.
+            include_all_devices:
+                Whether to include a device entry that represents all T-Head devices.
 
         Returns:
             The Config object, or None if not supported.
@@ -48,7 +55,7 @@ class THeadGenerator(Generator):
         if not devices:
             return None
 
-        kind = manufacturer_to_config_kind(self.manufacturer)
+        kind = manufacturer_to_cdi_kind(self.manufacturer)
         if not kind:
             return None
 
@@ -59,22 +66,29 @@ class THeadGenerator(Generator):
             "/dev/alixpu",
             "/dev/alixpu_ctl",
         ]:
-            if Path(p).exists():
-                common_device_nodes.append(p)
+            cdn = device_to_cdi_device_node(
+                path=p,
+            )
+            if cdn:
+                common_device_nodes.append(cdn)
         if not common_device_nodes:
             return None
 
-        all_device_nodes = list(common_device_nodes)
+        all_device_nodes = []
 
         for dev in devices:
             if not dev:
                 continue
 
-            container_device_nodes = list(common_device_nodes)
+            container_device_nodes = []
 
-            dn = f"/dev/alixpu_ppu{dev.index}"
-            all_device_nodes.append(dn)
-            container_device_nodes.append(dn)
+            cdn = device_to_cdi_device_node(
+                path=f"/dev/alixpu_ppu{dev.index}",
+            )
+            if not cdn:
+                continue
+            all_device_nodes.append(cdn)
+            container_device_nodes.append(cdn)
 
             # Add specific container edits for each device.
             cdi_container_edits = ConfigContainerEdits(
@@ -97,16 +111,27 @@ class THeadGenerator(Generator):
             return None
 
         # Add common container edits for all devices.
-        cdi_devices.append(
-            ConfigDevice(
-                name="all",
-                container_edits=ConfigContainerEdits(
-                    device_nodes=all_device_nodes,
+        if include_all_devices:
+            cdi_devices.append(
+                ConfigDevice(
+                    name="all",
+                    container_edits=ConfigContainerEdits(
+                        device_nodes=all_device_nodes,
+                    ),
                 ),
-            ),
-        )
+            )
+
+        runtime_env = manufacturer_to_runtime_env(self.manufacturer)
 
         return Config(
             kind=kind,
             devices=cdi_devices,
+            container_edits=[
+                ConfigContainerEdits(
+                    env=[
+                        f"{runtime_env}=void",
+                    ],
+                    device_nodes=common_device_nodes,
+                ),
+            ],
         )

@@ -14,16 +14,16 @@ from .__types__ import (
     manufacturer_to_cdi_kind,
     manufacturer_to_runtime_env,
 )
-from .__utils__ import device_to_cdi_device_node
+from .__utils__ import device_to_cdi_device_node, path_to_cdi_mount
 
 
-class HygonGenerator(Generator):
+class AscendGenerator(Generator):
     """
-    CDI generator for Hygon devices.
+    CDI generator for Ascend devices.
     """
 
     def __init__(self):
-        super().__init__(ManufacturerEnum.HYGON)
+        super().__init__(ManufacturerEnum.ASCEND)
 
     def generate(
         self,
@@ -31,14 +31,14 @@ class HygonGenerator(Generator):
         include_all_devices: bool = True,
     ) -> Config | None:
         """
-        Generate the CDI configuration for Hygon devices.
+        Generate the CDI configuration for Ascend devices.
 
         Args:
             devices:
                 The detected devices.
                 If None, all available devices are considered.
             include_all_devices:
-                Whether to include a device entry that represents all Hygon devices.
+                Whether to include a device entry that represents all Ascend devices.
 
         Returns:
             The Config object, or None if not supported.
@@ -61,8 +61,22 @@ class HygonGenerator(Generator):
 
         common_device_nodes = []
         for p in [
-            "/dev/kfd",
-            "/dev/mkfd",
+            "/dev/davinci_manager_docker",
+            "/dev/davinci_manager",
+        ]:
+            cdn = device_to_cdi_device_node(
+                path=p,
+                container_path="/dev/davinci_manager",
+            )
+            if cdn:
+                common_device_nodes.append(cdn)
+                break
+        for p in [
+            "/dev/dvpp_cmdlist",
+            "/dev/uburma",
+            "/dev/ummu",
+            "/dev/devmm_svm",
+            "/dev/hisi_hdc",
         ]:
             cdn = device_to_cdi_device_node(
                 path=p,
@@ -71,6 +85,22 @@ class HygonGenerator(Generator):
                 common_device_nodes.append(cdn)
         if not common_device_nodes:
             return None
+
+        common_mounts = []
+        for p in [
+            "/etc/hccl_rootinfo.json",
+            "/usr/local/Ascend/driver/topo",
+            "/usr/local/Ascend/driver/lib64",
+            "/usr/local/Ascend/driver/include",
+            "/usr/local/dcmi",
+            "/usr/local/bin/npu-smi",
+            "/var/queue_schedule",
+        ]:
+            cm = path_to_cdi_mount(
+                path=p,
+            )
+            if cm:
+                common_mounts.append(cm)
 
         cdi_devices: list[ConfigDevice] = []
 
@@ -82,38 +112,24 @@ class HygonGenerator(Generator):
 
             container_device_nodes = []
 
-            card_id = dev.appendix.get("card_id")
-            if card_id is not None:
-                cdn = device_to_cdi_device_node(
-                    path=f"/dev/dri/card{card_id}",
-                )
-                if not cdn:
-                    continue
-                all_device_nodes.append(cdn)
-                container_device_nodes.append(cdn)
-            renderd_id = dev.appendix.get("renderd_id")
-            if renderd_id is not None:
-                cdn = device_to_cdi_device_node(
-                    path=f"/dev/dri/renderD{renderd_id}",
-                )
-                if cdn:
-                    all_device_nodes.append(cdn)
-                    container_device_nodes.append(cdn)
+            cdn_path = f"/dev/davinci{dev.index}"
+            if dev.appendix.get("vgpu", False):
+                cdn_path = f"/dev/vdavinci{dev.index}"
+            cdn = device_to_cdi_device_node(
+                path=cdn_path,
+            )
+            if not cdn:
+                continue
+            all_device_nodes.append(cdn)
+            container_device_nodes.append(cdn)
 
             # Add specific container edits for each device.
-            cdi_container_edits = ConfigContainerEdits(
-                device_nodes=container_device_nodes,
-            )
             cdi_devices.append(
                 ConfigDevice(
                     name=str(dev.index),
-                    container_edits=cdi_container_edits,
-                ),
-            )
-            cdi_devices.append(
-                ConfigDevice(
-                    name=dev.uuid,
-                    container_edits=cdi_container_edits,
+                    container_edits=ConfigContainerEdits(
+                        device_nodes=container_device_nodes,
+                    ),
                 ),
             )
 
@@ -142,6 +158,7 @@ class HygonGenerator(Generator):
                         f"{runtime_env}=void",
                     ],
                     device_nodes=common_device_nodes,
+                    mounts=common_mounts,
                 ),
             ],
         )

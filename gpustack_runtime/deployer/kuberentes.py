@@ -43,6 +43,7 @@ from .__utils__ import (
     sensitive_env_var,
     validate_rfc1123_domain_name,
 )
+from .k8s.deviceplugin import cdi_kind_to_kdp_resource
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -991,10 +992,15 @@ class KubernetesDeployer(EndoscopicDeployer):
 
             # Parameterize resources
             if c.resources:
+                kdp = (
+                    envs.GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY.lower()
+                    == "kdp"
+                )
+
                 resources: dict[str, str] = {}
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
                 r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                _, vd_env, _, vd_values = self.get_visible_devices_materials()
+                _, vd_env, vd_cdis, vd_values = self.get_visible_devices_materials()
                 for r_k, r_v in c.resources.items():
                     if r_k in ("cpu", "memory"):
                         resources[r_k] = str(r_v)
@@ -1033,6 +1039,15 @@ class KubernetesDeployer(EndoscopicDeployer):
                             # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
                             # and mount corresponding libs if needed.
                             for re in runtime_env:
+                                # Request device via KDP.
+                                if kdp:
+                                    for v in vd_values.get(re) or []:
+                                        kdp_resource = cdi_kind_to_kdp_resource(
+                                            cdi_kind=vd_cdis[re],
+                                            device_index=v,
+                                        )
+                                        resources[kdp_resource] = "1"
+                                    continue
                                 # Request device via visible devices env.
                                 rv = ",".join(vd_values.get(re) or ["all"])
                                 container.env.append(
@@ -1047,6 +1062,23 @@ class KubernetesDeployer(EndoscopicDeployer):
                             # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
                             # and mount corresponding libs if needed.
                             for re in runtime_env:
+                                # Request device via KDP.
+                                if kdp:
+                                    if not privileged:
+                                        for v in str(r_v).split(","):
+                                            kdp_resource = cdi_kind_to_kdp_resource(
+                                                cdi_kind=vd_cdis[re],
+                                                device_index=int(v.strip()),
+                                            )
+                                            resources[kdp_resource] = "1"
+                                    else:
+                                        for v in vd_values.get(re) or []:
+                                            kdp_resource = cdi_kind_to_kdp_resource(
+                                                cdi_kind=vd_cdis[re],
+                                                device_index=v,
+                                            )
+                                            resources[kdp_resource] = "1"
+                                    continue
                                 # Request device via visible devices env.
                                 if not privileged:
                                     rv = str(r_v)

@@ -22,7 +22,6 @@ from .__utils__ import (
     bitmask_to_str,
     byte_to_mebibyte,
     get_brief_version,
-    get_device_files,
     get_numa_node_by_bdf,
     get_numa_nodeset_size,
     get_pci_devices,
@@ -121,7 +120,6 @@ class THeadDetector(Detector):
                 )
 
             dev_count = pyhgml.hgmlDeviceGetCount()
-            dev_files = None
             for dev_idx in range(dev_count):
                 dev = pyhgml.hgmlDeviceGetHandleByIndex(dev_idx)
 
@@ -149,14 +147,7 @@ class THeadDetector(Detector):
                 if dev_mig_mode == pyhgml.HGML_DEVICE_MIG_DISABLE:
                     dev_index = dev_idx
                     if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                        if dev_files is None:
-                            dev_files = get_device_files(
-                                pattern=r"alixpu_ppu(?P<number>\d+)",
-                            )
-                        if len(dev_files) >= dev_count:
-                            dev_file = dev_files[dev_idx]
-                            if dev_file.number is not None:
-                                dev_index = dev_file.number
+                        dev_index = pyhgml.hgmlDeviceGetMinorNumber(dev)
 
                     dev_name = pyhgml.hgmlDeviceGetName(dev)
 

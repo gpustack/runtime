@@ -6,6 +6,13 @@ SHELL := /bin/bash
 
 SRCDIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
+generate:
+	@echo "+++ $@ +++"
+	buf dep prune
+	buf dep update
+	buf generate
+	@echo "--- $@ ---"
+
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 prepare:
 	echo "git_commit = \"$(GIT_COMMIT)\"" > $(SRCDIR)/gpustack_runtime/_version_appendix.py

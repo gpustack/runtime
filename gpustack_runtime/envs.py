@@ -147,11 +147,6 @@ if TYPE_CHECKING:
     """
     Label prefix for the deployer.
     """
-    GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE: bool = True
-    """
-    During deployment, enable automatic generation of Container Device Interface (CDI) specifications
-    for detected devices.
-    """
     GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY: Path | None = None
     """
     During deployment, path of directory containing Container Device Interface (CDI) specifications,
@@ -248,6 +243,15 @@ if TYPE_CHECKING:
     `Env`: Injects resources using standard environment variable, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`.
     `CDI`: Injects resources using CDI, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI`.
     """
+    GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE: bool = True
+    """
+    Generate CDI specifications during deployment when using CDI resource injection policy,
+    requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to be existed.
+    Works only when `GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY` is set to `CDI`.
+    Using internal knowledge to generate the CDI specifications for deployer,
+    if the output file conflicts with other tools generating CDI specifications(e.g., NVIDIA Container Toolkit),
+    please disable this and remove the output file manually.
+    """
     ## Kubernetes
     GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME: str | None = None
     """
@@ -273,6 +277,33 @@ if TYPE_CHECKING:
     GPUSTACK_RUNTIME_KUBERNETES_DELETE_PROPAGATION_POLICY: str | None = None
     """
     Deletion propagation policy for Kubernetes resources (e.g., Foreground, Background, Orphan).
+    """
+    GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY: str | None = None
+    """
+    Resource injection policy for the Kubernetes deployer (e.g., Env, KDP).
+    `Env`: Injects resources using standard environment variable, depends on underlying Container Toolkit, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`.
+    `KDP`: Injects resources using Kubernetes Device Plugin, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI`.
+    """
+    GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS: int | None = None
+    """
+    Maximum allocations for one device in Kubernetes Device Plugin.
+    If not set, it should be 10.
+    """
+    GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY: str | None = None
+    """
+    Device allocation policy for the Kubernetes Device Plugin (e.g., CDI, Env, Opaque).
+    `CDI`: Allocates devices using generated CDI specifications, making it easy to debug and troubleshoot; requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to exist.
+    `Env`: Allocates devices using runtime-visible environment variables; requires Container Toolkit support.
+    `Opaque`: Uses internal logic for allocation, which is convenient for deployment but difficult to troubleshoot.
+    """
+    GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE: bool = True
+    """
+    Generate CDI specifications during deployment,
+    requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to be existed.
+    Works only when `GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY` is set to `CDI`.
+    Using internal knowledge to generate the CDI specifications for deployer,
+    if the output file conflicts with other tools generating CDI specifications(e.g., NVIDIA Container Toolkit),
+    please disable this and remove the output file manually.
     """
     ## Podman
     GPUSTACK_RUNTIME_PODMAN_HOST: str | None = None
@@ -307,6 +338,15 @@ if TYPE_CHECKING:
     """
     Mute the original healthcheck of the container in Podman.
     Default is same as `GPUSTACK_RUNTIME_DOCKER_MUTE_ORIGINAL_HEALTHCHECK`.
+    """
+    GPUSTACK_RUNTIME_PODMAN_CDI_SPECS_GENERATE: bool = True
+    """
+    Generate CDI specifications during deployment,
+    requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to be existed.
+    Using internal knowledge to generate the CDI specifications for deployer,
+    if the output file conflicts with other tools generating CDI specifications(e.g., NVIDIA Container Toolkit),
+    please disable this and remove the output file manually.
+    Default is same as `GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE`.
     """
 
 # --8<-- [start:env-vars-definition]
@@ -479,12 +519,6 @@ variables: dict[str, Callable[[], Any]] = {
         "GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX",
         "runtime.gpustack.ai",
     ),
-    "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE": lambda: to_bool(
-        getenv(
-            "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_GENERATE",
-            "1",
-        ),
-    ),
     "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY": lambda: mkdir_path(
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY",
@@ -608,6 +642,13 @@ variables: dict[str, Callable[[], Any]] = {
         options=["Env", "CDI"],
         default="Env",
     ),
+    "GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE": lambda: ternary(
+        lambda: (
+            getenv("GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY", "Env") == "Env"
+        ),
+        lambda: False,
+        lambda: to_bool(getenv("GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE", "1")),
+    ),
     ## Kubernetes
     "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME": lambda: getenv(
         "GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME",
@@ -639,6 +680,46 @@ variables: dict[str, Callable[[], Any]] = {
         ),
         options=["Foreground", "Background", "Orphan"],
         default="Foreground",
+    ),
+    "GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY": lambda: choice(
+        getenv(
+            "GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY",
+        ),
+        options=["Env", "KDP"],
+        default="Env",
+    ),
+    "GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS": lambda: to_int(
+        getenv(
+            "GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS",
+            "10",
+        ),
+    ),
+    "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY": lambda: choice(
+        getenv(
+            "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY",
+        ),
+        options=["CDI", "Env", "Opaque"],
+        default="CDI",
+    ),
+    "GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE": lambda: ternary(
+        lambda: (
+            getenv("GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY", "Env")
+            == "Env"
+        ),
+        lambda: False,
+        lambda: ternary(
+            lambda: (
+                getenv(
+                    "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY",
+                    "Opaque",
+                )
+                == "Opaque"
+            ),
+            lambda: False,
+            lambda: to_bool(
+                getenv("GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE", "1"),
+            ),
+        ),
     ),
     ## Podman
     "GPUSTACK_RUNTIME_PODMAN_HOST": lambda: trim_str(
@@ -697,7 +778,18 @@ variables: dict[str, Callable[[], Any]] = {
             "1",
         ),
     ),
+    "GPUSTACK_RUNTIME_PODMAN_CDI_SPECS_GENERATE": lambda: to_bool(
+        getenvs(
+            [
+                "GPUSTACK_RUNTIME_PODMAN_CDI_SPECS_GENERATE",
+                # Fallback to Docker's setting.
+                "GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE",
+            ],
+            "1",
+        ),
+    ),
 }
+
 
 # --8<-- [end:env-vars-definition]
 

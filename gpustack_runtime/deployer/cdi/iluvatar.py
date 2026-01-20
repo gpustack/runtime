@@ -17,13 +17,13 @@ from .__types__ import (
 from .__utils__ import device_to_cdi_device_node
 
 
-class HygonGenerator(Generator):
+class IluvatarGenerator(Generator):
     """
-    CDI generator for Hygon devices.
+    CDI generator for Iluvatar devices.
     """
 
     def __init__(self):
-        super().__init__(ManufacturerEnum.HYGON)
+        super().__init__(ManufacturerEnum.ILUVATAR)
 
     def generate(
         self,
@@ -31,14 +31,14 @@ class HygonGenerator(Generator):
         include_all_devices: bool = True,
     ) -> Config | None:
         """
-        Generate the CDI configuration for Hygon devices.
+        Generate the CDI configuration for Iluvatar devices.
 
         Args:
             devices:
                 The detected devices.
                 If None, all available devices are considered.
             include_all_devices:
-                Whether to include a device entry that represents all Hygon devices.
+                Whether to include a device entry that represents all Iluvatar devices.
 
         Returns:
             The Config object, or None if not supported.
@@ -59,10 +59,11 @@ class HygonGenerator(Generator):
         if not kind:
             return None
 
+        cdi_devices: list[ConfigDevice] = []
+
         common_device_nodes = []
         for p in [
-            "/dev/kfd",
-            "/dev/mkfd",
+            "/dev/itrctl",
         ]:
             cdn = device_to_cdi_device_node(
                 path=p,
@@ -72,8 +73,6 @@ class HygonGenerator(Generator):
         if not common_device_nodes:
             return None
 
-        cdi_devices: list[ConfigDevice] = []
-
         all_device_nodes = []
 
         for dev in devices:
@@ -82,23 +81,13 @@ class HygonGenerator(Generator):
 
             container_device_nodes = []
 
-            card_id = dev.appendix.get("card_id")
-            if card_id is not None:
-                cdn = device_to_cdi_device_node(
-                    path=f"/dev/dri/card{card_id}",
-                )
-                if not cdn:
-                    continue
-                all_device_nodes.append(cdn)
-                container_device_nodes.append(cdn)
-            renderd_id = dev.appendix.get("renderd_id")
-            if renderd_id is not None:
-                cdn = device_to_cdi_device_node(
-                    path=f"/dev/dri/renderD{renderd_id}",
-                )
-                if cdn:
-                    all_device_nodes.append(cdn)
-                    container_device_nodes.append(cdn)
+            cdn = device_to_cdi_device_node(
+                path=f"/dev/iluvatar{dev.index}",
+            )
+            if not cdn:
+                continue
+            all_device_nodes.append(cdn)
+            container_device_nodes.append(cdn)
 
             # Add specific container edits for each device.
             cdi_container_edits = ConfigContainerEdits(
