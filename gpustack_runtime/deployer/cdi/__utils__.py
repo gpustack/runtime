@@ -144,6 +144,7 @@ def device_to_cdi_device_node(
 def path_to_cdi_mount(
     path: str,
     container_path: str | None = None,
+    options: list[str] | None = None,
 ) -> ConfigMount | None:
     """
     Convert a file/directory path to a ConfigMount.
@@ -153,6 +154,8 @@ def path_to_cdi_mount(
             Path to the file or directory on the host.
         container_path:
             Path to the file or directory inside the container.
+        options:
+            Mount options.
 
     Returns:
         The ConfigMount object.
@@ -165,7 +168,9 @@ def path_to_cdi_mount(
     if container_path is None:
         container_path = path
 
-    options = ["ro", "nosuid", "nodev", "rbind", "rprivate"]
+    if options is None:
+        options = ["ro", "nosuid", "nodev", "rbind", "rprivate"]
+
     return ConfigMount(
         host_path=path,
         container_path=container_path,
