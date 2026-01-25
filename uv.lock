@@ -317,10 +317,10 @@ requires-dist = [
     { name = "mthreads-ml-py", specifier = ">=2.2.10" },
     { name = "nvidia-ml-py", specifier = ">=13.580.65" },
     { name = "podman", specifier = "==5.6.0" },
-    { name = "protobuf", specifier = ">=5.28.3" },
+    { name = "protobuf", specifier = "<=5.28.3" },
     { name = "pyyaml" },
     { name = "tqdm" },
-    { name = "types-protobuf", specifier = ">=6.32.1.20251210" },
+    { name = "types-protobuf", specifier = "<=5.28.3.20241203" },
 ]
 
 [package.metadata.requires-dev]
@@ -1144,11 +1144,11 @@ wheels = [
 
 [[package]]
 name = "types-protobuf"
-version = "6.32.1.20251210"
+version = "5.28.3.20241203"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c2/59/c743a842911887cd96d56aa8936522b0cd5f7a7f228c96e81b59fced45be/types_protobuf-6.32.1.20251210.tar.gz", hash = "sha256:c698bb3f020274b1a2798ae09dc773728ce3f75209a35187bd11916ebfde6763", size = 63900, upload-time = "2025-12-10T03:14:25.451Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/80/ed668c8bb4cb92e4cc4a8bfea6a6b0693a4c02c2a5634675ada41bb11919/types_protobuf-5.28.3.20241203.tar.gz", hash = "sha256:2e1c962bdf76c576506b5fc0678d28efa6652a54c04ae46562a6209e777bd789", size = 59278, upload-time = "2024-12-03T02:59:03.263Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/43/58e75bac4219cbafee83179505ff44cae3153ec279be0e30583a73b8f108/types_protobuf-6.32.1.20251210-py3-none-any.whl", hash = "sha256:2641f78f3696822a048cfb8d0ff42ccd85c25f12f871fbebe86da63793692140", size = 77921, upload-time = "2025-12-10T03:14:24.477Z" },
+    { url = "https://files.pythonhosted.org/packages/30/98/3779835381fb3995d31db970b7384d42a42cb487771bd2e6ed98799afa6c/types_protobuf-5.28.3.20241203-py3-none-any.whl", hash = "sha256:5367632a4785394b0504e7c1e4d54a2dceeae9cd4f73a705d0f6499fc99cecb1", size = 73973, upload-time = "2024-12-03T02:59:01.531Z" },
 ]
 
 [[package]]

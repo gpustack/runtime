@@ -29,9 +29,10 @@ dependencies = [
     "argcomplete>=3.6.3",
     "tqdm",
     "cachetools>=5.5.2",
+    # NB(thxCode): Adjust buf.gen.yaml also if updating version.
+    "protobuf<=5.28.3",
+    "types-protobuf<=5.28.3.20241203",
     "grpcio>=1.76.0",
-    "protobuf>=5.28.3",
-    "types-protobuf>=6.32.1.20251210",
     "grpc-interceptor>=0.15.4",
 ]
 dynamic = ["version"]
