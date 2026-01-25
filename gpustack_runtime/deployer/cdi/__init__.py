@@ -151,6 +151,7 @@ def available_backends() -> list[str]:
 
 
 __all__ = [
+    "Config",
     "available_backends",
     "available_manufacturers",
     "dump_config",

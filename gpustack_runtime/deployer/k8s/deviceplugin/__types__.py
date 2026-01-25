@@ -107,7 +107,7 @@ class PluginServer(ABC):
     async def serve(
         self,
         stop_event: asyncio.Event,
-        kubelet_endpoint: Path | None = None,
+        kubelet_endpoint: Path,
         start_timeout: int = 5,
         register_timeout: int = 5,
     ):

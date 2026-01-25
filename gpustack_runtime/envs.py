@@ -280,7 +280,8 @@ if TYPE_CHECKING:
     """
     GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY: str | None = None
     """
-    Resource injection policy for the Kubernetes deployer (e.g., Env, KDP).
+    Resource injection policy for the Kubernetes deployer (e.g., Auto, Env, KDP).
+    `Auto`: Automatically choose the resource injection policy based on the environment.
     `Env`: Injects resources using standard environment variable, depends on underlying Container Toolkit, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`.
     `KDP`: Injects resources using Kubernetes Device Plugin, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI`.
     """
@@ -292,8 +293,9 @@ if TYPE_CHECKING:
     GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY: str | None = None
     """
     Device allocation policy for the Kubernetes Device Plugin (e.g., CDI, Env, Opaque).
-    `CDI`: Allocates devices using generated CDI specifications, making it easy to debug and troubleshoot; requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to exist.
+    `Auto`: Automatically choose the device allocation policy based on the environment.
     `Env`: Allocates devices using runtime-visible environment variables; requires Container Toolkit support.
+    `CDI`: Allocates devices using generated CDI specifications, making it easy to debug and troubleshoot; requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to exist.
     `Opaque`: Uses internal logic for allocation, which is convenient for deployment but difficult to troubleshoot.
     """
     GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE: bool = True
@@ -685,8 +687,8 @@ variables: dict[str, Callable[[], Any]] = {
         getenv(
             "GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY",
         ),
-        options=["Env", "KDP"],
-        default="Env",
+        options=["Auto", "Env", "KDP"],
+        default="Auto",
     ),
     "GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS": lambda: to_int(
         getenv(
@@ -698,12 +700,12 @@ variables: dict[str, Callable[[], Any]] = {
         getenv(
             "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY",
         ),
-        options=["CDI", "Env", "Opaque"],
-        default="CDI",
+        options=["Auto", "Env", "CDI", "Opaque"],
+        default="Auto",
     ),
     "GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE": lambda: ternary(
         lambda: (
-            getenv("GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY", "Env")
+            getenv("GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY", "Auto")
             == "Env"
         ),
         lambda: False,
@@ -711,9 +713,9 @@ variables: dict[str, Callable[[], Any]] = {
             lambda: (
                 getenv(
                     "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY",
-                    "Opaque",
+                    "Auto",
                 )
-                == "Opaque"
+                not in ["Auto", "CDI"]
             ),
             lambda: False,
             lambda: to_bool(

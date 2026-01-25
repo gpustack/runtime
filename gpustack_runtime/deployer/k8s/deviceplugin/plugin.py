@@ -31,7 +31,6 @@ from ..types.kubelet.deviceplugin.v1beta1 import (
     DeviceSpec,
     Empty,
     Healthy,
-    KubeletSocket,
     ListAndWatchResponse,
     Mount,
     NUMANode,
@@ -110,6 +109,10 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
     """
     Controls how the device IDs of the Kubernetes Device Plugin are generated.
     """
+    _allocation_policy: Literal["env", "cdi", "opaque"]
+    """
+    Controls the device allocation policy.
+    """
     _max_allocations: int
     """
     Controls the maximum shards per underlying device.
@@ -131,6 +134,7 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
         self,
         device: Device,
         id_by: Literal["uuid", "index"] = "uuid",
+        allocation_policy: Literal["env", "cdi", "opaque"] = "cdi",
         max_allocations: int | None = None,
     ):
         """
@@ -142,6 +146,8 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
             id_by:
                 Controls how the device IDs of the Kubernetes Device Plugin are generated.
                 Either "uuid" or "index". Default is "uuid".
+            allocation_policy:
+                Controls the device allocation policy.
             max_allocations:
                 Controls the maximum allocations per underlying device.
                 If None, uses the environment variable `GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS`.
@@ -149,6 +155,7 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
         """
         self._device = device
         self._id_by = id_by
+        self._allocation_policy = allocation_policy
         self._max_allocations = max_allocations
         if not self._max_allocations:
             self._max_allocations = (
@@ -229,7 +236,7 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
     async def serve(
         self,
         stop_event: asyncio.Event,
-        kubelet_endpoint: Path | None = None,
+        kubelet_endpoint: Path,
         start_timeout: int = 5,
         register_timeout: int = 5,
     ):
@@ -247,9 +254,6 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
                 The timeout in seconds for registering the device plugin.
 
         """
-        if not kubelet_endpoint:
-            kubelet_endpoint = KubeletSocket
-
         resource_name = self._kdp_resource
         endpoint = kubelet_endpoint.parent / f"{resource_name.replace('/', '.')}.sock"
 

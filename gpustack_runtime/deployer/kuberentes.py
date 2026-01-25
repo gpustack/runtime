@@ -7,9 +7,9 @@ import operator
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import reduce
+from functools import lru_cache, reduce
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import kubernetes
 import kubernetes.stream.ws_client
@@ -43,7 +43,7 @@ from .__utils__ import (
     sensitive_env_var,
     validate_rfc1123_domain_name,
 )
-from .k8s.deviceplugin import cdi_kind_to_kdp_resource
+from .k8s.deviceplugin import cdi_kind_to_kdp_resource, is_kubelet_socket_accessible
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -380,6 +380,22 @@ class KubernetesDeployer(EndoscopicDeployer):
             return func(self, *args, **kwargs)
 
         return wrapper
+
+    @staticmethod
+    @lru_cache
+    def _get_resource_injection_policy() -> Literal["env", "kdp"]:
+        """
+        Get the resource injection policy (in lowercase) for the deployer.
+
+        Returns:
+            The resource injection policy.
+
+        """
+        policy = envs.GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY.lower()
+        if policy != "auto":
+            return policy
+
+        return "kdp" if is_kubelet_socket_accessible() else "env"
 
     def _create_ephemeral_configmaps(
         self,
@@ -992,10 +1008,7 @@ class KubernetesDeployer(EndoscopicDeployer):
 
             # Parameterize resources
             if c.resources:
-                kdp = (
-                    envs.GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY.lower()
-                    == "kdp"
-                )
+                kdp = self._get_resource_injection_policy() == "kdp"
 
                 resources: dict[str, str] = {}
                 r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}

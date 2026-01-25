@@ -68,6 +68,8 @@ def linux_device_from_path(path: Path | str | None) -> LinuxDevice | None:
         return None
 
     path_stat = path.lstat()
+    if not path_stat:
+        return None
 
     dev_mode = stat.S_IFMT(path_stat.st_mode)
     match dev_mode:

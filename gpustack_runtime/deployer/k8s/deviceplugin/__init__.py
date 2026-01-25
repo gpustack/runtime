@@ -4,12 +4,16 @@ import asyncio
 import contextlib
 import logging
 import signal
+import stat
 import threading
-from typing import TYPE_CHECKING
+from functools import lru_cache
+from typing import TYPE_CHECKING, Literal
 
 from .... import envs
 from ....deployer.cdi import dump_config as cdi_dump_config
 from ....detector import ManufacturerEnum, detect_devices, supported_manufacturers
+from ...cdi import Config, manufacturer_to_cdi_kind
+from ..types.kubelet.deviceplugin.v1beta1 import KubeletSocket
 from .__types__ import GroupedError, PluginServer
 from .plugin import SharableDevicePlugin, cdi_kind_to_kdp_resource
 
@@ -61,9 +65,19 @@ async def serve_async(
         if not devices:
             continue
 
+        allocation_policy = _get_device_allocation_policy(manu)
+        logger.info(
+            "Using device allocation policy '%s' for manufacturer '%s'",
+            allocation_policy,
+            manu,
+        )
+
         # Also works if the manufacturer does not have a CDI generator,
         # which means we are relying on other tools to generate CDI specs.
-        if envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE:
+        if (
+            allocation_policy == "cdi"
+            and envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE
+        ):
             generated_content, generated_path = cdi_dump_config(
                 manufacturer=manu,
                 output=cdi_generation_output,
@@ -95,6 +109,7 @@ async def serve_async(
                 SharableDevicePlugin(
                     device=dev,
                     id_by="index" if manu == ManufacturerEnum.ASCEND else "uuid",
+                    allocation_policy=allocation_policy,
                 ),
             )
 
@@ -103,6 +118,9 @@ async def serve_async(
         await stop_event.wait()
         logger.info("Stop event triggered, shutting down...")
         return
+
+    if not kubelet_endpoint:
+        kubelet_endpoint = KubeletSocket
 
     # Create tasks to start all servers.
     serve_tasks = [
@@ -233,8 +251,75 @@ def serve(
             pass
 
 
+def is_kubelet_socket_accessible(
+    kubelet_endpoint: Path | None = None,
+) -> bool:
+    """
+    Check if the kubelet socket is accessible.
+
+    Args:
+        kubelet_endpoint:
+            The path to the kubelet endpoint.
+
+    Returns:
+        True if the socket is accessible, False otherwise.
+
+    """
+    if not kubelet_endpoint:
+        kubelet_endpoint = KubeletSocket
+
+    if kubelet_endpoint.exists():
+        path_stat = kubelet_endpoint.lstat()
+        if path_stat and stat.S_ISSOCK(path_stat.st_mode):
+            return True
+    return False
+
+
+@lru_cache
+def _get_device_allocation_policy(
+    manufacturer: ManufacturerEnum,
+) -> Literal["env", "cdi", "opaque"]:
+    """
+    Get the device allocation policy (in lowercase) for the device plugin.
+
+    Args:
+        manufacturer:
+            The manufacturer of the device.
+
+    Returns:
+        The device allocation policy.
+
+    """
+    policy = envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY.lower()
+    if policy != "auto":
+        return policy
+
+    cdi_kind = manufacturer_to_cdi_kind(manufacturer)
+
+    cdi_dir = envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY
+    for suffix in ["*.yaml", "*.yml", "*.json"]:
+        for file in cdi_dir.glob(suffix):
+            with contextlib.suppress(Exception):
+                config = Config.from_file(file)
+                if config and config.kind == cdi_kind:
+                    return "cdi"
+
+    if manufacturer in [
+        ManufacturerEnum.AMD,
+        # ManufacturerEnum.ASCEND, # Prioritize using Env policy for Ascend.
+        ManufacturerEnum.HYGON,
+        ManufacturerEnum.ILUVATAR,
+        ManufacturerEnum.METAX,
+        ManufacturerEnum.THEAD,
+    ]:
+        return "opaque"
+
+    return "env"
+
+
 __all__ = [
     "cdi_kind_to_kdp_resource",
+    "is_kubelet_socket_accessible",
     "serve",
     "serve_async",
 ]
