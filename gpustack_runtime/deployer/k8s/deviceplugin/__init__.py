@@ -65,7 +65,7 @@ async def serve_async(
         if not devices:
             continue
 
-        allocation_policy = _get_device_allocation_policy(manu)
+        allocation_policy = get_device_allocation_policy(manu)
         logger.info(
             "Using device allocation policy '%s' for manufacturer '%s'",
             allocation_policy,
@@ -277,7 +277,23 @@ def is_kubelet_socket_accessible(
 
 
 @lru_cache
-def _get_device_allocation_policy(
+def get_resource_injection_policy() -> Literal["env", "kdp"]:
+    """
+    Get the resource injection policy (in lowercase) for the deployer.
+
+    Returns:
+        The resource injection policy.
+
+    """
+    policy = envs.GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY.lower()
+    if policy != "auto":
+        return policy
+
+    return "kdp" if is_kubelet_socket_accessible() else "env"
+
+
+@lru_cache
+def get_device_allocation_policy(
     manufacturer: ManufacturerEnum,
 ) -> Literal["env", "cdi", "opaque"]:
     """
@@ -320,6 +336,8 @@ def _get_device_allocation_policy(
 
 __all__ = [
     "cdi_kind_to_kdp_resource",
+    "get_device_allocation_policy",
+    "get_resource_injection_policy",
     "is_kubelet_socket_accessible",
     "serve",
     "serve_async",
