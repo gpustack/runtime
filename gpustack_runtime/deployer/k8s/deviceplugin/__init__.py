@@ -110,6 +110,7 @@ async def serve_async(
                     device=dev,
                     id_by="index" if manu == ManufacturerEnum.ASCEND else "uuid",
                     allocation_policy=allocation_policy,
+                    max_allocations=envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS,
                 ),
             )
 

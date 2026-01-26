@@ -11,7 +11,6 @@ import grpc
 from grpc_interceptor import AsyncServerInterceptor
 from grpc_interceptor.exceptions import GrpcException
 
-from .... import envs
 from ....detector import Device, str_range_to_list
 from ...cdi import (
     generate_config,
@@ -135,7 +134,7 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
         device: Device,
         id_by: Literal["uuid", "index"] = "uuid",
         allocation_policy: Literal["env", "cdi", "opaque"] = "cdi",
-        max_allocations: int | None = None,
+        max_allocations: int | None = 10,
     ):
         """
         Initializes the SharableDevicePlugin.
@@ -150,18 +149,12 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
                 Controls the device allocation policy.
             max_allocations:
                 Controls the maximum allocations per underlying device.
-                If None, uses the environment variable `GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS`.
 
         """
         self._device = device
         self._id_by = id_by
         self._allocation_policy = allocation_policy
-        self._max_allocations = max_allocations
-        if not self._max_allocations:
-            self._max_allocations = (
-                envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS
-            )
-        self._max_allocations = max(self._max_allocations, 1)
+        self._max_allocations = max(max_allocations, 1)
         self._cdi_kind = manufacturer_to_cdi_kind(device.manufacturer)
         self._runtime_env = manufacturer_to_runtime_env(device.manufacturer)
         self._kdp_resource = cdi_kind_to_kdp_resource(
@@ -425,8 +418,7 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
         self,
         req: ContainerAllocateRequest,
     ) -> ContainerAllocateResponse:
-        policy = envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY.lower()
-
+        policy = self._allocation_policy
         request_dp_device_ids = req.devices_ids
 
         # CDI device allocation.
