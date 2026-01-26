@@ -30,7 +30,7 @@ dependencies = [
     "tqdm",
     "cachetools>=5.5.2",
     # NB(thxCode): Adjust buf.gen.yaml also if updating version.
-    "protobuf<=5.28.3",
+    "protobuf<=3.19.6",
     "types-protobuf<=5.28.3.20241203",
     "grpcio>=1.76.0",
     "grpc-interceptor>=0.15.4",
