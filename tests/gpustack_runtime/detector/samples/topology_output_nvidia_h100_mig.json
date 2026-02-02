@@ -1,0 +1,233 @@
+[
+  {
+    "manufacturer": "nvidia",
+    "devices_distances": [
+      [
+        0,
+        0,
+        0,
+        5,
+        5,
+        30,
+        30,
+        5,
+        5,
+        5,
+        5
+      ],
+      [
+        0,
+        0,
+        0,
+        5,
+        5,
+        30,
+        30,
+        5,
+        5,
+        5,
+        5
+      ],
+      [
+        0,
+        0,
+        0,
+        5,
+        5,
+        30,
+        30,
+        5,
+        5,
+        5,
+        5
+      ],
+      [
+        5,
+        5,
+        5,
+        0,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ],
+      [
+        5,
+        5,
+        5,
+        5,
+        0,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ],
+      [
+        30,
+        30,
+        30,
+        5,
+        5,
+        0,
+        0,
+        5,
+        5,
+        5,
+        5
+      ],
+      [
+        30,
+        30,
+        30,
+        5,
+        5,
+        0,
+        0,
+        5,
+        5,
+        5,
+        5
+      ],
+      [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        0,
+        5,
+        5,
+        5
+      ],
+      [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        0,
+        5,
+        5
+      ],
+      [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        0,
+        5
+      ],
+      [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        0
+      ]
+    ],
+    "devices_cpu_affinities": [
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159",
+      "0-159"
+    ],
+    "devices_numa_affinities": [
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1",
+      "0-1"
+    ],
+    "appendices": [
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      },
+      {
+        "links_count": 18,
+        "links_state": 262143,
+        "links_active_count": 18
+      }
+    ]
+  }
+]

@@ -141,6 +141,22 @@ class NVIDIADetector(Detector):
                     )
                     dev_numa = bitmask_to_str(list(dev_node_affinity))
 
+                dev_temp = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_temp = pynvml.nvmlDeviceGetTemperature(
+                        dev,
+                        pynvml.NVML_TEMPERATURE_GPU,
+                    )
+
+                dev_power = None
+                dev_power_used = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
+                    dev_power = dev_power // 1000  # mW to W
+                    dev_power_used = (
+                        pynvml.nvmlDeviceGetPowerUsage(dev) // 1000
+                    )  # mW to W
+
                 dev_mig_mode = pynvml.NVML_DEVICE_MIG_DISABLE
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_mig_mode, _ = pynvml.nvmlDeviceGetMigMode(dev)
@@ -200,22 +216,6 @@ class NVIDIADetector(Detector):
                     if dev_mem == 0:
                         dev_mem, dev_mem_used = get_memory()
 
-                    dev_temp = None
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_temp = pynvml.nvmlDeviceGetTemperature(
-                            dev,
-                            pynvml.NVML_TEMPERATURE_GPU,
-                        )
-
-                    dev_power = None
-                    dev_power_used = None
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
-                        dev_power = dev_power // 1000  # mW to W
-                        dev_power_used = (
-                            pynvml.nvmlDeviceGetPowerUsage(dev) // 1000
-                        )  # mW to W
-
                     dev_is_vgpu = False
                     if dev_bdf in pci_devs:
                         dev_is_vgpu = _is_vgpu(pci_devs[dev_bdf].config)
@@ -264,9 +264,13 @@ class NVIDIADetector(Detector):
                 mdev_cores = None
                 mdev_count = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
                 for mdev_idx in range(mdev_count):
-                    mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+                    mdev = None
+                    with contextlib.suppress(pynvml.NVMLError):
+                        mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+                    if not mdev:
+                        continue
 
-                    mdev_index = mdev_idx
+                    mdev_index = mdev_idx + dev_count * (dev_idx + 1)
                     mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
 
                     mdev_mem = 0
@@ -289,21 +293,6 @@ class NVIDIADetector(Detector):
                         if mdev_mem_ecc_errors > 0:
                             mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
-                    mdev_temp = pynvml.nvmlDeviceGetTemperature(
-                        mdev,
-                        pynvml.NVML_TEMPERATURE_GPU,
-                    )
-
-                    mdev_power = None
-                    with contextlib.suppress(pynvml.NVMLError):
-                        mdev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(
-                            mdev,
-                        )
-                        mdev_power = mdev_power // 1000  # mW to W
-                    mdev_power_used = (
-                        pynvml.nvmlDeviceGetPowerUsage(mdev) // 1000
-                    )  # mW to W
-
                     mdev_appendix = {
                         "arch_family": _get_arch_family(dev_cc_t),
                         "vgpu": True,
@@ -325,71 +314,70 @@ class NVIDIADetector(Detector):
 
                     mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
 
-                    if not mdev_name:
-                        mdev_gi = pynvml.nvmlDeviceGetGpuInstanceById(dev, mdev_gi_id)
-                        mdev_ci = pynvml.nvmlGpuInstanceGetComputeInstanceById(
-                            mdev_gi,
-                            mdev_ci_id,
-                        )
-                        mdev_gi_info = pynvml.nvmlGpuInstanceGetInfo(mdev_gi)
-                        mdev_ci_info = pynvml.nvmlComputeInstanceGetInfo(mdev_ci)
-                        for dev_gi_prf_id in range(
-                            pynvml.NVML_GPU_INSTANCE_PROFILE_COUNT,
-                        ):
-                            try:
-                                dev_gi_prf = pynvml.nvmlDeviceGetGpuInstanceProfileInfo(
-                                    dev,
-                                    dev_gi_prf_id,
-                                )
-                                if dev_gi_prf.id != mdev_gi_info.profileId:
-                                    continue
-                            except pynvml.NVMLError:
+                    mdev_gi = pynvml.nvmlDeviceGetGpuInstanceById(dev, mdev_gi_id)
+                    mdev_ci = pynvml.nvmlGpuInstanceGetComputeInstanceById(
+                        mdev_gi,
+                        mdev_ci_id,
+                    )
+                    mdev_gi_info = pynvml.nvmlGpuInstanceGetInfo(mdev_gi)
+                    mdev_ci_info = pynvml.nvmlComputeInstanceGetInfo(mdev_ci)
+                    for dev_gi_prf_id in range(
+                        pynvml.NVML_GPU_INSTANCE_PROFILE_COUNT,
+                    ):
+                        try:
+                            dev_gi_prf = pynvml.nvmlDeviceGetGpuInstanceProfileInfo(
+                                dev,
+                                dev_gi_prf_id,
+                            )
+                            if dev_gi_prf.id != mdev_gi_info.profileId:
                                 continue
+                        except pynvml.NVMLError:
+                            continue
 
-                            for dev_ci_prf_id in range(
-                                pynvml.NVML_COMPUTE_INSTANCE_PROFILE_COUNT,
+                        for dev_ci_prf_id in range(
+                            pynvml.NVML_COMPUTE_INSTANCE_PROFILE_COUNT,
+                        ):
+                            for dev_cig_prf_id in range(
+                                pynvml.NVML_COMPUTE_INSTANCE_ENGINE_PROFILE_COUNT,
                             ):
-                                for dev_cig_prf_id in range(
-                                    pynvml.NVML_COMPUTE_INSTANCE_ENGINE_PROFILE_COUNT,
-                                ):
-                                    try:
-                                        mdev_ci_prf = pynvml.nvmlGpuInstanceGetComputeInstanceProfileInfo(
-                                            mdev_gi,
-                                            dev_ci_prf_id,
-                                            dev_cig_prf_id,
-                                        )
-                                        if mdev_ci_prf.id != mdev_ci_info.profileId:
-                                            continue
-                                    except pynvml.NVMLError:
-                                        continue
-
-                                    ci_slice = _get_compute_instance_slice(
+                                try:
+                                    dev_ci_prf = pynvml.nvmlGpuInstanceGetComputeInstanceProfileInfo(
+                                        mdev_gi,
                                         dev_ci_prf_id,
+                                        dev_cig_prf_id,
                                     )
-                                    gi_slice = _get_gpu_instance_slice(dev_gi_prf_id)
-                                    gi_mem = _get_gpu_instance_memory(
-                                        dev_mem_info,
-                                        dev_gi_prf,
-                                    )
-                                    gi_attrs = _get_gpu_instance_attrs(dev_gi_prf_id)
-                                    gi_neg_attrs = _get_gpu_instance_negattrs(
-                                        dev_gi_prf_id,
-                                    )
+                                    if dev_ci_prf.id != mdev_ci_info.profileId:
+                                        continue
+                                except pynvml.NVMLError:
+                                    continue
 
-                                    if ci_slice == gi_slice:
-                                        mdev_name = f"{gi_slice}g.{gi_mem}gb"
+                                ci_slice = _get_compute_instance_slice(dev_ci_prf_id)
+                                gi_slice = _get_gpu_instance_slice(dev_gi_prf_id)
+                                if ci_slice == gi_slice:
+                                    if hasattr(dev_gi_prf, "name"):
+                                        mdev_name = dev_gi_prf.name
                                     else:
-                                        mdev_name = (
-                                            f"{ci_slice}c.{gi_slice}g.{gi_mem}gb"
+                                        gi_mem = round(
+                                            math.ceil(dev_gi_prf.memorySizeMB >> 10),
                                         )
-                                    if gi_attrs:
-                                        mdev_name += f"+{gi_attrs}"
-                                    if gi_neg_attrs:
-                                        mdev_name += f"-{gi_neg_attrs}"
+                                        mdev_name = f"{gi_slice}g.{gi_mem}gb"
+                                elif hasattr(dev_ci_prf, "name"):
+                                    mdev_name = dev_ci_prf.name
+                                else:
+                                    gi_mem = round(
+                                        math.ceil(dev_gi_prf.memorySizeMB >> 10),
+                                    )
+                                    mdev_name = f"{ci_slice}c.{gi_slice}g.{gi_mem}gb"
+                                gi_attrs = _get_gpu_instance_attrs(dev_gi_prf_id)
+                                if gi_attrs:
+                                    mdev_name += f"+{gi_attrs}"
+                                gi_neg_attrs = _get_gpu_instance_negattrs(dev_gi_prf_id)
+                                if gi_neg_attrs:
+                                    mdev_name += f"-{gi_neg_attrs}"
 
-                                    mdev_cores = mdev_ci_prf.multiprocessorCount
+                                mdev_cores = dev_ci_prf.multiprocessorCount
 
-                                    break
+                                break
 
                     ret.append(
                         Device(
@@ -407,9 +395,9 @@ class NVIDIADetector(Detector):
                             memory_used=mdev_mem_used,
                             memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
                             memory_status=mdev_mem_status,
-                            temperature=mdev_temp,
-                            power=mdev_power,
-                            power_used=mdev_power_used,
+                            temperature=dev_temp,
+                            power=dev_power,
+                            power_used=dev_power_used,
                             appendix=mdev_appendix,
                         ),
                     )
@@ -447,11 +435,17 @@ class NVIDIADetector(Detector):
             devices_count=len(devices),
         )
 
+        get_links_cache = {}
+
         try:
             pynvml.nvmlInit()
 
             for i, dev_i in enumerate(devices):
-                dev_i_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
+                dev_i_bdf = dev_i.appendix.get("bdf")
+                if dev_i.appendix.get("vgpu", False):
+                    dev_i_handle = pynvml.nvmlDeviceGetHandleByPciBusId(dev_i_bdf)
+                else:
+                    dev_i_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
 
                 # Get NUMA and CPU affinities.
                 ret.devices_numa_affinities[i] = dev_i.appendix.get("numa", "")
@@ -460,7 +454,12 @@ class NVIDIADetector(Detector):
                 )
 
                 # Get links state if applicable.
-                if dev_i_links_state := _get_links_state(dev_i_handle):
+                if dev_i_bdf in get_links_cache:
+                    dev_i_links_state = get_links_cache[dev_i_bdf]
+                else:
+                    dev_i_links_state = _get_links_state(dev_i_handle)
+                    get_links_cache[dev_i_bdf] = dev_i_links_state
+                if dev_i_links_state:
                     ret.appendices[i].update(dev_i_links_state)
                     # In practice, if a card has an active *Link,
                     # then other cards in the same machine should be interconnected with it through the *Link.
@@ -477,21 +476,30 @@ class NVIDIADetector(Detector):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
 
-                    dev_j_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
+                    dev_j_bdf = dev_j.appendix.get("bdf")
+                    if dev_i_bdf == dev_j_bdf:
+                        distance = TopologyDistanceEnum.SELF
+                    else:
+                        if dev_j.appendix.get("vgpu", False):
+                            dev_j_handle = pynvml.nvmlDeviceGetHandleByPciBusId(
+                                dev_j_bdf,
+                            )
+                        else:
+                            dev_j_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_j.uuid)
 
-                    distance = TopologyDistanceEnum.UNK
-                    try:
-                        distance = pynvml.nvmlDeviceGetTopologyCommonAncestor(
-                            dev_i_handle,
-                            dev_j_handle,
-                        )
-                    except pynvml.NVMLError:
-                        debug_log_exception(
-                            logger,
-                            "Failed to get distance between device %d and %d",
-                            dev_i.index,
-                            dev_j.index,
-                        )
+                        distance = TopologyDistanceEnum.UNK
+                        try:
+                            distance = pynvml.nvmlDeviceGetTopologyCommonAncestor(
+                                dev_i_handle,
+                                dev_j_handle,
+                            )
+                        except pynvml.NVMLError:
+                            debug_log_exception(
+                                logger,
+                                "Failed to get distance between device %d and %d",
+                                dev_i.index,
+                                dev_j.index,
+                            )
 
                     ret.devices_distances[i][j] = distance
                     ret.devices_distances[j][i] = distance
@@ -786,30 +794,6 @@ def _get_gpu_instance_slice(dev_gi_prf_id: int) -> int:
 
     msg = f"Invalid GPU Instance Profile ID: {dev_gi_prf_id}"
     raise AttributeError(msg)
-
-
-def _get_gpu_instance_memory(dev_mem, dev_gi_prf) -> int:
-    """
-    Compute the memory size of a MIG compute instance in GiB.
-
-    Args:
-        dev_mem:
-            The total memory info of the parent GPU device.
-        dev_gi_prf:
-            The profile info of the GPU instance.
-
-    Returns:
-        The memory size in GiB.
-
-    """
-    mem = dev_gi_prf.memorySizeMB * (1 << 20)  # MiB to byte
-
-    gib = round(
-        math.ceil(mem / dev_mem.total * 8)
-        / 8
-        * ((dev_mem.total + (1 << 30) - 1) / (1 << 30)),
-    )
-    return gib
 
 
 def _get_compute_instance_slice(dev_ci_prf_id: int) -> int:
