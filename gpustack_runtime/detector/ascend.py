@@ -10,6 +10,7 @@ from . import pyacl, pydcmi
 from .__types__ import (
     Detector,
     Device,
+    DeviceMemoryStatusEnum,
     Devices,
     ManufacturerEnum,
     Topology,
@@ -128,7 +129,9 @@ class AscendDetector(Detector):
                         dev_is_vgpu = True
                         dev_cores_aicore = dev_virt_info.query_info.computing.aic
                         dev_name = dev_virt_info.query_info.name
-                        dev_mem, dev_mem_used = 0, 0
+                        dev_mem = 0
+                        dev_mem_used = 0
+                        dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                         if hasattr(dev_virt_info.query_info.computing, "memory_size"):
                             dev_mem = dev_virt_info.query_info.computing.memory_size
                         dev_index = dev_virt_info.vdev_id
@@ -140,6 +143,10 @@ class AscendDetector(Detector):
                         dev_cores_aicore = dev_chip_info.aicore_cnt
                         dev_name = dev_chip_info.chip_name
                         dev_mem, dev_mem_used = _get_device_memory_info(
+                            dev_card_id,
+                            dev_device_id,
+                        )
+                        dev_mem_status = _get_device_memory_status(
                             dev_card_id,
                             dev_device_id,
                         )
@@ -239,6 +246,7 @@ class AscendDetector(Detector):
                             memory=dev_mem,
                             memory_used=dev_mem_used,
                             memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                            memory_status=dev_mem_status,
                             temperature=dev_temp,
                             power_used=dev_power_used,
                             appendix=dev_appendix,
@@ -332,6 +340,12 @@ def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
     """
     Get device memory information.
 
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
     Returns:
         A tuple containing total memory and used memory in MiB.
 
@@ -368,6 +382,37 @@ def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
             raise
 
     return dev_mem, dev_mem_used
+
+
+def _get_device_memory_status(dev_card_id, dev_device_id) -> DeviceMemoryStatusEnum:
+    """
+    Get device memory ECC status.
+
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
+    Returns:
+        DeviceMemoryStatusEnum indicating the ECC status.
+
+    """
+    for dev_mem_type in [pydcmi.DCMI_DEVICE_TYPE_HBM, pydcmi.DCMI_DEVICE_TYPE_DDR]:
+        with contextlib.suppress(pydcmi.DCMIError):
+            dev_ecc_info = pydcmi.dcmi_get_device_ecc_info(
+                dev_card_id,
+                dev_device_id,
+                dev_mem_type,
+            )
+            if dev_ecc_info.enable_flag and (
+                dev_ecc_info.single_bit_error_cnt > 0
+                or dev_ecc_info.double_bit_error_cnt > 0
+            ):
+                return DeviceMemoryStatusEnum.UNHEALTHY
+            return DeviceMemoryStatusEnum.HEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY
 
 
 def _get_device_roce_network_info(

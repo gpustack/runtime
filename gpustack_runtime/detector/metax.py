@@ -1,5 +1,6 @@
 from __future__ import annotations as __future_annotations__
 
+import contextlib
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -10,6 +11,7 @@ from . import pymxsml
 from .__types__ import (
     Detector,
     Device,
+    DeviceMemoryStatusEnum,
     Devices,
     ManufacturerEnum,
     Topology,
@@ -145,6 +147,11 @@ class MetaXDetector(Detector):
                 dev_mem_used = kibibyte_to_mebibyte(  # KiB to MiB
                     dev_mem_info.vramUse,
                 )
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+                with contextlib.suppress(pymxsml.MXSMLError):
+                    dev_ecc_errors = pymxsml.mxSmlGetTotalEccErrors(dev_idx)
+                    if dev_ecc_errors.dramUE > 0:
+                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_temp = (
                     pymxsml.mxSmlGetTemperatureInfo(
@@ -201,6 +208,7 @@ class MetaXDetector(Detector):
                         memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
                         temperature=dev_temp,
                         power=dev_power,
                         power_used=dev_power_used,

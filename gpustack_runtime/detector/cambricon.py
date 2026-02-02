@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from .. import envs
 from ..logging import debug_log_exception
+from . import DeviceMemoryStatusEnum
 from .__types__ import Detector, Device, Devices, ManufacturerEnum
 from .__utils__ import (
     PCIDevice,
@@ -100,6 +101,7 @@ class CambriconDetector(Detector):
                 dev_mem_usage_info = dev_info.get("PhysicalMemUsage", {})
                 dev_mem = safe_int(dev_mem_usage_info.get("Total", 0))
                 dev_mem_used = safe_int(dev_mem_usage_info.get("Used", 0))
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
 
                 dev_temp_info = dev_info.get("Temperature", {})
                 dev_temp = safe_float(dev_temp_info.get("Chip", 0))
@@ -118,6 +120,7 @@ class CambriconDetector(Detector):
                         memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
                         temperature=dev_temp,
                         appendix=dev_appendix,
                     ),

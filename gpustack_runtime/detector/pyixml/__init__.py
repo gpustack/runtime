@@ -960,6 +960,14 @@ NVML_HOST_VGPU_MODE_SRIOV = 1
 # GSP firmware
 NVML_GSP_FIRMWARE_VERSION_BUF_SIZE = 0x40
 
+# Health
+IXML_HEALTH_SYSHUB_ERROR = 0x0000000000000001
+IXML_HEALTH_MC_ERROR = 0x0000000000000002
+IXML_HEALTH_ECC_ERROR = 0x0000000000000010
+IXML_HEALTH_MEMORY_ERROR = 0x0000000000000020
+IXML_HEALTH_PCIE_ERROR = 0x0000000000000040
+IXML_HEALTH_OK = 0x0000000000000000
+
 
 ## Error Checking ##
 class NVMLError(Exception):
@@ -5267,3 +5275,11 @@ def nvmlDeviceGetGpuFabricInfo(device, gpuFabricInfo):
     ret = fn(device, gpuFabricInfo)
     _nvmlCheckReturn(ret)
     return ret
+
+
+def ixmlDeviceGetHealth(device):
+    c_health = c_longlong()
+    fn = _nvmlGetFunctionPointer("ixmlDeviceGetHealth")
+    ret = fn(device, byref(c_health))
+    _nvmlCheckReturn(ret)
+    return c_health.value

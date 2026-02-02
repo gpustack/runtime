@@ -12,6 +12,7 @@ from . import pyhgml
 from .__types__ import (
     Detector,
     Device,
+    DeviceMemoryStatusEnum,
     Devices,
     ManufacturerEnum,
     Topology,
@@ -171,6 +172,7 @@ class THeadDetector(Detector):
 
                     dev_mem = 0
                     dev_mem_used = 0
+                    dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                     with contextlib.suppress(pyhgml.HGMLError):
                         dev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(dev)
                         dev_mem = byte_to_mebibyte(  # byte to MiB
@@ -179,6 +181,14 @@ class THeadDetector(Detector):
                         dev_mem_used = byte_to_mebibyte(  # byte to MiB
                             dev_mem_info.used,
                         )
+                        dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
+                            dev,
+                            pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                            pyhgml.HGML_VOLATILE_ECC,
+                            pyhgml.HGML_MEMORY_LOCATION_DRAM,
+                        )
+                        if dev_mem_ecc_errors > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                     dev_temp = None
                     with contextlib.suppress(pyhgml.HGMLError):
@@ -221,6 +231,7 @@ class THeadDetector(Detector):
                             memory=dev_mem,
                             memory_used=dev_mem_used,
                             memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                            memory_status=dev_mem_status,
                             temperature=dev_temp,
                             power=dev_power,
                             power_used=dev_power_used,
@@ -241,15 +252,25 @@ class THeadDetector(Detector):
                     mdev_index = mdev_idx
                     mdev_uuid = pyhgml.hgmlDeviceGetUUID(mdev)
 
-                    mdev_mem, mdev_mem_used = 0, 0
+                    mdev_mem = 0
+                    mdev_mem_used = 0
+                    mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                     with contextlib.suppress(pyhgml.HGMLError):
                         mdev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(mdev)
-                        byte_to_mebibyte(  # byte to MiB
+                        mdev_mem = byte_to_mebibyte(  # byte to MiB
                             mdev_mem_info.total,
                         )
-                        byte_to_mebibyte(  # byte to MiB
+                        mdev_mem_used = byte_to_mebibyte(  # byte to MiB
                             mdev_mem_info.used,
                         )
+                        mdev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
+                            mdev,
+                            pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                            pyhgml.HGML_AGGREGATE_ECC,
+                            pyhgml.HGML_MEMORY_LOCATION_SRAM,
+                        )
+                        if mdev_mem_ecc_errors > 0:
+                            mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                     mdev_temp = pyhgml.hgmlDeviceGetTemperature(
                         mdev,
@@ -352,6 +373,7 @@ class THeadDetector(Detector):
                             memory=mdev_mem,
                             memory_used=mdev_mem_used,
                             memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
+                            memory_status=mdev_mem_status,
                             temperature=mdev_temp,
                             power=mdev_power,
                             power_used=mdev_power_used,

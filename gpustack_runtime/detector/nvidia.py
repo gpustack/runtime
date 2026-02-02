@@ -3,17 +3,17 @@ from __future__ import annotations as __future_annotations__
 import contextlib
 import logging
 import math
+import re
 import time
 from _ctypes import byref
 from functools import lru_cache
 from pathlib import Path
-from typing import re
 
 import pynvml
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import Topology, pycuda
+from . import DeviceMemoryStatusEnum, Topology, pycuda
 from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
 from .__utils__ import (
     PCIDevice,
@@ -78,7 +78,7 @@ class NVIDIADetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.NVIDIA)
 
-    def detect(self) -> Devices | None:
+    def detect(self) -> Devices | None:  # noqa: PLR0915
         """
         Detect NVIDIA GPUs using pynvml.
 
@@ -180,6 +180,7 @@ class NVIDIADetector(Detector):
 
                     dev_mem = 0
                     dev_mem_used = 0
+                    dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                     with contextlib.suppress(pynvml.NVMLError):
                         dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
                         dev_mem = byte_to_mebibyte(  # byte to MiB
@@ -188,6 +189,14 @@ class NVIDIADetector(Detector):
                         dev_mem_used = byte_to_mebibyte(  # byte to MiB
                             dev_mem_info.used,
                         )
+                        dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
+                            dev,
+                            pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                            pynvml.NVML_VOLATILE_ECC,
+                            pynvml.NVML_MEMORY_LOCATION_DRAM,
+                        )
+                        if dev_mem_ecc_errors > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
                     if dev_mem == 0:
                         dev_mem, dev_mem_used = get_memory()
 
@@ -236,6 +245,7 @@ class NVIDIADetector(Detector):
                             memory=dev_mem,
                             memory_used=dev_mem_used,
                             memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                            memory_status=dev_mem_status,
                             temperature=dev_temp,
                             power=dev_power,
                             power_used=dev_power_used,
@@ -259,7 +269,9 @@ class NVIDIADetector(Detector):
                     mdev_index = mdev_idx
                     mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
 
-                    mdev_mem, mdev_mem_used = 0, 0
+                    mdev_mem = 0
+                    mdev_mem_used = 0
+                    mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                     with contextlib.suppress(pynvml.NVMLError):
                         mdev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(mdev)
                         mdev_mem = byte_to_mebibyte(  # byte to MiB
@@ -268,6 +280,14 @@ class NVIDIADetector(Detector):
                         mdev_mem_used = byte_to_mebibyte(  # byte to MiB
                             mdev_mem_info.used,
                         )
+                        mdev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
+                            mdev,
+                            pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                            pynvml.NVML_AGGREGATE_ECC,
+                            pynvml.NVML_MEMORY_LOCATION_SRAM,
+                        )
+                        if mdev_mem_ecc_errors > 0:
+                            mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                     mdev_temp = pynvml.nvmlDeviceGetTemperature(
                         mdev,
@@ -386,6 +406,7 @@ class NVIDIADetector(Detector):
                             memory=mdev_mem,
                             memory_used=mdev_mem_used,
                             memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
+                            memory_status=mdev_mem_status,
                             temperature=mdev_temp,
                             power=mdev_power,
                             power_used=mdev_power_used,

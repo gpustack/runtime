@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from ..detector import (
+    DeviceMemoryStatusEnum,
     Devices,
     Topology,
     detect_devices,
@@ -142,7 +143,7 @@ def format_devices_table(devs: Devices) -> str:
         return "No GPUs detected."
 
     # Column headers
-    col_headers = ["GPU", "Name", "Memory-Usage", "GPU-Util", "Temp", "CC"]
+    col_headers = ["GPU", "Name", "Memory-Usage", "GPU-Util", "Temp", "CC", "Status"]
     # Gather all rows to determine max width for each column
     rows = []
     for dev in devs:
@@ -153,6 +154,7 @@ def format_devices_table(devs: Devices) -> str:
             f"{dev.cores_utilization}%",
             f"{dev.temperature}C" if dev.temperature is not None else "N/A",
             dev.compute_capability if dev.compute_capability else "N/A",
+            "OK" if dev.memory_status == DeviceMemoryStatusEnum.HEALTHY else "ERR",
         ]
         rows.append(row)
 

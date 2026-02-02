@@ -122,6 +122,28 @@ def backend_to_manufacturer(backend: str) -> ManufacturerEnum:
     return ManufacturerEnum.UNKNOWN
 
 
+class DeviceMemoryStatusEnum(str, Enum):
+    """
+    Enum for Device Memory Status.
+    """
+
+    HEALTHY = "healthy"
+    """
+    Device is healthy.
+    """
+    UNHEALTHY = "unhealthy"
+    """
+    Device is unhealthy.
+    """
+    UNKNOWN = "unknown"
+    """
+    Device status is unknown.
+    """
+
+    def __str__(self):
+        return self.value
+
+
 @dataclass_json
 @dataclass
 class Device:
@@ -184,6 +206,10 @@ class Device:
     memory_utilization: float = 0
     """
     Memory utilization of the device in percentage.
+    """
+    memory_status: DeviceMemoryStatusEnum = DeviceMemoryStatusEnum.UNKNOWN
+    """
+    Status of the device.
     """
     temperature: int | float | None = None
     """

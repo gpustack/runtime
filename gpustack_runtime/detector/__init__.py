@@ -7,6 +7,7 @@ from ..logging import debug_log_exception
 from .__types__ import (
     Detector,
     Device,
+    DeviceMemoryStatusEnum,
     Devices,
     ManufacturerEnum,
     Topology,
@@ -292,6 +293,7 @@ def filter_devices_by_manufacturer(
 
 __all__ = [
     "Device",
+    "DeviceMemoryStatusEnum",
     "Devices",
     "ManufacturerEnum",
     "Topology",

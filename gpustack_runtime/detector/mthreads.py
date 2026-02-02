@@ -7,6 +7,7 @@ import pymtml
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
+from . import DeviceMemoryStatusEnum
 from .__types__ import (
     Detector,
     Device,
@@ -140,6 +141,7 @@ class MThreadsDetector(Detector):
 
                 dev_mem = 0
                 dev_mem_used = 0
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 with pymtml.mtmlMemoryContext(dev) as devmem:
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pymtml.mtmlMemoryGetTotal(devmem),
@@ -147,6 +149,14 @@ class MThreadsDetector(Detector):
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         pymtml.mtmlMemoryGetUsed(devmem),
                     )
+                    dev_mem_ecc_errors = pymtml.mtmlMemoryGetEccErrorCounter(
+                        devmem,
+                        pymtml.MTML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                        pymtml.MTML_VOLATILE_ECC,
+                        pymtml.MTML_MEMORY_LOCATION_DRAM,
+                    )
+                    if dev_mem_ecc_errors > 0:
+                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_cores_util = None
                 dev_temp = None
@@ -192,6 +202,7 @@ class MThreadsDetector(Detector):
                         memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
                         temperature=dev_temp,
                         power_used=dev_power_used,
                         appendix=dev_appendix,

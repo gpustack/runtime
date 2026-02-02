@@ -393,3 +393,17 @@ def rsmi_is_p2p_accessible(device_a=0, device_b=0):
     )
     _rocmsmiCheckReturn(ret)
     return c_accessible.value
+
+
+def rsmi_dev_ecc_count_get(device=0, gpu_block=None):
+    if gpu_block is None:
+        gpu_block = rsmi_gpu_block_t.RSMI_GPU_BLOCK_UMC
+    c_error_count = rsmi_error_count_t()
+    fn = _rocmsmiGetFunctionPointer("rsmi_dev_ecc_count_get")
+    ret = fn(
+        device,
+        gpu_block,
+        byref(c_error_count),
+    )
+    _rocmsmiCheckReturn(ret)
+    return c_error_count

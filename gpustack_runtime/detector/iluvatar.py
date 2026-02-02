@@ -10,6 +10,7 @@ from . import pyixml
 from .__types__ import (
     Detector,
     Device,
+    DeviceMemoryStatusEnum,
     Devices,
     ManufacturerEnum,
     Topology,
@@ -135,6 +136,7 @@ class IluvatarDetector(Detector):
 
                 dev_mem = 0
                 dev_mem_used = 0
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 with contextlib.suppress(pyixml.NVMLError):
                     dev_mem_info = pyixml.nvmlDeviceGetMemoryInfo(dev)
                     dev_mem = byte_to_mebibyte(  # byte to MiB
@@ -143,6 +145,9 @@ class IluvatarDetector(Detector):
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         dev_mem_info.used,
                     )
+                    dev_health = pyixml.ixmlDeviceGetHealth(dev)
+                    if dev_health != pyixml.IXML_HEALTH_OK:
+                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_cores_util = None
                 with contextlib.suppress(pyixml.NVMLError):
@@ -213,6 +218,7 @@ class IluvatarDetector(Detector):
                         memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
                         temperature=dev_temp,
                         power=dev_power,
                         power_used=dev_power_used,
