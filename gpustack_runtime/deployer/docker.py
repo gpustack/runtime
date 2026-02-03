@@ -4,13 +4,11 @@ import contextlib
 import io
 import json
 import logging
-import operator
 import os
 import socket
 import sys
 import tarfile
 from dataclasses import dataclass, field
-from functools import reduce
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -81,17 +79,6 @@ class DockerWorkloadPlan(WorkloadPlan):
             Image used for the pause container.
         unhealthy_restart_image (str):
             Image used for unhealthy restart container.
-        resource_key_runtime_env_mapping: (dict[str, str]):
-            Mapping from resource names to environment variable names for device allocation,
-            which is used to tell the Container Runtime which GPUs to mount into the container.
-            For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
-            which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
-            With privileged mode, the container can access all GPUs even if specified.
-        resource_key_backend_env_mapping: (dict[str, list[str]]):
-            Mapping from resource names to environment variable names for device runtime,
-            which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container.
-            For example, {"nvidia.com/gpu": ["CUDA_VISIBLE_DEVICES"]},
-            which sets the "CUDA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
         namespace (str | None):
             Namespace of the workload.
         name (str):
@@ -845,7 +832,7 @@ class DockerDeployer(EndoscopicDeployer):
             msg = f"Failed to upload ephemeral files to container {container.name}"
             raise OperationError(msg)
 
-    def _create_containers(  # noqa: C901
+    def _create_containers(
         self,
         workload: DockerWorkloadPlan,
         ephemeral_volume_name_mapping: dict[str, str],
@@ -955,141 +942,120 @@ class DockerDeployer(EndoscopicDeployer):
                     envs.GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY.lower()
                     == "cdi"
                 )
+                fmt = "plain" if not cdi else "cdi"
 
-                r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
-                r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                vd_manus, vd_env, vd_cdis, vd_values = (
-                    self.get_visible_devices_materials()
-                )
                 for r_k, r_v in c.resources.items():
-                    match r_k:
-                        case "cpu":
-                            if isinstance(r_v, int | float):
-                                create_options["cpu_shares"] = ceil(r_v * 1024)
-                            elif isinstance(r_v, str) and r_v.isdigit():
-                                create_options["cpu_shares"] = ceil(float(r_v) * 1024)
-                        case "memory":
-                            if isinstance(r_v, int):
-                                create_options["mem_limit"] = r_v
-                                create_options["mem_reservation"] = r_v
-                                create_options["memswap_limit"] = r_v
-                            elif isinstance(r_v, str):
-                                v = r_v.lower().removesuffix("i")
-                                create_options["mem_limit"] = v
-                                create_options["mem_reservation"] = v
-                                create_options["memswap_limit"] = v
-                        case _:
-                            if r_k in r_k_runtime_env:
-                                # Set env if resource key is mapped.
-                                runtime_env = [r_k_runtime_env[r_k]]
-                            elif (
-                                r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY
-                            ):
-                                # Set env if auto-mapping key is matched.
-                                runtime_env = list(vd_env.keys())
-                            else:
-                                continue
+                    if r_k == "cpu":
+                        if isinstance(r_v, int | float):
+                            create_options["cpu_shares"] = ceil(r_v * 1024)
+                        elif isinstance(r_v, str) and r_v.isdigit():
+                            create_options["cpu_shares"] = ceil(float(r_v) * 1024)
+                        continue
+                    if r_k == "memory":
+                        if isinstance(r_v, int):
+                            create_options["mem_limit"] = r_v
+                            create_options["mem_reservation"] = r_v
+                            create_options["memswap_limit"] = r_v
+                        elif isinstance(r_v, str):
+                            v = r_v.lower().removesuffix("i")
+                            create_options["mem_limit"] = v
+                            create_options["mem_reservation"] = v
+                            create_options["memswap_limit"] = v
+                        continue
 
-                            if r_k in r_k_backend_env:
-                                # Set env if resource key is mapped.
-                                backend_env = r_k_backend_env[r_k]
-                            else:
-                                # Otherwise, use the default backend env names.
-                                backend_env = reduce(
-                                    operator.add,
-                                    list(vd_env.values()),
-                                )
+                    if (
+                        r_k
+                        in envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES
+                    ):
+                        # Set env if resource key is mapped.
+                        runtime_envs = [
+                            envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES[
+                                r_k
+                            ],
+                        ]
+                    elif r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY:
+                        # Set env if auto-mapping key is matched.
+                        runtime_envs = self.get_runtime_envs()
+                    else:
+                        continue
 
-                            privileged = create_options.get("privileged", False)
+                    privileged = create_options.get("privileged", False)
+                    resource_values = [x.strip() for x in r_v.split(",")]
 
-                            # Generate CDI config if not yet.
-                            if cdi and envs.GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE:
-                                for re in runtime_env:
-                                    cdi_dump_config(
-                                        manufacturer=vd_manus[re],
-                                        output=envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY,
-                                    )
-
-                            # Configure device access environment variable.
-                            if r_v == "all" and backend_env:
-                                # Configure privileged if requested all devices.
-                                create_options["privileged"] = True
-                                # Then, set container backend visible devices env to all devices,
-                                # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
-                                # and mount corresponding libs if needed.
-                                for re in runtime_env:
-                                    # Request device via CDI.
-                                    if cdi:
-                                        rv = [
-                                            f"{vd_cdis[re]}={v}"
-                                            for v in (vd_values.get(re) or ["all"])
-                                        ]
-                                        if "device_requests" not in create_options:
-                                            create_options["device_requests"] = []
-                                        create_options["device_requests"].append(
-                                            docker.types.DeviceRequest(
-                                                driver="cdi",
-                                                count=0,
-                                                device_ids=rv,
-                                            ),
-                                        )
-                                        continue
-                                    # Request device via visible devices env.
-                                    rv = ",".join(vd_values.get(re) or ["all"])
-                                    create_options["environment"][re] = rv
-                            else:
-                                # Set env to the allocated device IDs if no privileged,
-                                # otherwise, set container backend visible devices env to all devices,
-                                # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
-                                # and mount corresponding libs if needed.
-                                for re in runtime_env:
-                                    # Request device via CDI.
-                                    if cdi:
-                                        if not privileged:
-                                            rv = [
-                                                f"{vd_cdis[re]}={v.strip()}"
-                                                for v in r_v.split(",")
-                                            ]
-                                        else:
-                                            rv = [
-                                                f"{vd_cdis[re]}={v}"
-                                                for v in (vd_values.get(re) or ["all"])
-                                            ]
-                                        if "device_requests" not in create_options:
-                                            create_options["device_requests"] = []
-                                        create_options["device_requests"].append(
-                                            docker.types.DeviceRequest(
-                                                driver="cdi",
-                                                count=0,
-                                                device_ids=rv,
-                                            ),
-                                        )
-                                        continue
-                                    # Request device via visible devices env.
-                                    if not privileged:
-                                        rv = str(r_v)
-                                    else:
-                                        rv = ",".join(vd_values.get(re) or ["all"])
-                                    create_options["environment"][re] = rv
-
-                            # Configure runtime device access environment variables.
-                            if r_v != "all" and privileged:
-                                for be in backend_env:
-                                    bev = self.align_backend_visible_devices_env_values(
-                                        be,
-                                        str(r_v),
-                                    )
-                                    create_options["environment"][be] = bev
-
-                            # Configure affinity if applicable.
-                            cpus, numas = self.get_visible_devices_affinities(
-                                runtime_env,
-                                r_v,
+                    # Generate CDI config if not yet.
+                    if cdi and envs.GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE:
+                        for ren in runtime_envs:
+                            r_m = self.get_manufacturer(ren)
+                            cdi_dump_config(
+                                manufacturer=r_m,
+                                output=envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY,
                             )
-                            if cpus:
-                                create_options["cpuset_cpus"] = cpus
-                            if numas:
-                                create_options["cpuset_mems"] = numas
+
+                    # Request devices.
+                    if r_v == "all":
+                        # Configure privileged.
+                        create_options["privileged"] = True
+                        # Request all devices.
+                        for ren in runtime_envs:
+                            r_vs = self.get_runtime_visible_devices(ren, fmt)
+                            # Request device via CDI.
+                            if cdi:
+                                if "device_requests" not in create_options:
+                                    create_options["device_requests"] = []
+                                create_options["device_requests"].append(
+                                    docker.types.DeviceRequest(
+                                        driver="cdi",
+                                        count=0,
+                                        device_ids=r_vs,
+                                    ),
+                                )
+                                continue
+                            # Request device via visible devices env.
+                            create_options["environment"][ren] = ",".join(r_vs)
+                    else:
+                        # Request specific devices.
+                        for ren in runtime_envs:
+                            # Request all devices if privileged,
+                            # otherwise, normalize requested devices.
+                            if privileged:
+                                r_vs = self.get_runtime_visible_devices(ren, fmt)
+                            else:
+                                r_vs = self.map_runtime_visible_devices(
+                                    ren,
+                                    resource_values,
+                                    fmt,
+                                )
+                            # Request device via CDI.
+                            if cdi:
+                                if "device_requests" not in create_options:
+                                    create_options["device_requests"] = []
+                                create_options["device_requests"].append(
+                                    docker.types.DeviceRequest(
+                                        driver="cdi",
+                                        count=0,
+                                        device_ids=r_vs,
+                                    ),
+                                )
+                                continue
+                            # Request device via visible devices env.
+                            create_options["environment"][ren] = ",".join(r_vs)
+
+                    # If not requesting all devices but privileged,
+                    # must configure visible devices.
+                    if r_v != "all" and privileged:
+                        b_vs = self.map_backend_visible_devices(
+                            runtime_envs,
+                            resource_values,
+                        )
+                        create_options["environment"].update(b_vs)
+
+                    # Configure affinity if applicable.
+                    create_options.update(
+                        self.map_visible_devices_affinities(
+                            runtime_envs,
+                            resource_values,
+                        ),
+                    )
 
             # Parameterize mounts.
             self._append_container_mounts(

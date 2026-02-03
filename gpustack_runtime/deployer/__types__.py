@@ -30,6 +30,7 @@ from .__utils__ import (
     safe_yaml,
     validate_rfc1123_subdomain_name,
 )
+from .k8s.deviceplugin import cdi_kind_to_kdp_resource
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
@@ -838,17 +839,6 @@ class WorkloadPlan(WorkloadSecurity):
     Base plan class for all workloads.
 
     Attributes:
-        resource_key_runtime_env_mapping: (dict[str, str]):
-            Mapping from resource names to environment variable names for device allocation,
-            which is used to tell the Container Runtime which GPUs to mount into the container.
-            For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
-            which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
-            With privileged mode, the container can access all GPUs even if specified.
-        resource_key_backend_env_mapping: (dict[str, list[str]]):
-            Mapping from resource names to environment variable names for device runtime,
-            which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container.
-            For example, {"nvidia.com/gpu": ["CUDA_VISIBLE_DEVICES"]},
-            which sets the "CUDA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
         name (WorkloadName):
             Name for the workload, it should be unique in the deployer.
         labels (dict[str, str] | None):
@@ -875,25 +865,6 @@ class WorkloadPlan(WorkloadSecurity):
 
     """
 
-    resource_key_runtime_env_mapping: dict[str, str] = field(
-        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES,
-    )
-    """
-    Mapping from resource names to environment variable names for device allocation,
-    which is used to tell the Container Runtime which GPUs to mount into the container.
-    For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
-    which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
-    With privileged mode, the container can access all GPUs even if specified.
-    """
-    resource_key_backend_env_mapping: dict[str, list[str]] = field(
-        default_factory=lambda: envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES,
-    )
-    """
-    Mapping from resource names to environment variable names for device runtime,
-    which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container.
-    For example, {"nvidia.com/gpu": ["CUDA_VISIBLE_DEVICES"]},
-    which sets the "CUDA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
-    """
     namespace: WorkloadNamespace | None = None
     """
     Namespace for the workload.
@@ -1255,6 +1226,58 @@ def _default_args(func):
     return wrapper
 
 
+@dataclass
+class DevicesMaterial:
+    manufacturer: ManufacturerEnum = ManufacturerEnum.UNKNOWN
+    """
+    Manufacturer of devices,
+    e.g. for NVIDIA, it is ManufacturerEnum.NVIDIA.
+    """
+    runtime_env: str = ""
+    """
+    Runtime visible devices env name for devices,
+    e.g. for NVIDIA, it is CUDA_VISIBLE_DEVICES.
+    """
+    backend_env: list[str] = field(default_factory=list)
+    """
+    Backend visible devices env name for devices,
+    e.g. for AMD, it can be both HIP_VISIBLE_DEVICES and ROCR_VISIBLE_DEVICES.
+    """
+    cdi: str = ""
+    """
+    CDI key for devices,
+    e.g. for NVIDIA, it is nvidia.com/gpu.
+    """
+    runtime_values: dict[str, str] = field(default_factory=dict)
+    """
+    Mapping devices to runtime visible devices env values,
+    the key is the device index string,
+    the value is the device index string or uuid.
+    For example, {"0": "GPU-11111111-2222-3333-4444-555555555555"} for NVIDIA.
+    """
+    backend_values: dict[str, dict[str, str]] = field(default_factory=dict)
+    """
+    Mapping devices to backend visible devices env values,
+    the key is the device index string,
+    the value is the device index string or aligned device index string.
+    For example, {"NPU_VISIBLE_DEVICES": {"4": "0", "5": "1"}} for Ascend.
+    """
+    numa_affinities: dict[str, str] = field(default_factory=dict)
+    """
+    Mapping devices to NUMA affinities,
+    the key is the device index string,
+    the value is the NUMA node string.
+    For example, {"0": "0-1"}.
+    """
+    cpus_affinities: dict[str, str] = field(default_factory=dict)
+    """
+    Mapping devices to CPUs affinities,
+    the key is the device index string,
+    the value is the CPU cores string.
+    For example, {"0": "0-7"}.
+    """
+
+
 class Deployer(ABC):
     """
     Base class for all deployers.
@@ -1268,81 +1291,33 @@ class Deployer(ABC):
     """
     Thread pool for the deployer.
     """
-    _visible_devices_manufacturers: dict[str, ManufacturerEnum] | None = None
+    _materials: dict[str, DevicesMaterial] | None = None
     """
-    Recorded visible devices manufacturers,
+    Mapping devices materials,
     the key is the runtime visible devices env name,
-    the value is the corresponding manufacturer.
+    the value is the corresponding devices material.
     For example:
     {
-        "NVIDIA_VISIBLE_DEVICES": ManufacturerEnum.NVIDIA,
-        "AMD_VISIBLE_DEVICES": ManufacturerEnum.AMD
-    }.
-    """
-    _visible_devices_env: dict[str, list[str]] | None = None
-    """
-    Recorded visible devices envs,
-    the key is the runtime visible devices env name,
-    the value is the list of backend visible devices env names.
-    For example:
-    {
-        "NVIDIA_VISIBLE_DEVICES": ["CUDA_VISIBLE_DEVICES"],
-        "AMD_VISIBLE_DEVICES": ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]
-    }.
-    """
-    _visible_devices_cdis: dict[str, str] | None = None
-    """
-    Recorded visible devices envs to CDI mapping,
-    the key is the runtime visible devices env name,
-    the value is the corresponding CDI key.
-    For example:
-    {
-        "NVIDIA_VISIBLE_DEVICES": "nvidia.com/gpu",
-        "AMD_VISIBLE_DEVICES": "amd.com/gpu"
-    }.
-    """
-    _visible_devices_values: dict[str, list[str]] | None = None
-    """
-    Recorded visible devices values,
-    the key is the runtime visible devices env name,
-    the value is the list of device index strings or uuids.
-    For example:
-    {
-        "NVIDIA_VISIBLE_DEVICES": ["GPU-11111111-2222-3333-4444-555555555555"],
-        "AMD_VISIBLE_DEVICES": ["0", "1"]
-    }.
-    """
-    _visible_devices_numa_affinities: dict[str, dict[str, str]] | None = None
-    """
-    Recorded visible devices NUMA affinities,
-    the key is the runtime visible devices env name,
-    the value is the mapping from device index string to NUMA node string.
-    For example:
-    {
-        "NVIDIA_VISIBLE_DEVICES": {"0": "0-1"},
-        "AMD_VISIBLE_DEVICES": {"0": "0-1", "1": "0-1"}
-    }.
-    """
-    _visible_devices_cpus_affinities: dict[str, dict[str, str]] | None = None
-    """
-    Recorded visible devices CPUs affinities,
-    the key is the runtime visible devices env name,
-    the value is the mapping from device index string to CPU cores string.
-    For example:
-    {
-        "NVIDIA_VISIBLE_DEVICES": {"0": "0-7"},
-        "AMD_VISIBLE_DEVICES": {"0": "0-7", "1": "8-15"}
-    }.
-    """
-    _backend_visible_devices_values_alignment: dict[str, dict[str, str]] | None = None
-    """
-    Recorded backend visible devices values alignment,
-    the key is the runtime visible devices env name,
-    the value is the mapping from device index string to aligned index string.
-    For example:
-    {
-        "CUDA_VISIBLE_DEVICES": {"0": "0"},
-        "HIP_VISIBLE_DEVICES": {"0": "0", "1": "1"}
+        "NVIDIA_VISIBLE_DEVICES": DevicesMaterial(
+            manufacturer=ManufacturerEnum.NVIDIA,
+            runtime_env="NVIDIA_VISIBLE_DEVICES",
+            backend_env=["CUDA_VISIBLE_DEVICES"],
+            cdi="nvidia.com/gpu",
+            runtime_values={"0": "GPU-11111111-2222-3333-4444-555555555555"},
+            backend_values={"CUDA_VISIBLE_DEVICES": {"0": "0"}},
+            numa_affinities={"0": "0-1"},
+            cpus_affinities={"0": "0-7"},
+        ),
+        "AMD_VISIBLE_DEVICES": DevicesMaterial(
+            manufacturer=ManufacturerEnum.AMD,
+            runtime_env="AMD_VISIBLE_DEVICES",
+            backend_env=["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"],
+            cdi="amd.com/gpu",
+            runtime_values={"0": "0", "1": "1"},
+            backend_values={"HIP_VISIBLE_DEVICES": {"0": "0", "1": "1"},"ROCR_VISIBLE_DEVICES": {"0": "0", "1": "1"}},
+            numa_affinities={"0": "0-1", "1": "0-1"},
+            cpus_affinities={"0": "0-7", "1": "8-15"},
+        ),
     }.
     """
 
@@ -1369,24 +1344,12 @@ class Deployer(ABC):
 
     def _prepare(self):
         """
-        Detect devices once, and construct critical elements for post-processing, including:
-        - Prepare visible devices manufacturers mapping.
-        - Prepare visible devices environment variables mapping.
-        - Prepare visible devices values mapping.
-        - Prepare visible devices NUMA mapping.
-        - Prepare visible devices CPUs mapping.
-        - Prepare backend visible devices values alignment mapping.
+        Detect devices and prepare materials.
         """
-        if self._visible_devices_manufacturers is not None:
+        if self._materials is not None:
             return
 
-        self._visible_devices_manufacturers = {}
-        self._visible_devices_env = {}
-        self._visible_devices_cdis = {}
-        self._visible_devices_values = {}
-        self._visible_devices_numa_affinities = {}
-        self._visible_devices_cpus_affinities = {}
-        self._backend_visible_devices_values_alignment = {}
+        self._materials = {}
 
         group_devices = group_devices_by_manufacturer(
             detect_devices(fast=False),
@@ -1418,185 +1381,265 @@ class Deployer(ABC):
                         )
                         and manu != ManufacturerEnum.ASCEND
                     )
-                    dev_values: list[str] = []
+                    dev_runtime_values: dict[str, str] = {}
+                    dev_backend_values: dict[str, str] = {}
+                    dev_backend_aligned_values: dict[str, str] = {}
                     dev_numa_affinities: dict[str, str] = {}
                     dev_cpus_affinities: dict[str, str] = {}
-                    dev_indexes_alignment: dict[str, str] = {}
                     for dev_i, dev in enumerate(devs):
                         dev_index = str(dev.index)
-                        dev_value = dev.uuid if valued_uuid else dev_index
-                        dev_values.append(dev_value)
+                        if valued_uuid:
+                            dev_runtime_values[dev_index] = dev.uuid
+                        else:
+                            dev_runtime_values[dev_index] = dev_index
+                        dev_backend_values[dev_index] = dev_index
+                        dev_backend_aligned_values[dev_index] = str(dev_i)
                         dev_numa_affinities[dev_index] = dev.appendix.get("numa", "")
                         dev_cpus_affinities[dev_index] = map_numa_node_to_cpu_affinity(
                             dev_numa_affinities[dev_index],
                         )
-                        dev_indexes_alignment[dev_index] = str(dev_i)
-                    # Map runtime visible devices env <-> manufacturer.
-                    self._visible_devices_manufacturers[ren] = manu
-                    # Map runtime visible devices env <-> backend visible devices env list.
-                    self._visible_devices_env[ren] = ben_list
-                    # Map runtime visible devices env <-> CDI key.
-                    self._visible_devices_cdis[ren] = cdi
-                    # Map runtime visible devices env <-> device index string or uuid.
-                    self._visible_devices_values[ren] = dev_values
-                    # Map runtime visible devices env <-> NUMA affinities.
-                    self._visible_devices_numa_affinities[ren] = dev_numa_affinities
-                    # Map runtime visible devices env <-> CPUs affinities.
-                    self._visible_devices_cpus_affinities[ren] = dev_cpus_affinities
-                    # Map backend visible devices env <-> devices alignment.
-                    for ben in ben_list:
-                        valued_alignment = (
-                            ben
-                            in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
-                        )
-                        if valued_alignment:
-                            self._backend_visible_devices_values_alignment[ben] = (
-                                dev_indexes_alignment
-                            )
 
-            if self._visible_devices_env:
+                    self._materials[ren] = DevicesMaterial(
+                        manufacturer=manu,
+                        runtime_env=ren,
+                        backend_env=ben_list,
+                        cdi=cdi,
+                        runtime_values=dev_runtime_values,
+                        backend_values={
+                            ben: (
+                                dev_backend_aligned_values
+                                if ben
+                                in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
+                                else dev_backend_values
+                            )
+                            for ben in ben_list
+                        },
+                        numa_affinities=dev_numa_affinities,
+                        cpus_affinities=dev_cpus_affinities,
+                    )
+
+            if self._materials:
                 return
 
         # Fallback to unknown backend
         ren = "UNKNOWN_RUNTIME_VISIBLE_DEVICES"
-        self._visible_devices_manufacturers[ren] = ManufacturerEnum.UNKNOWN
-        self._visible_devices_env[ren] = []
-        self._visible_devices_cdis[ren] = "unknown/devices"
-        self._visible_devices_values[ren] = ["all"]
+        ben_list = ["UNKNOWN_BACKEND_VISIBLE_DEVICES"]
+        cdi = "unknown.com/gpu"
+        self._materials[ren] = DevicesMaterial(
+            manufacturer=ManufacturerEnum.UNKNOWN,
+            runtime_env=ren,
+            backend_env=ben_list,
+            cdi=cdi,
+            runtime_values={"all": "all"},
+            backend_values={ben: {"all": "all"} for ben in ben_list},
+        )
 
-    def get_visible_devices_materials(
+    def _get_materials(
         self,
-    ) -> (
-        dict[str, ManufacturerEnum],
-        dict[str, list[str]],
-        dict[str, str],
-        dict[str, list[str]],
-    ):
+    ) -> dict[str, DevicesMaterial]:
         """
-        Return the visible devices environment variables, cdis and values mappings.
-        For example:
-        (
-            {
-                "NVIDIA_VISIBLE_DEVICES": ManufacturerEnum.NVIDIA,
-                "AMD_VISIBLE_DEVICES": ManufacturerEnum.AMD
-            },
-            {
-                "NVIDIA_VISIBLE_DEVICES": ["CUDA_VISIBLE_DEVICES"],
-                "AMD_VISIBLE_DEVICES": ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]
-            },
-            {
-                "NVIDIA_VISIBLE_DEVICES": "nvidia.com/gpu",
-                "AMD_VISIBLE_DEVICES": "amd.com/gpu"
-            },
-            {
-                "NVIDIA_VISIBLE_DEVICES": ["0"],
-                "AMD_VISIBLE_DEVICES": ["0", "1"]
-            }
-        ).
+        Return the devices materials mapping.
 
         Returns:
-            A tuple of four dictionaries:
-            - The first dictionary maps runtime visible devices environment variable names
-              to corresponding manufacturers.
-            - The second dictionary maps runtime visible devices environment variable names
-              to lists of backend visible devices environment variable names.
-            - The third dictionary maps runtime visible devices environment variable names
-              to corresponding CDI keys.
-            - The last dictionary maps runtime visible devices environment variable names
-              to lists of device indexes or UUIDs.
+            A dictionary mapping runtime visible devices environment variable names
+            to corresponding devices materials.
 
         """
         self._prepare()
+        return self._materials
 
-        return (
-            self._visible_devices_manufacturers,
-            self._visible_devices_env,
-            self._visible_devices_cdis,
-            self._visible_devices_values,
-        )
-
-    def get_visible_devices_affinities(
+    def get_manufacturer(
         self,
-        runtime_env: list[str],
-        resource_value: str,
-    ) -> tuple[str, str]:
+        runtime_env: str,
+    ) -> ManufacturerEnum:
         """
-        Get the CPU and NUMA affinities for the given runtime environment and resource value.
+        Return the manufacturer for the given runtime visible devices env name.
 
         Args:
             runtime_env:
-                The list of runtime visible devices environment variable names.
-            resource_value:
-                The resource value, which can be "all" or a comma-separated list of device indexes
+                The runtime visible devices environment variable name.
 
         Returns:
-            A tuple containing:
-            - A comma-separated string of CPU affinities.
-            - A comma-separated string of NUMA affinities.
+            The manufacturer enum.
 
         """
-        if not (
-            envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
-            or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
-        ):
-            return "", ""
+        m = self._get_materials()
 
-        dev_indexes = []
-        if resource_value != "all":
-            dev_indexes = [v.strip() for v in resource_value.split(",")]
+        if runtime_env not in m:
+            return ManufacturerEnum.UNKNOWN
 
-        if not dev_indexes:
-            return "", ""
+        return m[runtime_env].manufacturer
 
-        cpus = set[str]()
-        numas = set[str]()
-        for ren in runtime_env:
-            if af := self._visible_devices_cpus_affinities.get(ren):
-                for di in dev_indexes:
-                    if di in af:
-                        cpus.add(af[di])
-            if not envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY:
-                continue
-            if af := self._visible_devices_numa_affinities.get(ren):
-                for di in dev_indexes:
-                    if di in af:
-                        numas.add(af[di])
-
-        return ",".join(cpus), ",".join(numas)
-
-    def align_backend_visible_devices_env_values(
+    def get_runtime_envs(
         self,
-        backend_visible_devices_env: str,
-        resource_key_values: str,
-    ) -> str:
+    ) -> list[str]:
         """
-        Return the aligned backend visible devices environment variable values.
-        For example, if the backend visible devices env is "ASCEND_RT_VISIBLE_DEVICES",
-        and the `resource_key_values` is "4,6", and the detected devices are with indexes
-        [4,5,6,7], then the aligned result will be "0,2".
+        Return the supported runtime visible devices env names.
+
+        Returns:
+            A list of supported runtime visible devices environment variable names.
+
+        """
+        m = self._get_materials()
+        return list(m.keys())
+
+    def get_runtime_visible_devices(
+        self,
+        runtime_env: str,
+        fmt: str = "plain",
+    ) -> list[str]:
+        """
+        Return the runtime visible devices values for the given runtime visible devices env name.
 
         Args:
-            backend_visible_devices_env:
-                The backend visible devices environment variable name.
-            resource_key_values:
-                The resource key values to align.
+            runtime_env:
+                The runtime visible devices environment variable name.
+            fmt:
+                The format of the returned values,
+                can be "cdi", "kdp", or "plain".
 
         Returns:
-            The aligned backend visible devices environment variable values.
-            If no alignment is needed, return the original `resource_key_values`.
+            A list of runtime visible devices values.
 
         """
-        self._prepare()
+        m = self._get_materials()
 
-        alignments = self._backend_visible_devices_values_alignment.get(
-            backend_visible_devices_env,
-        )
-        if not alignments:
-            return resource_key_values
+        if runtime_env not in m:
+            return []
 
-        return ",".join(
-            [alignments.get(v, v) for v in resource_key_values.split(",")],
+        rm = m[runtime_env]
+        match fmt:
+            case "cdi":
+                return [f"{rm.cdi}={v}" for v in rm.runtime_values.values()]
+            case "kdp":
+                return [
+                    cdi_kind_to_kdp_resource(rm.cdi, v)
+                    for v in rm.runtime_values.values()
+                ]
+        return list(rm.runtime_values.values())
+
+    def map_runtime_visible_devices(
+        self,
+        runtime_env: str,
+        resource_values: list[str],
+        fmt: str = "plain",
+    ) -> list[str]:
+        """
+        Map the given resource values to runtime visible devices values
+        for the given runtime visible devices env name.
+
+        Args:
+            runtime_env:
+                The runtime visible devices environment variable name.
+            resource_values:
+                The resource values to map.
+            fmt:
+                The format of the returned values,
+                can be "cdi", "kdp", or "plain".
+
+        Returns:
+            A list of mapped runtime visible devices values.
+
+        """
+        m = self._get_materials()
+
+        if runtime_env not in m:
+            return []
+
+        rm = m[runtime_env]
+        match fmt:
+            case "cdi":
+                return [
+                    f"{rm.cdi}={rm.runtime_values.get(v, v)}" for v in resource_values
+                ]
+            case "kdp":
+                return [
+                    cdi_kind_to_kdp_resource(rm.cdi, rm.runtime_values.get(v, v))
+                    for v in resource_values
+                ]
+        return [rm.runtime_values.get(v, v) for v in resource_values]
+
+    def map_backend_visible_devices(
+        self,
+        runtime_envs: list[str],
+        resource_values: list[str],
+    ) -> dict[str, str]:
+        """
+        Map the given resource values to backend visible devices values
+        for the given runtime visible devices env names.
+
+        Args:
+            runtime_envs:
+                The runtime visible devices environment variable names.
+            resource_values:
+                The resource values to map.
+
+        Returns:
+            A dictionary mapping backend visible devices environment variable names
+            to corresponding mapped backend visible devices values.
+
+        """
+        m = self._get_materials()
+
+        ret = {}
+        for runtime_env in runtime_envs:
+            if runtime_env not in m:
+                continue
+            rm = m[runtime_env]
+            for ben in rm.backend_env:
+                ret[ben] = ",".join(
+                    [rm.backend_values[ben].get(v, v) for v in resource_values],
+                )
+        return ret
+
+    def map_visible_devices_affinities(
+        self,
+        runtime_envs: list[str],
+        resource_values: list[str],
+    ) -> dict[str, str]:
+        """
+        Map the given resource values to visible devices affinities
+        for the given runtime visible devices env names.
+
+        Args:
+            runtime_envs:
+                The runtime visible devices environment variable names.
+            resource_values:
+                The resource values to map.
+
+        Returns:
+            A dictionary mapping "cpuset_cpus" and/or "cpuset_mems"
+            to corresponding mapped affinities strings.
+
+        """
+        valued_affinity = (
+            envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
+            or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
         )
+        if not valued_affinity:
+            return {}
+
+        m = self._get_materials()
+
+        ret = {}
+        for runtime_env in runtime_envs:
+            if runtime_env not in m:
+                continue
+            rm = m[runtime_env]
+            cpus_set = set[str]()
+            numas_set = set[str]()
+            for v in resource_values:
+                if v in rm.cpus_affinities:
+                    cpus_set.add(rm.cpus_affinities[v])
+                if not envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY:
+                    continue
+                if v in rm.numa_affinities:
+                    numas_set.add(rm.numa_affinities[v])
+            if cpus := ",".join(cpus_set):
+                ret["cpuset_cpus"] = cpus
+            if numas := ",".join(numas_set):
+                ret["cpuset_mems"] = numas
+        return ret
 
     @property
     def name(self) -> str:

@@ -3,11 +3,9 @@ from __future__ import annotations as __future_annotations__
 import contextlib
 import json
 import logging
-import operator
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import reduce
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,7 +41,7 @@ from .__utils__ import (
     sensitive_env_var,
     validate_rfc1123_domain_name,
 )
-from .k8s.deviceplugin import cdi_kind_to_kdp_resource, get_resource_injection_policy
+from .k8s.deviceplugin import get_resource_injection_policy
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -88,17 +86,6 @@ class KubernetesWorkloadPlan(WorkloadPlan):
             Domain suffix for the cluster. Default is "cluster.local".
         service_type (KubernetesWorkloadServiceTypeEnum):
             Service type for the workload. Default is CLUSTER_IP.
-        resource_key_runtime_env_mapping: (dict[str, str]):
-            Mapping from resource names to environment variable names for device allocation,
-            which is used to tell the Container Runtime which GPUs to mount into the container.
-            For example, {"nvidia.com/gpu": "NVIDIA_VISIBLE_DEVICES"},
-            which sets the "NVIDIA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
-            With privileged mode, the container can access all GPUs even if specified.
-        resource_key_backend_env_mapping: (dict[str, list[str]]):
-            Mapping from resource names to environment variable names for device runtime,
-            which is used to tell the Device Runtime (e.g., ROCm, CUDA, OneAPI) which GPUs to use inside the container.
-            For example, {"nvidia.com/gpu": ["CUDA_VISIBLE_DEVICES"]},
-            which sets the "CUDA_VISIBLE_DEVICES" environment variable to the allocated GPU device IDs.
         namespace (str | None):
             Namespace of the workload.
         name (str):
@@ -993,114 +980,103 @@ class KubernetesDeployer(EndoscopicDeployer):
             # Parameterize resources
             if c.resources:
                 kdp = get_resource_injection_policy() == "kdp"
+                fmt = "kdp" if kdp else "plain"
 
                 resources: dict[str, str] = {}
-                r_k_runtime_env = workload.resource_key_runtime_env_mapping or {}
-                r_k_backend_env = workload.resource_key_backend_env_mapping or {}
-                _, vd_env, vd_cdis, vd_values = self.get_visible_devices_materials()
                 for r_k, r_v in c.resources.items():
                     if r_k in ("cpu", "memory"):
                         resources[r_k] = str(r_v)
+                        continue
+
+                    if (
+                        r_k
+                        in envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES
+                    ):
+                        # Set env if resource key is mapped.
+                        runtime_envs = [
+                            envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES[
+                                r_k
+                            ],
+                        ]
+                    elif r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY:
+                        # Set env if auto-mapping key is matched.
+                        runtime_envs = self.get_runtime_envs()
                     else:
-                        if r_k in r_k_runtime_env:
-                            # Set env if resource key is mapped.
-                            runtime_env = [r_k_runtime_env[r_k]]
-                        elif r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY:
-                            # Set env if auto-mapping key is matched.
-                            runtime_env = list(vd_env.keys())
-                        else:
-                            resources[r_k] = str(r_v)
-                            continue
+                        resources[r_k] = str(r_v)
+                        continue
 
-                        if r_k in r_k_backend_env:
-                            # Set env if resource key is mapped.
-                            backend_env = r_k_backend_env[r_k]
-                        else:
-                            # Otherwise, use the default backend env names.
-                            backend_env = reduce(operator.add, list(vd_env.values()))
+                    privileged = (
+                        container.security_context
+                        and container.security_context.privileged
+                    )
+                    resource_values = [x.strip() for x in r_v.split(",")]
 
-                        privileged = (
+                    # Request devices.
+                    if r_v == "all":
+                        # Configure privileged.
+                        container.security_context = (
                             container.security_context
-                            and container.security_context.privileged
+                            or kubernetes.client.V1SecurityContext()
                         )
-
-                        # Configure device access environment variable.
-                        if r_v == "all" and backend_env:
-                            # Configure privileged if requested all devices.
-                            container.security_context = (
-                                container.security_context
-                                or kubernetes.client.V1SecurityContext()
+                        container.security_context.privileged = True
+                        # Request all devices.
+                        for ren in runtime_envs:
+                            r_vs = self.get_runtime_visible_devices(ren, fmt)
+                            # Request device via KDP.
+                            if kdp:
+                                resources.update(
+                                    dict.fromkeys(r_vs, "1"),
+                                )
+                                continue
+                            # Request device via visible devices env.
+                            container.env.append(
+                                kubernetes.client.V1EnvVar(
+                                    name=ren,
+                                    value=",".join(r_vs),
+                                ),
                             )
-                            container.security_context.privileged = True
-                            # Then, set container backend visible devices env to all devices,
-                            # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
-                            # and mount corresponding libs if needed.
-                            for re in runtime_env:
-                                # Request device via KDP.
-                                if kdp:
-                                    for v in vd_values.get(re) or []:
-                                        kdp_resource = cdi_kind_to_kdp_resource(
-                                            cdi_kind=vd_cdis[re],
-                                            device_index=v,
-                                        )
-                                        resources[kdp_resource] = "1"
-                                    continue
-                                # Request device via visible devices env.
-                                rv = ",".join(vd_values.get(re) or ["all"])
-                                container.env.append(
-                                    kubernetes.client.V1EnvVar(
-                                        name=re,
-                                        value=rv,
-                                    ),
+                    else:
+                        # Request specific devices.
+                        for ren in runtime_envs:
+                            # Request all devices if privileged,
+                            # otherwise, normalize requested devices.
+                            if privileged:
+                                r_vs = self.get_runtime_visible_devices(ren, fmt)
+                            else:
+                                r_vs = self.map_runtime_visible_devices(
+                                    ren,
+                                    resource_values,
+                                    fmt,
                                 )
-                        else:
-                            # Set env to the allocated device IDs if no privileged,
-                            # otherwise, set container backend visible devices env to all devices,
-                            # so that the container backend (e.g., NVIDIA Container Toolkit) can handle it,
-                            # and mount corresponding libs if needed.
-                            for re in runtime_env:
-                                # Request device via KDP.
-                                if kdp:
-                                    if not privileged:
-                                        for v in str(r_v).split(","):
-                                            kdp_resource = cdi_kind_to_kdp_resource(
-                                                cdi_kind=vd_cdis[re],
-                                                device_index=v.strip(),
-                                            )
-                                            resources[kdp_resource] = "1"
-                                    else:
-                                        for v in vd_values.get(re) or []:
-                                            kdp_resource = cdi_kind_to_kdp_resource(
-                                                cdi_kind=vd_cdis[re],
-                                                device_index=v,
-                                            )
-                                            resources[kdp_resource] = "1"
-                                    continue
-                                # Request device via visible devices env.
-                                if not privileged:
-                                    rv = str(r_v)
-                                else:
-                                    rv = ",".join(vd_values.get(re) or ["all"])
-                                container.env.append(
-                                    kubernetes.client.V1EnvVar(
-                                        name=re,
-                                        value=rv,
-                                    ),
+                            # Request device via KDP.
+                            if kdp:
+                                resources.update(
+                                    dict.fromkeys(r_vs, "1"),
                                 )
+                                continue
+                            # Request device via visible devices env.
+                            container.env.append(
+                                kubernetes.client.V1EnvVar(
+                                    name=ren,
+                                    value=",".join(r_vs),
+                                ),
+                            )
 
-                        # Configure runtime device access environment variables.
-                        if r_v != "all" and privileged:
-                            for be in backend_env:
-                                bev = self.align_backend_visible_devices_env_values(
-                                    be,
-                                    str(r_v),
+                    # Configure runtime device access environment variables.
+                    if r_v != "all" and privileged:
+                        b_vs = self.map_backend_visible_devices(
+                            runtime_envs,
+                            resource_values,
+                        )
+                        container.env.extend(
+                            [
+                                kubernetes.client.V1EnvVar(
+                                    name=be,
+                                    value=be_v,
                                 )
-                                container.env.append(
-                                    kubernetes.client.V1EnvVar(
-                                        name=be,
-                                        value=bev,
-                                    ),
-                                )
+                                for be, be_v in b_vs.items()
+                            ],
+                        )
 
                 container.resources = kubernetes.client.V1ResourceRequirements(
                     limits=(resources if resources else None),
