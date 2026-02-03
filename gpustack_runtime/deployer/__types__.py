@@ -1635,9 +1635,9 @@ class Deployer(ABC):
                     continue
                 if v in rm.numa_affinities:
                     numas_set.add(rm.numa_affinities[v])
-            if cpus := ",".join(cpus_set):
+            if cpus := ",".join(sorted(cpus_set)):
                 ret["cpuset_cpus"] = cpus
-            if numas := ",".join(numas_set):
+            if numas := ",".join(sorted(numas_set)):
                 ret["cpuset_mems"] = numas
         return ret
 
