@@ -159,7 +159,7 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
         self._runtime_env = manufacturer_to_runtime_env(device.manufacturer)
         self._kdp_resource = cdi_kind_to_kdp_resource(
             cdi_kind=self._cdi_kind,
-            device_index=device.index,
+            device_index=str(device.index),
         )
 
         super().__init__(self._kdp_resource)
@@ -334,10 +334,6 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
             The response containing the list of devices.
 
         """
-        device_id = (
-            self._device.uuid if self._id_by == "uuid" else str(self._device.index)
-        )
-
         dp_devices: list[DevicePluginDevice] = []
         dp_device_health = Healthy
         dp_device_topo = TopologyInfo(
@@ -352,7 +348,10 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
         )
 
         for device_replica in range(1, self._max_allocations + 1):
-            dp_device_id = _to_device_plugin_device_id(device_id, device_replica)
+            dp_device_id = _to_device_plugin_device_id(
+                str(self._device.index),
+                device_replica,
+            )
             dp_devices.append(
                 DevicePluginDevice(
                     ID=dp_device_id,
@@ -419,28 +418,25 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
         req: ContainerAllocateRequest,
     ) -> ContainerAllocateResponse:
         policy = self._allocation_policy
-        request_dp_device_ids = req.devices_ids
+        device_id = self._device.uuid
+        if self._id_by == "index":
+            device_id = str(self._device.index)
 
         # CDI device allocation.
         if policy == "cdi":
-            cdi_devices: list[CDIDevice] = []
-            for dp_device_id in request_dp_device_ids:
-                device_id, _ = _from_device_plugin_device_id(dp_device_id)
-                cdi_devices.append(
+            return ContainerAllocateResponse(
+                cdi_devices=[
                     CDIDevice(
                         name=f"{self._cdi_kind}={device_id}",
                     ),
-                )
-
-            return ContainerAllocateResponse(
-                cdi_devices=cdi_devices,
+                ],
             )
 
         # Environment variable device allocation.
         if policy == "env":
             return ContainerAllocateResponse(
                 envs={
-                    self._runtime_env: ",".join(request_dp_device_ids),
+                    self._runtime_env: device_id,
                 },
             )
 
@@ -509,7 +505,7 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
 @lru_cache
 def cdi_kind_to_kdp_resource(
     cdi_kind: str,
-    device_index: int,
+    device_index: str,
 ) -> str:
     """
     Map CDI kind and device index to a Kubernetes Device Plugin resource name.

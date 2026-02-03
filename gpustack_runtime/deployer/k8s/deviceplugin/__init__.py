@@ -323,7 +323,7 @@ def get_device_allocation_policy(
 
     if manufacturer in [
         ManufacturerEnum.AMD,
-        # ManufacturerEnum.ASCEND, # Prioritize using Env policy for Ascend.
+        ManufacturerEnum.ASCEND,
         ManufacturerEnum.HYGON,
         ManufacturerEnum.ILUVATAR,
         ManufacturerEnum.METAX,

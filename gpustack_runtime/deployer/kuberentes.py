@@ -1065,7 +1065,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                                         for v in str(r_v).split(","):
                                             kdp_resource = cdi_kind_to_kdp_resource(
                                                 cdi_kind=vd_cdis[re],
-                                                device_index=int(v.strip()),
+                                                device_index=v.strip(),
                                             )
                                             resources[kdp_resource] = "1"
                                     else:
@@ -1091,13 +1091,14 @@ class KubernetesDeployer(EndoscopicDeployer):
                         # Configure runtime device access environment variables.
                         if r_v != "all" and privileged:
                             for be in backend_env:
+                                bev = self.align_backend_visible_devices_env_values(
+                                    be,
+                                    str(r_v),
+                                )
                                 container.env.append(
                                     kubernetes.client.V1EnvVar(
                                         name=be,
-                                        value=self.align_backend_visible_devices_env_values(
-                                            be,
-                                            str(r_v),
-                                        ),
+                                        value=bev,
                                     ),
                                 )
 
@@ -1228,6 +1229,10 @@ class KubernetesDeployer(EndoscopicDeployer):
         super().__init__(_NAME)
         self._client = self._get_client()
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
+
+    @property
+    def allowed_uuid_values(self) -> bool:
+        return get_resource_injection_policy() != "kdp"
 
     def _prepare_mirrored_deployment(self):
         """

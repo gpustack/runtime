@@ -15,12 +15,11 @@ from dataclasses_json import dataclass_json
 from .. import envs
 from ..detector import (
     ManufacturerEnum,
-    Topology,
     detect_devices,
-    get_devices_topologies,
     group_devices_by_manufacturer,
     manufacturer_to_backend,
 )
+from ..detector.__utils__ import map_numa_node_to_cpu_affinity
 from .__utils__ import (
     adjust_image_with_envs,
     correct_runner_image,
@@ -1306,29 +1305,40 @@ class Deployer(ABC):
     """
     Recorded visible devices values,
     the key is the runtime visible devices env name,
-    the value is the list of device indexes or uuids.
+    the value is the list of device index strings or uuids.
     For example:
     {
-        "NVIDIA_VISIBLE_DEVICES": ["0"],
+        "NVIDIA_VISIBLE_DEVICES": ["GPU-11111111-2222-3333-4444-555555555555"],
         "AMD_VISIBLE_DEVICES": ["0", "1"]
     }.
     """
-    _visible_devices_topologies: dict[str, Topology] | None = None
+    _visible_devices_numa_affinities: dict[str, dict[str, str]] | None = None
     """
-    Recorded visible devices topologies,
+    Recorded visible devices NUMA affinities,
     the key is the runtime visible devices env name,
-    the value is the corresponding topology.
+    the value is the mapping from device index string to NUMA node string.
     For example:
     {
-        "NVIDIA_VISIBLE_DEVICES": Topology(...),
-        "AMD_VISIBLE_DEVICES": Topology(...)
+        "NVIDIA_VISIBLE_DEVICES": {"0": "0-1"},
+        "AMD_VISIBLE_DEVICES": {"0": "0-1", "1": "0-1"}
+    }.
+    """
+    _visible_devices_cpus_affinities: dict[str, dict[str, str]] | None = None
+    """
+    Recorded visible devices CPUs affinities,
+    the key is the runtime visible devices env name,
+    the value is the mapping from device index string to CPU cores string.
+    For example:
+    {
+        "NVIDIA_VISIBLE_DEVICES": {"0": "0-7"},
+        "AMD_VISIBLE_DEVICES": {"0": "0-7", "1": "8-15"}
     }.
     """
     _backend_visible_devices_values_alignment: dict[str, dict[str, str]] | None = None
     """
     Recorded backend visible devices values alignment,
     the key is the runtime visible devices env name,
-    the value is the mapping from backend device index to aligned index.
+    the value is the mapping from device index string to aligned index string.
     For example:
     {
         "CUDA_VISIBLE_DEVICES": {"0": "0"},
@@ -1363,7 +1373,9 @@ class Deployer(ABC):
         - Prepare visible devices manufacturers mapping.
         - Prepare visible devices environment variables mapping.
         - Prepare visible devices values mapping.
-        - Prepare visible devices topologies mapping.
+        - Prepare visible devices NUMA mapping.
+        - Prepare visible devices CPUs mapping.
+        - Prepare backend visible devices values alignment mapping.
         """
         if self._visible_devices_manufacturers is not None:
             return
@@ -1372,7 +1384,8 @@ class Deployer(ABC):
         self._visible_devices_env = {}
         self._visible_devices_cdis = {}
         self._visible_devices_values = {}
-        self._visible_devices_topologies = {}
+        self._visible_devices_numa_affinities = {}
+        self._visible_devices_cpus_affinities = {}
         self._backend_visible_devices_values_alignment = {}
 
         group_devices = group_devices_by_manufacturer(
@@ -1398,46 +1411,48 @@ class Deployer(ABC):
                 )
                 if ren and ben_list:
                     valued_uuid = (
-                        ren
-                        in envs.GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID
+                        self.allowed_uuid_values
+                        and (
+                            ren
+                            in envs.GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID
+                        )
                         and manu != ManufacturerEnum.ASCEND
                     )
-                    dev_uuids: list[str] = []
-                    dev_indexes: list[str] = []
+                    dev_values: list[str] = []
+                    dev_numa_affinities: dict[str, str] = {}
+                    dev_cpus_affinities: dict[str, str] = {}
                     dev_indexes_alignment: dict[str, str] = {}
                     for dev_i, dev in enumerate(devs):
-                        dev_uuids.append(dev.uuid)
-                        dev_indexes.append(str(dev.index))
-                        dev_indexes_alignment[str(dev.index)] = str(dev_i)
+                        dev_index = str(dev.index)
+                        dev_value = dev.uuid if valued_uuid else dev_index
+                        dev_values.append(dev_value)
+                        dev_numa_affinities[dev_index] = dev.appendix.get("numa", "")
+                        dev_cpus_affinities[dev_index] = map_numa_node_to_cpu_affinity(
+                            dev_numa_affinities[dev_index],
+                        )
+                        dev_indexes_alignment[dev_index] = str(dev_i)
                     # Map runtime visible devices env <-> manufacturer.
                     self._visible_devices_manufacturers[ren] = manu
                     # Map runtime visible devices env <-> backend visible devices env list.
                     self._visible_devices_env[ren] = ben_list
                     # Map runtime visible devices env <-> CDI key.
                     self._visible_devices_cdis[ren] = cdi
-                    # Map runtime visible devices env <-> device indexes or uuids.
-                    self._visible_devices_values[ren] = (
-                        dev_uuids if valued_uuid else dev_indexes
-                    )
-                    # Map runtime visible devices env <-> topology.
-                    if (
-                        envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
-                        or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
-                    ):
-                        topos = get_devices_topologies(devices=devs)
-                        if topos:
-                            self._visible_devices_topologies[ren] = topos[0]
+                    # Map runtime visible devices env <-> device index string or uuid.
+                    self._visible_devices_values[ren] = dev_values
+                    # Map runtime visible devices env <-> NUMA affinities.
+                    self._visible_devices_numa_affinities[ren] = dev_numa_affinities
+                    # Map runtime visible devices env <-> CPUs affinities.
+                    self._visible_devices_cpus_affinities[ren] = dev_cpus_affinities
                     # Map backend visible devices env <-> devices alignment.
-                    if not valued_uuid:
-                        for ben in ben_list:
-                            valued_alignment = (
-                                ben
-                                in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
+                    for ben in ben_list:
+                        valued_alignment = (
+                            ben
+                            in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
+                        )
+                        if valued_alignment:
+                            self._backend_visible_devices_values_alignment[ben] = (
+                                dev_indexes_alignment
                             )
-                            if valued_alignment:
-                                self._backend_visible_devices_values_alignment[ben] = (
-                                    dev_indexes_alignment
-                                )
 
             if self._visible_devices_env:
                 return
@@ -1492,6 +1507,7 @@ class Deployer(ABC):
 
         """
         self._prepare()
+
         return (
             self._visible_devices_manufacturers,
             self._visible_devices_env,
@@ -1519,20 +1535,34 @@ class Deployer(ABC):
             - A comma-separated string of NUMA affinities.
 
         """
+        if not (
+            envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
+            or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
+        ):
+            return "", ""
+
         dev_indexes = []
         if resource_value != "all":
-            dev_indexes = [int(v.strip()) for v in resource_value.split(",")]
+            dev_indexes = [v.strip() for v in resource_value.split(",")]
 
-        cpus_set: list[str] = []
-        numas_set: list[str] = []
-        for re_ in runtime_env:
-            topo = self._visible_devices_topologies.get(re_)
-            if topo:
-                cs, ns = topo.get_affinities(dev_indexes, deduplicate=False)
-                cpus_set.extend(cs)
-                numas_set.extend(ns)
+        if not dev_indexes:
+            return "", ""
 
-        return ",".join(set(cpus_set)), ",".join(set(numas_set))
+        cpus = set[str]()
+        numas = set[str]()
+        for ren in runtime_env:
+            if af := self._visible_devices_cpus_affinities.get(ren):
+                for di in dev_indexes:
+                    if di in af:
+                        cpus.add(af[di])
+            if not envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY:
+                continue
+            if af := self._visible_devices_numa_affinities.get(ren):
+                for di in dev_indexes:
+                    if di in af:
+                        numas.add(af[di])
+
+        return ",".join(cpus), ",".join(numas)
 
     def align_backend_visible_devices_env_values(
         self,
@@ -1556,17 +1586,14 @@ class Deployer(ABC):
             If no alignment is needed, return the original `resource_key_values`.
 
         """
-        if (
-            backend_visible_devices_env
-            not in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
-        ):
-            return resource_key_values
         self._prepare()
+
         alignments = self._backend_visible_devices_values_alignment.get(
             backend_visible_devices_env,
         )
         if not alignments:
             return resource_key_values
+
         return ",".join(
             [alignments.get(v, v) for v in resource_key_values.split(",")],
         )
@@ -1581,6 +1608,17 @@ class Deployer(ABC):
 
         """
         return self._name
+
+    @property
+    def allowed_uuid_values(self) -> bool:
+        """
+        Return whether the deployer allows using UUIDs as visible devices values.
+
+        Returns:
+            True if allowed, False otherwise.
+
+        """
+        return True
 
     def close(self):
         if self._pool:

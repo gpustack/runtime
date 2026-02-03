@@ -1075,26 +1075,21 @@ class DockerDeployer(EndoscopicDeployer):
                             # Configure runtime device access environment variables.
                             if r_v != "all" and privileged:
                                 for be in backend_env:
-                                    create_options["environment"][be] = (
-                                        self.align_backend_visible_devices_env_values(
-                                            be,
-                                            str(r_v),
-                                        )
+                                    bev = self.align_backend_visible_devices_env_values(
+                                        be,
+                                        str(r_v),
                                     )
+                                    create_options["environment"][be] = bev
 
                             # Configure affinity if applicable.
-                            if (
-                                envs.GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY
-                                or envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY
-                            ):
-                                cpus, numas = self.get_visible_devices_affinities(
-                                    runtime_env,
-                                    r_v,
-                                )
-                                if cpus:
-                                    create_options["cpuset_cpus"] = cpus
-                                if numas and envs.GPUSTACK_RUNTIME_DEPLOY_NUMA_AFFINITY:
-                                    create_options["cpuset_mems"] = numas
+                            cpus, numas = self.get_visible_devices_affinities(
+                                runtime_env,
+                                r_v,
+                            )
+                            if cpus:
+                                create_options["cpuset_cpus"] = cpus
+                            if numas:
+                                create_options["cpuset_mems"] = numas
 
             # Parameterize mounts.
             self._append_container_mounts(

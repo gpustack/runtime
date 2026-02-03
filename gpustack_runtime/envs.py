@@ -577,6 +577,7 @@ variables: dict[str, Callable[[], Any]] = {
     "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID": lambda: to_set(
         getenv(
             "GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID",
+            "NVIDIA_VISIBLE_DEVICES",
         ),
         sep=",",
     ),

@@ -147,6 +147,7 @@ def path_to_cdi_mount(
     path: str,
     container_path: str | None = None,
     options: list[str] | None = None,
+    ignore_notfound: bool = False,
 ) -> ConfigMount | None:
     """
     Convert a file/directory path to a ConfigMount.
@@ -158,13 +159,15 @@ def path_to_cdi_mount(
             Path to the file or directory inside the container.
         options:
             Mount options.
+        ignore_notfound:
+            Whether to ignore if the path does not exist.
 
     Returns:
         The ConfigMount object.
         None if the path does not exist.
 
     """
-    if not Path(path).exists():
+    if not Path(path).exists() and not ignore_notfound:
         return None
 
     if container_path is None:
