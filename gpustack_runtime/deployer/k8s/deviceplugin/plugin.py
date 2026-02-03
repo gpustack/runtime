@@ -11,7 +11,7 @@ import grpc
 from grpc_interceptor import AsyncServerInterceptor
 from grpc_interceptor.exceptions import GrpcException
 
-from ....detector import Device, str_range_to_list
+from ....detector import Device, DeviceMemoryStatusEnum, str_range_to_list
 from ...cdi import (
     generate_config,
     manufacturer_to_cdi_kind,
@@ -40,6 +40,7 @@ from ..types.kubelet.deviceplugin.v1beta1 import (
     RegisterRequest,
     RegistrationStub,
     TopologyInfo,
+    Unhealthy,
     Version,
     add_DevicePluginServicer_to_server,
 )
@@ -335,7 +336,11 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
 
         """
         dp_devices: list[DevicePluginDevice] = []
-        dp_device_health = Healthy
+        dp_device_health = (
+            Healthy
+            if self._device.memory_status == DeviceMemoryStatusEnum.HEALTHY
+            else Unhealthy
+        )
         dp_device_topo = TopologyInfo(
             nodes=[
                 NUMANode(

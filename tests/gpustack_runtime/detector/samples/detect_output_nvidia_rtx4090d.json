@@ -13,6 +13,7 @@
     "memory": 24564,
     "memory_used": 486,
     "memory_utilization": 1.98,
+    "memory_status": "healthy",
     "temperature": 32,
     "power": 425,
     "power_used": 10,
