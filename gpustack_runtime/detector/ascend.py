@@ -32,10 +32,12 @@ slogger = logger.getChild("internal")
 _TOPOLOGY_DISTANCE_MAPPING: dict[int, int] = {
     pydcmi.DCMI_TOPO_TYPE_SELF: TopologyDistanceEnum.SELF,
     pydcmi.DCMI_TOPO_TYPE_HCCS: TopologyDistanceEnum.LINK,  # Traversing via high-speed interconnect, RoCE, etc.
+    pydcmi.DCMI_TOPO_TYPE_HCCS_SW: TopologyDistanceEnum.LINK,  # Traversing via high-speed interconnect switch.
     pydcmi.DCMI_TOPO_TYPE_PIX: TopologyDistanceEnum.PIX,  # Traversing via a single PCIe bridge.
     pydcmi.DCMI_TOPO_TYPE_PXB: TopologyDistanceEnum.PXB,  # Traversing via multiple PCIe bridges without PCIe Host Bridge.
     pydcmi.DCMI_TOPO_TYPE_PHB: TopologyDistanceEnum.PHB,  # Traversing via a PCIe Host Bridge.
     pydcmi.DCMI_TOPO_TYPE_SYS: TopologyDistanceEnum.SYS,  # Traversing via SMP interconnect across other NUMA nodes.
+    pydcmi.DCMI_TOPO_TYPE_SIO: TopologyDistanceEnum.SYS,  # Traversing via Super I/O or other slower interconnects.
 }
 """
 Mapping of Ascend topology types to distance values.
@@ -198,13 +200,14 @@ class AscendDetector(Detector):
 
                     dev_numa = get_numa_node_by_bdf(dev_bdf)
                     if not dev_numa:
-                        dev_cpu_affinity = (
-                            pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
-                                dev_card_id,
-                                dev_device_id,
+                        with contextlib.suppress(pydcmi.DCMIError):
+                            dev_cpu_affinity = (
+                                pydcmi.dcmi_get_affinity_cpu_info_by_device_id(
+                                    dev_card_id,
+                                    dev_device_id,
+                                )
                             )
-                        )
-                        dev_numa = map_cpu_affinity_to_numa_node(dev_cpu_affinity)
+                            dev_numa = map_cpu_affinity_to_numa_node(dev_cpu_affinity)
 
                     dev_appendix = {
                         "arch_family": (
@@ -213,11 +216,12 @@ class AscendDetector(Detector):
                         ),
                         "vgpu": dev_is_vgpu,
                         "bdf": dev_bdf,
-                        "numa": dev_numa,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
                         "device_id_max": device_num_in_card - 1,
                     }
+                    if dev_numa:
+                        dev_appendix["numa"] = dev_numa
 
                     dev_roce_ip, dev_roce_mask, dev_roce_gateway = (
                         _get_device_roce_network_info(

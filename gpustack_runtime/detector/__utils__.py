@@ -916,6 +916,9 @@ def str_range_to_list(str_range: str) -> list[int]:
         A list of indices.
 
     """
+    if not str_range:
+        return []
+
     str_range_parts = str_range.split(",")
 
     indices: set[int] = set()

@@ -179,17 +179,19 @@ class MetaXDetector(Detector):
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
-                    dev_node_affinity = pymxsml.mxSmlGetNodeAffinity(
-                        dev_idx,
-                        get_numa_nodeset_size(),
-                    )
-                    dev_numa = bitmask_to_str(list(dev_node_affinity))
+                    with contextlib.suppress(pymxsml.MXSMLError):
+                        dev_node_affinity = pymxsml.mxSmlGetNodeAffinity(
+                            dev_idx,
+                            get_numa_nodeset_size(),
+                        )
+                        dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
-                    "numa": dev_numa,
                 }
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
                 if dev_card_id is not None:
                     dev_appendix["card_id"] = dev_card_id
                 if dev_renderd_id is not None:

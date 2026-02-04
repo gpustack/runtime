@@ -12,6 +12,7 @@ from grpc_interceptor import AsyncServerInterceptor
 from grpc_interceptor.exceptions import GrpcException
 
 from ....detector import Device, DeviceMemoryStatusEnum, str_range_to_list
+from ....detector.__utils__ import get_numa_node_size
 from ...cdi import (
     generate_config,
     manufacturer_to_cdi_kind,
@@ -346,8 +347,11 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
                 NUMANode(
                     ID=node_id,
                 )
-                for node_id in str_range_to_list(
-                    self._device.appendix.get("numa", "0"),
+                for node_id in (
+                    str_range_to_list(
+                        self._device.appendix.get("numa", ""),
+                    )
+                    or list(range(get_numa_node_size()))
                 )
             ],
         )

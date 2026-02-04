@@ -190,18 +190,20 @@ class IluvatarDetector(Detector):
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
-                    dev_node_affinity = pyixml.nvmlDeviceGetMemoryAffinity(
-                        dev,
-                        get_numa_nodeset_size(),
-                        pyixml.NVML_AFFINITY_SCOPE_NODE,
-                    )
-                    dev_numa = bitmask_to_str(list(dev_node_affinity))
+                    with contextlib.suppress(pyixml.NVMLError):
+                        dev_node_affinity = pyixml.nvmlDeviceGetMemoryAffinity(
+                            dev,
+                            get_numa_nodeset_size(),
+                            pyixml.NVML_AFFINITY_SCOPE_NODE,
+                        )
+                        dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
-                    "numa": dev_numa,
                 }
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
 
                 ret.append(
                     Device(

@@ -1,5 +1,6 @@
 from __future__ import annotations as __future_annotations__
 
+import contextlib
 import logging
 from functools import lru_cache
 
@@ -176,19 +177,21 @@ class MThreadsDetector(Detector):
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
-                    dev_node_affinity = pymtml.mtmlDeviceGetMemoryAffinityWithinNode(
-                        dev,
-                        get_numa_nodeset_size(),
-                    )
-                    dev_numa = bitmask_to_str(
-                        list(dev_node_affinity),
-                    )
+                    with contextlib.suppress(pymtml.MTMLError):
+                        dev_node_affinity = (
+                            pymtml.mtmlDeviceGetMemoryAffinityWithinNode(
+                                dev,
+                                get_numa_nodeset_size(),
+                            )
+                        )
+                        dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
-                    "numa": dev_numa,
                 }
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
 
                 ret.append(
                     Device(

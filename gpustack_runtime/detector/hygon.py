@@ -171,13 +171,17 @@ class HygonDetector(Detector):
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
-                    dev_numa = str(pyrocmsmi.rsmi_topo_get_numa_node_number(dev_idx))
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_numa = str(
+                            pyrocmsmi.rsmi_topo_get_numa_node_number(dev_idx),
+                        )
 
                 dev_appendix = {
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
-                    "numa": dev_numa,
                 }
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
                 if dev_card_id is not None:
                     dev_appendix["card_id"] = dev_card_id
                 if dev_renderd_id is not None:

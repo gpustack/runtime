@@ -134,12 +134,13 @@ class NVIDIADetector(Detector):
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
-                    dev_node_affinity = pynvml.nvmlDeviceGetMemoryAffinity(
-                        dev,
-                        get_numa_nodeset_size(),
-                        pynvml.NVML_AFFINITY_SCOPE_NODE,
-                    )
-                    dev_numa = bitmask_to_str(list(dev_node_affinity))
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_node_affinity = pynvml.nvmlDeviceGetMemoryAffinity(
+                            dev,
+                            get_numa_nodeset_size(),
+                            pynvml.NVML_AFFINITY_SCOPE_NODE,
+                        )
+                        dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_temp = None
                 with contextlib.suppress(pynvml.NVMLError):
@@ -224,8 +225,9 @@ class NVIDIADetector(Detector):
                         "arch_family": _get_arch_family(dev_cc_t),
                         "vgpu": dev_is_vgpu,
                         "bdf": dev_bdf,
-                        "numa": dev_numa,
                     }
+                    if dev_numa:
+                        dev_appendix["numa"] = dev_numa
 
                     if dev_fabric_info := _get_fabric_info(dev):
                         dev_appendix.update(dev_fabric_info)
@@ -297,8 +299,9 @@ class NVIDIADetector(Detector):
                         "arch_family": _get_arch_family(dev_cc_t),
                         "vgpu": True,
                         "bdf": dev_bdf,
-                        "numa": dev_numa,
                     }
+                    if dev_numa:
+                        mdev_appendix["numa"] = dev_numa
 
                     mdev_gi_id = pynvml.nvmlDeviceGetGpuInstanceId(mdev)
                     mdev_appendix["gpu_instance_id"] = mdev_gi_id

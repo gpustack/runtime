@@ -132,12 +132,13 @@ class THeadDetector(Detector):
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
-                    dev_node_affinity = pyhgml.hgmlDeviceGetMemoryAffinity(
-                        dev,
-                        get_numa_nodeset_size(),
-                        pyhgml.HGML_AFFINITY_SCOPE_NODE,
-                    )
-                    dev_numa = bitmask_to_str(list(dev_node_affinity))
+                    with contextlib.suppress(pyhgml.HGMLError):
+                        dev_node_affinity = pyhgml.hgmlDeviceGetMemoryAffinity(
+                            dev,
+                            get_numa_nodeset_size(),
+                            pyhgml.HGML_AFFINITY_SCOPE_NODE,
+                        )
+                        dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_temp = None
                 with contextlib.suppress(pyhgml.HGMLError):
@@ -213,8 +214,9 @@ class THeadDetector(Detector):
                     dev_appendix = {
                         "vgpu": dev_is_vgpu,
                         "bdf": dev_bdf,
-                        "numa": dev_numa,
                     }
+                    if dev_numa:
+                        dev_appendix["numa"] = dev_numa
 
                     ret.append(
                         Device(
@@ -279,8 +281,9 @@ class THeadDetector(Detector):
                     mdev_appendix = {
                         "vgpu": True,
                         "bdf": dev_bdf,
-                        "numa": dev_numa,
                     }
+                    if dev_numa:
+                        mdev_appendix["numa"] = dev_numa
 
                     mdev_gi_id = pyhgml.hgmlDeviceGetGpuInstanceId(mdev)
                     mdev_appendix["gpu_instance_id"] = mdev_gi_id
