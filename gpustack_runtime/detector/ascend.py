@@ -444,7 +444,7 @@ def _get_device_roce_network_info(
             pydcmi.DCMI_PORT_TYPE_ROCE_PORT,
         )
     except pydcmi.DCMIError:
-        debug_log_exception(logger, "Failed to get device roce network info")
+        debug_log_exception(logger, "Failed to get device RoCE network info")
 
     return ip, mask, gateway
 
@@ -505,12 +505,15 @@ _soc_name_version_mapping: dict[str, int] = {
     "Ascend310B3": 242,
     "Ascend310B4": 243,
     "Ascend910_9391": 250,
+    "Ascend910": 250,
     "Ascend910_9392": 251,
     "Ascend910_9381": 252,
     "Ascend910_9382": 253,
     "Ascend910_9372": 254,
     "Ascend910_9362": 255,
     "Ascend910_9579": 260,
+    "Ascend910_95": 260,
+    "Ascend950": 260,
 }
 
 
@@ -526,6 +529,8 @@ def _guess_soc_name_from_dev_name(dev_name: str) -> str | None:
         The guessed SoC name, or None if not found.
 
     """
+    if dev_name.startswith("Ascend"):
+        dev_name = dev_name[6:].strip()
     soc_name = f"Ascend{dev_name}"
     if soc_name in _soc_name_version_mapping:
         return soc_name
