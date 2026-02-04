@@ -123,7 +123,7 @@ class GetDevicesTopologySubCommand(SubCommand):
                     "",
                     "Legend (from nearest to farthest):",
                     "  X    = Self",
-                    "  LINK = Connection traversing with High-Speed Link (e.g., AMD XGMI, Ascend HCCS, NVIDIA NVLink)",
+                    "  LINK = Connection traversing with High-Speed Link (e.g., AMD XGMI, Ascend HCCS, MThreads MTLink, NVIDIA NVLink, T-Head ICNLink)",
                     "  PIX  = Connection traversing at most a single PCIe bridge",
                     "  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)",
                     "  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)",
