@@ -82,7 +82,7 @@ def dump_config(
     if cdi_path.exists():
         actual = cdi_path.read_text(encoding="utf-8")
         if actual == expected:
-            return expected, str(cdi_path)
+            return expected, None
 
     cdi_path.write_text(expected, encoding="utf-8")
     return expected, str(cdi_path)

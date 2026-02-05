@@ -985,11 +985,37 @@ class DockerDeployer(EndoscopicDeployer):
                     # Generate CDI config if not yet.
                     if cdi and envs.GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE:
                         for ren in runtime_envs:
-                            r_m = self.get_manufacturer(ren)
-                            cdi_dump_config(
-                                manufacturer=r_m,
+                            manu = self.get_manufacturer(ren)
+                            cdi_config, cdi_config_path = cdi_dump_config(
+                                manufacturer=manu,
                                 output=envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY,
                             )
+                            if cdi_config and cdi_config_path:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Generated CDI configuration for '%s' at '%s':\n%s",
+                                        manu,
+                                        cdi_config_path,
+                                        cdi_config,
+                                    )
+                                else:
+                                    logger.info(
+                                        "Generated CDI configuration for '%s' at '%s'",
+                                        manu,
+                                        cdi_config_path,
+                                    )
+                            elif cdi_config:
+                                logger.info(
+                                    "Reuse generated CDI configuration for '%s'",
+                                    manu,
+                                )
+                            else:
+                                logger.warning(
+                                    "Delegated CDI configuration by other tools for '%s', "
+                                    "e.g. NVIDIA Container Toolkit Manual CDI Specification Generation, "
+                                    "see https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html#manual-cdi-specification-generation",
+                                    manu,
+                                )
 
                     # Request devices.
                     if r_v == "all":

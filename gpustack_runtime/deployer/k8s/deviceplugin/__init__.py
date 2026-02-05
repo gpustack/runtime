@@ -78,27 +78,32 @@ async def serve_async(
             allocation_policy == "cdi"
             and envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE
         ):
-            generated_content, generated_path = cdi_dump_config(
+            cdi_config, cdi_config_path = cdi_dump_config(
                 manufacturer=manu,
                 output=cdi_generation_output,
             )
-            if generated_content:
+            if cdi_config and cdi_config_path:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Generated CDI configuration for '%s' at '%s':\n%s",
                         manu,
-                        generated_path,
-                        generated_content,
+                        cdi_config_path,
+                        cdi_config,
                     )
                 else:
                     logger.info(
                         "Generated CDI configuration for '%s' at '%s'",
                         manu,
-                        generated_path,
+                        cdi_config_path,
                     )
+            elif cdi_config:
+                logger.info(
+                    "Reuse generated CDI configuration for '%s'",
+                    manu,
+                )
             else:
                 logger.warning(
-                    "Delegated CDI configuration by other tools for manufacturer '%s', "
+                    "Delegated CDI configuration by other tools for '%s', "
                     "e.g. NVIDIA Container Toolkit Manual CDI Specification Generation, "
                     "see https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html#manual-cdi-specification-generation",
                     manu,
