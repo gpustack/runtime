@@ -1012,7 +1012,7 @@ class DockerDeployer(EndoscopicDeployer):
                             else:
                                 logger.warning(
                                     "Delegated CDI configuration by other tools for '%s', "
-                                    "e.g. NVIDIA Container Toolkit Manual CDI Specification Generation, "
+                                    "e.g. for NVIDIA devices, please follow NVIDIA Container Toolkit Manual CDI Specification Generation to generate the CDI configuration, "
                                     "see https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html#manual-cdi-specification-generation",
                                     manu,
                                 )
