@@ -50,7 +50,7 @@ class THeadDetector(Detector):
 
         """
         supported = False
-        if envs.GPUSTACK_RUNTIME_DETECT.lower() not in ("auto", "iluvatar"):
+        if envs.GPUSTACK_RUNTIME_DETECT.lower() not in ("auto", "thead"):
             logger.debug("T-Head detection is disabled by environment variable")
             return supported
 

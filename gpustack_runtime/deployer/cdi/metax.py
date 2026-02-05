@@ -137,12 +137,10 @@ class MetaXGenerator(Generator):
         return Config(
             kind=kind,
             devices=cdi_devices,
-            container_edits=[
-                ConfigContainerEdits(
-                    env=[
-                        f"{runtime_env}=void",
-                    ],
-                    device_nodes=common_device_nodes,
-                ),
-            ],
+            container_edits=ConfigContainerEdits(
+                env=[
+                    f"{runtime_env}=void",
+                ],
+                device_nodes=common_device_nodes,
+            ),
         )

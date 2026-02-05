@@ -527,7 +527,7 @@ class Config(dict):
         self,
         kind: str,
         devices: list[ConfigDevice],
-        container_edits: list[ConfigContainerEdits] | None = None,
+        container_edits: ConfigContainerEdits | None = None,
         cdi_version: str = _DEFAULT_CDI_VERSION,
         annotations: dict[str, str] | None = None,
     ):
@@ -581,7 +581,7 @@ class Config(dict):
         return self["kind"]
 
     @property
-    def container_edits(self) -> list[ConfigContainerEdits] | None:
+    def container_edits(self) -> ConfigContainerEdits | None:
         """
         Return the list of container edits in the CDI configuration.
 
