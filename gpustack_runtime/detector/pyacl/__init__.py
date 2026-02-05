@@ -403,20 +403,21 @@ def _LoadAclLibrary():
                 locs = [
                     "libascendcl.so",
                 ]
-                ascend_path = Path(
-                    os.getenv(
-                        "ASCEND_HOME_PATH",
-                        "/usr/local/Ascend/ascend-toolkit/latest",
-                    ),
-                )
-                if ascend_path.exists():
-                    locs.extend(
-                        [
-                            str(ascend_path / "runtime/lib64/libascendcl.so"),
-                            str(ascend_path / "aarch64-linux/lib64/libascendcl.so"),
-                            str(ascend_path / "x86_64-linux/lib64/libascendcl.so"),
-                        ]
+                for default_path in [
+                    "/usr/local/Ascend/ascend-toolkit/latest",
+                    "/usr/local/Ascend/cann",
+                ]:
+                    ascend_path = Path(
+                        os.getenv("ASCEND_HOME_PATH", default_path),
                     )
+                    if ascend_path.exists():
+                        locs.extend(
+                            [
+                                str(ascend_path / "runtime/lib64/libascendcl.so"),
+                                str(ascend_path / "aarch64-linux/lib64/libascendcl.so"),
+                                str(ascend_path / "x86_64-linux/lib64/libascendcl.so"),
+                            ]
+                        )
                 for loc in locs:
                     try:
                         aclLib = CDLL(loc)
@@ -439,7 +440,8 @@ def aclrtGetSocName():
         fn = _aclGetFunctionPointer("aclrtGetSocName")
         fn.restype = c_char_p
         c_version = fn()
-        return c_version.decode()
+        if c_version is not None:
+            return c_version.decode()
 
     return None
 
@@ -454,5 +456,23 @@ def aclsysGetCANNVersion(package_name=ACL_PKG_NAME_CANN):
         ret = fn(package_name, byref(c_version))
         _aclCheckReturn(ret)
         return f"{c_version.version}".lower()
+
+    return None
+
+
+def aclsysGetVersion():
+    cann_version = aclsysGetCANNVersion()
+    if cann_version is not None:
+        return cann_version
+
+    with contextlib.suppress(ACLError):
+        _LoadAclLibrary()
+
+        c_version = create_string_buffer(ACL_PKG_VERSION_MAX_SIZE)
+        package_name = b"runtime"
+        fn = _aclGetFunctionPointer("aclsysGetVersionStr")
+        ret = fn(package_name, c_version)
+        _aclCheckReturn(ret)
+        return c_version.value.decode().lower()
 
     return None

@@ -111,7 +111,7 @@ class AscendDetector(Detector):
 
             sys_driver_ver = pydcmi.dcmi_get_driver_version()
 
-            sys_runtime_ver_original = pyacl.aclsysGetCANNVersion()
+            sys_runtime_ver_original = pyacl.aclsysGetVersion()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             _, card_list = pydcmi.dcmi_get_card_list()
