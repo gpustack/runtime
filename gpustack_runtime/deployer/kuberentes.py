@@ -1355,8 +1355,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                     name=v.persistent_volume_claim.claim_name,
                     namespace=self_pod_namespace,
                 )
-                ams = pvc.spec.access_modes or []
-                if any(mode in ams for mode in ("ReadWriteOnce", "ReadWriteOncePod")):
+                if "ReadWriteOncePod" in pvc.spec.access_modes or []:
                     mirrored_volume_mounts_names.discard(v.name)
                     mirrored_volume_devices_names.discard(v.name)
                     continue
