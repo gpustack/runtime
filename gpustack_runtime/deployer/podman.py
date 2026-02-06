@@ -911,8 +911,16 @@ class PodmanDeployer(EndoscopicDeployer):
                 create_options["working_dir"] = c.execution.working_dir
                 create_options["entrypoint"] = c.execution.command
                 create_options["command"] = c.execution.args
-                run_as_user = c.execution.run_as_user or workload.run_as_user
-                run_as_group = c.execution.run_as_group or workload.run_as_group
+                run_as_user = (
+                    c.execution.run_as_user
+                    if c.execution.run_as_user is not None
+                    else workload.run_as_user
+                )
+                run_as_group = (
+                    c.execution.run_as_group
+                    if c.execution.run_as_group is not None
+                    else workload.run_as_group
+                )
                 if run_as_user is not None:
                     create_options["user"] = run_as_user
                     if run_as_group is not None:
