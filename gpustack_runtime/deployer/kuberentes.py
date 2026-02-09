@@ -1207,7 +1207,7 @@ class KubernetesDeployer(EndoscopicDeployer):
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
 
     @property
-    def allowed_uuid_values(self) -> bool:
+    def allowed_runtime_uuid_values(self) -> bool:
         return get_resource_injection_policy() != "kdp"
 
     def _prepare_mirrored_deployment(self):
