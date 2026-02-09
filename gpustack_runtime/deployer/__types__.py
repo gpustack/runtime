@@ -1381,19 +1381,17 @@ class Deployer(ABC):
                         )
                         and manu != ManufacturerEnum.ASCEND
                     )
-                    dev_runtime_values: dict[str, str] = {}
-                    dev_backend_values: dict[str, str] = {}
-                    dev_backend_aligned_values: dict[str, str] = {}
+                    dev_values: dict[str, str] = {}
+                    dev_aligned_values: dict[str, str] = {}
                     dev_numa_affinities: dict[str, str] = {}
                     dev_cpus_affinities: dict[str, str] = {}
                     for dev_i, dev in enumerate(devs):
                         dev_index = str(dev.index)
                         if valued_uuid:
-                            dev_runtime_values[dev_index] = dev.uuid
+                            dev_values[dev_index] = dev.uuid
                         else:
-                            dev_runtime_values[dev_index] = dev_index
-                        dev_backend_values[dev_index] = dev_index
-                        dev_backend_aligned_values[dev_index] = str(dev_i)
+                            dev_values[dev_index] = dev_index
+                        dev_aligned_values[dev_index] = str(dev_i)
                         dev_numa_affinities[dev_index] = dev.appendix.get("numa", "")
                         dev_cpus_affinities[dev_index] = map_numa_node_to_cpu_affinity(
                             dev_numa_affinities[dev_index],
@@ -1404,13 +1402,16 @@ class Deployer(ABC):
                         runtime_env=ren,
                         backend_env=ben_list,
                         cdi=cdi,
-                        runtime_values=dev_runtime_values,
+                        runtime_values=dev_values,
                         backend_values={
                             ben: (
-                                dev_backend_aligned_values
-                                if ben
-                                in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
-                                else dev_backend_values
+                                dev_aligned_values
+                                if (
+                                    not valued_uuid
+                                    and ben
+                                    in envs.GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT
+                                )
+                                else dev_values
                             )
                             for ben in ben_list
                         },
