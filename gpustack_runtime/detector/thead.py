@@ -64,7 +64,7 @@ class THeadDetector(Detector):
             pyhgml.hgmlShutdown()
             supported = True
         except pyhgml.HGMLError:
-            debug_log_exception(logger, "Failed to initialize HGML library")
+            debug_log_exception(logger, "Failed to initialize HGML")
 
         return supported
 

@@ -62,7 +62,7 @@ class IluvatarDetector(Detector):
             pyixml.nvmlShutdown()
             supported = True
         except pyixml.NVMLError:
-            debug_log_exception(logger, "Failed to initialize IXML library")
+            debug_log_exception(logger, "Failed to initialize IXML")
 
         return supported
 
@@ -102,7 +102,7 @@ class IluvatarDetector(Detector):
 
             sys_runtime_ver_original = None
             sys_runtime_ver = None
-            with contextlib.suppress(pyixml.NVMLError):
+            with contextlib.suppress(Exception):
                 sys_runtime_ver_original = pyixml.nvmlSystemGetCudaDriverVersion()
                 sys_runtime_ver_original = ".".join(
                     map(

@@ -28,6 +28,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 # THE POSSIBILITY OF SUCH DAMAGE.
 #####
+import os
 
 ##
 # Python bindings for the NVML library
@@ -2162,8 +2163,20 @@ def _LoadNvmlLibrary():
                 # Linux path
                 locs = [
                     "libixml.so",
-                    str(Path(__file__).resolve().parent / "libixml.so"),
                 ]
+                for default_path in [
+                    "/usr/local/corex",
+                ]:
+                    iluvatar_path = Path(
+                        os.getenv("COREX_HOME", default_path),
+                    )
+                    if iluvatar_path.exists():
+                        locs.extend(
+                            [
+                                str(iluvatar_path / "lib64/libixml.so"),
+                                str(iluvatar_path / "lib/libixml.so"),
+                            ]
+                        )
                 for loc in locs:
                     try:
                         nvmlLib = CDLL(loc)
