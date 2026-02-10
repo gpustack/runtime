@@ -186,8 +186,7 @@ if TYPE_CHECKING:
     """
     GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID: set[str] | None = None
     """
-    Apply UUIDs for the given runtime visible devices environment variables,
-    also apply UUIDs for the corresponding backend visible devices environment variables.
+    Apply UUIDs for the given runtime visible devices environment variables.
     """
     GPUSTACK_RUNTIME_DEPLOY_BACKEND_VISIBLE_DEVICES_VALUE_ALIGNMENT: set[str] | None = (
         None
@@ -196,8 +195,6 @@ if TYPE_CHECKING:
     Enable value alignment for the given backend visible devices environment variables.
     When detected devices are considered to be partially mapped (starting from a non-zero value or not contiguous),
     alignment is performed to ensure they are correctly identified.
-    Works only when `GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID` is not set
-    the corresponding runtime visible devices environment variable.
     """
     GPUSTACK_RUNTIME_DEPLOY_CPU_AFFINITY: bool = False
     """
