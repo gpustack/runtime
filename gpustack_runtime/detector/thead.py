@@ -162,7 +162,8 @@ class THeadDetector(Detector):
 
                 dev_index = dev_idx
                 if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                    dev_index = pyhgml.hgmlDeviceGetMinorNumber(dev)
+                    with contextlib.suppress(pyhgml.HGMLError):
+                        dev_index = pyhgml.hgmlDeviceGetMinorNumber(dev)
 
                 # With MIG disabled, treat as a single device.
 
