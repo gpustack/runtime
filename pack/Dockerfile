@@ -255,20 +255,20 @@ RUN <<EOF
         skopeo
 
     IFS="." read -r MAJOR MINOR PATCH <<< "$(skopeo --version | awk '{print $3}' | cut -d'-' -f1)"
-    if (( MAJOR < 1 || ( MAJOR == 1 && MINOR < 14 ) )); then
-        echo "Skopeo version ${MAJOR}.${MINOR} is lower than required 1.13.3, upgrading from source..."
+    if (( MAJOR < 1 || ( MAJOR == 1 && MINOR < 21 ) )); then
+        echo "Skopeo version ${MAJOR}.${MINOR} is lower than required 1.20.0, upgrading from source..."
 
         apt-get install -y --no-install-recommends \
             libgpgme-dev \
             libdevmapper-dev
 
         # Install Go
-        curl --retry 3 --retry-connrefused -fL "https://go.dev/dl/go1.18.10.${TARGETOS}-${TARGETARCH}.tar.gz" | tar -zx -C /usr/local
+        curl --retry 3 --retry-connrefused -fL "https://go.dev/dl/go1.23.3.${TARGETOS}-${TARGETARCH}.tar.gz" | tar -zx -C /usr/local
         export PATH="/usr/local/go/bin:${PATH}"
 
         # Install Skopeo from source
         git -C /tmp clone --recursive --shallow-submodules \
-            --depth 1 --branch v1.13.3 --single-branch \
+            --depth 1 --branch v1.20.0 --single-branch \
             https://github.com/containers/skopeo.git skopeo
 
         # Build and install
