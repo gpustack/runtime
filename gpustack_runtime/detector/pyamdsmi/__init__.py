@@ -17,7 +17,7 @@ AMDSMI_LINK_TYPE_UNKNOWN = 4
 try:
     with Path(os.devnull).open("w") as dev_null, contextlib.redirect_stdout(dev_null):
         from amdsmi import *
-except (ImportError, KeyError, OSError):
+except Exception:
 
     class AmdSmiException(Exception):
         pass
