@@ -213,6 +213,7 @@ MXSML_ERROR_BUSY_DEVICE = 23
 MXSML_ERROR_MMIO_NOT_ENOUGH = 24
 MXSML_ERROR_GET_PCI_BRIDGE_FAILURE = 25
 MXSML_ERROR_LOAD_DLL_FAILURE = 26
+MXSML_ERROR_FUNCTION_NOT_FOUND = 999
 
 _mxSmlMetaXLinkState_t = c_uint
 MXSML_MetaXLink_State_Enabled = 0
@@ -708,8 +709,11 @@ def _mxsmlGetFunctionPointer(name):
     if mxSmlLib == None:
         raise MXSMLError(MXSML_ERROR_FAILURE)
 
-    _mxsmlFunctionPointerCache[name] = getattr(mxSmlLib, name)
-    return _mxsmlFunctionPointerCache[name]
+    try:
+        _mxsmlFunctionPointerCache[name] = getattr(mxSmlLib, name)
+        return _mxsmlFunctionPointerCache[name]
+    except AttributeError:
+        raise MXSMLError(MXSML_ERROR_FUNCTION_NOT_FOUND)
 
 
 ## string/bytes conversion for ease of use
