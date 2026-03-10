@@ -1393,10 +1393,7 @@ class Deployer(ABC):
                         else:
                             dev_runtime_values[dev_index] = dev_index
                         dev_backend_values[dev_index] = dev_index
-                        if (
-                            dev.appendix.get("vgpu", False)
-                            and manu != ManufacturerEnum.ASCEND
-                        ):
+                        if dev.appendix.get("sliced", False):
                             dev_backend_values[dev_index] = dev.uuid
                         dev_backend_aligned_values[dev_index] = str(dev_i)
                         dev_numa_affinities[dev_index] = dev.appendix.get("numa", "")

@@ -281,6 +281,7 @@ class THeadDetector(Detector):
 
                     mdev_appendix = {
                         "vgpu": True,
+                        "sliced": True,
                         "bdf": dev_bdf,
                     }
                     if dev_numa:
@@ -415,7 +416,7 @@ class THeadDetector(Detector):
 
             for i, dev_i in enumerate(devices):
                 dev_i_bdf = dev_i.appendix.get("bdf")
-                if dev_i.appendix.get("vgpu", False):
+                if dev_i.appendix.get("sliced", False):
                     dev_i_handle = pyhgml.hgmlDeviceGetHandleByPciBusId(dev_i_bdf)
                 else:
                     dev_i_handle = pyhgml.hgmlDeviceGetHandleByUUID(dev_i.uuid)
@@ -453,7 +454,7 @@ class THeadDetector(Detector):
                     if dev_i_bdf == dev_j_bdf:
                         distance = TopologyDistanceEnum.SELF
                     else:
-                        if dev_j.appendix.get("vgpu", False):
+                        if dev_j.appendix.get("sliced", False):
                             dev_j_handle = pyhgml.hgmlDeviceGetHandleByPciBusId(
                                 dev_j_bdf,
                             )

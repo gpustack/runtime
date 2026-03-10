@@ -318,6 +318,7 @@ class NVIDIADetector(Detector):
                     mdev_appendix = {
                         "arch_family": _get_arch_family(dev_cc_t),
                         "vgpu": True,
+                        "sliced": True,
                         "bdf": dev_bdf,
                     }
                     if dev_numa:
@@ -465,7 +466,7 @@ class NVIDIADetector(Detector):
 
             for i, dev_i in enumerate(devices):
                 dev_i_bdf = dev_i.appendix.get("bdf")
-                if dev_i.appendix.get("vgpu", False):
+                if dev_i.appendix.get("sliced", False):
                     dev_i_handle = pynvml.nvmlDeviceGetHandleByPciBusId(dev_i_bdf)
                 else:
                     dev_i_handle = pynvml.nvmlDeviceGetHandleByUUID(dev_i.uuid)
@@ -503,7 +504,7 @@ class NVIDIADetector(Detector):
                     if dev_i_bdf == dev_j_bdf:
                         distance = TopologyDistanceEnum.SELF
                     else:
-                        if dev_j.appendix.get("vgpu", False):
+                        if dev_j.appendix.get("sliced", False):
                             dev_j_handle = pynvml.nvmlDeviceGetHandleByPciBusId(
                                 dev_j_bdf,
                             )
