@@ -187,7 +187,7 @@ class AMDDetector(Detector):
                             pyrocmsmi.rsmi_dev_memory_total_get(
                                 dev_idx,
                                 pyrocmsmi.RSMI_MEM_TYPE_VIS_VRAM,
-                            )
+                            ),
                         )
                         dev_mem = max(dev_mem, dev_mem_vis_vram)
                     dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
@@ -208,7 +208,7 @@ class AMDDetector(Detector):
                             pyrocmsmi.rsmi_dev_memory_total_get(
                                 dev_idx,
                                 pyrocmsmi.RSMI_MEM_TYPE_VIS_VRAM,
-                            )
+                            ),
                         )
                         dev_mem = max(dev_mem, dev_mem_vis_vram)
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
