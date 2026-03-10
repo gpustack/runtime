@@ -179,6 +179,16 @@ class AMDDetector(Detector):
                     dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
                     dev_mem = dev_gpu_vram_usage.get("vram_total")
                     dev_mem_used = dev_gpu_vram_usage.get("vram_used")
+                    # On APUs with unified memory (e.g., AMD Strix Halo), VRAM
+                    # reports only the BIOS carveout (~512 MiB); VIS_VRAM reports
+                    # the full usable system memory. Use VIS_VRAM when larger.
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_mem_vis_vram = byte_to_mebibyte(
+                            pyrocmsmi.rsmi_dev_memory_total_get(
+                                dev_idx, pyrocmsmi.RSMI_MEM_TYPE_VIS_VRAM,
+                            ),
+                        )
+                        dev_mem = max(dev_mem, dev_mem_vis_vram)
                     dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
                         dev,
                         pyamdsmi.AmdSmiGpuBlock.UMC,
@@ -189,6 +199,16 @@ class AMDDetector(Detector):
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
                     )
+                    # On APUs with unified memory (e.g., AMD Strix Halo), VRAM
+                    # reports only the BIOS carveout (~512 MiB); VIS_VRAM reports
+                    # the full usable system memory. Use VIS_VRAM when larger.
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_mem_vis_vram = byte_to_mebibyte(
+                            pyrocmsmi.rsmi_dev_memory_total_get(
+                                dev_idx, pyrocmsmi.RSMI_MEM_TYPE_VIS_VRAM,
+                            ),
+                        )
+                        dev_mem = max(dev_mem, dev_mem_vis_vram)
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                     )
