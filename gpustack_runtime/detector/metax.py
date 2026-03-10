@@ -307,12 +307,16 @@ def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
     card_id = None
     renderd_id = None
 
-    drm_path = Path(f"/sys/module/metax/drivers/pci:metax/{dev_bdf}/drm")
-    if drm_path.exists():
-        for dir_path in drm_path.iterdir():
-            if dir_path.name.startswith("card"):
-                card_id = int(dir_path.name[4:])
-            elif dir_path.name.startswith("renderD"):
-                renderd_id = int(dir_path.name[7:])
+    for drm_path in [
+        Path(f"/sys/module/metax/drivers/pci:METAX/{dev_bdf}/drm"),
+        Path(f"/sys/module/metax/drivers/pci:metax/{dev_bdf}/drm"),
+    ]:
+        if drm_path.exists():
+            for dir_path in drm_path.iterdir():
+                if dir_path.name.startswith("card"):
+                    card_id = int(dir_path.name[4:])
+                elif dir_path.name.startswith("renderD"):
+                    renderd_id = int(dir_path.name[7:])
+            break
 
     return card_id, renderd_id

@@ -455,7 +455,9 @@ class SharableDevicePlugin(PluginServer, DevicePluginServicer):
             dev_mounts: list[Mount] = []
             dev_devices: list[DeviceSpec] = []
 
-            container_edits = cdi_cfg.container_edits or []
+            container_edits = (
+                [cdi_cfg.container_edits] if cdi_cfg.container_edits else []
+            )
             for cdi_dev in cdi_cfg.devices:
                 container_edits.append(cdi_dev.container_edits)
 
