@@ -20,6 +20,7 @@
     "appendix": {
       "arch_family": "Hopper",
       "vgpu": true,
+      "sliced": true,
       "bdf": "0000:00:0a.0",
       "numa": "0-1",
       "gpu_instance_id": 6,
@@ -49,6 +50,7 @@
     "appendix": {
       "arch_family": "Hopper",
       "vgpu": true,
+      "sliced": true,
       "bdf": "0000:00:0a.0",
       "numa": "0-1",
       "gpu_instance_id": 11,
@@ -78,6 +80,7 @@
     "appendix": {
       "arch_family": "Hopper",
       "vgpu": true,
+      "sliced": true,
       "bdf": "0000:00:0a.0",
       "numa": "0-1",
       "gpu_instance_id": 12,
@@ -161,6 +164,7 @@
     "appendix": {
       "arch_family": "Hopper",
       "vgpu": true,
+      "sliced": true,
       "bdf": "0000:00:0d.0",
       "numa": "0-1",
       "gpu_instance_id": 2,
@@ -190,6 +194,7 @@
     "appendix": {
       "arch_family": "Hopper",
       "vgpu": true,
+      "sliced": true,
       "bdf": "0000:00:0d.0",
       "numa": "0-1",
       "gpu_instance_id": 2,
