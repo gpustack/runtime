@@ -199,14 +199,15 @@ class THeadDetector(Detector):
                         dev_mem_used = byte_to_mebibyte(  # byte to MiB
                             dev_mem_info.used,
                         )
-                        dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
-                            dev,
-                            pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                            pyhgml.HGML_VOLATILE_ECC,
-                            pyhgml.HGML_MEMORY_LOCATION_DRAM,
-                        )
-                        if dev_mem_ecc_errors > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                            dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
+                                dev,
+                                pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                                pyhgml.HGML_VOLATILE_ECC,
+                                pyhgml.HGML_MEMORY_LOCATION_DRAM,
+                            )
+                            if dev_mem_ecc_errors > 0:
+                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                     dev_is_vgpu = False
                     if dev_bdf:
@@ -270,14 +271,17 @@ class THeadDetector(Detector):
                         mdev_mem_used = byte_to_mebibyte(  # byte to MiB
                             mdev_mem_info.used,
                         )
-                        mdev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
-                            mdev,
-                            pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                            pyhgml.HGML_AGGREGATE_ECC,
-                            pyhgml.HGML_MEMORY_LOCATION_SRAM,
-                        )
-                        if mdev_mem_ecc_errors > 0:
-                            mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                            mdev_mem_ecc_errors = (
+                                pyhgml.hgmlDeviceGetMemoryErrorCounter(
+                                    mdev,
+                                    pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                                    pyhgml.HGML_AGGREGATE_ECC,
+                                    pyhgml.HGML_MEMORY_LOCATION_SRAM,
+                                )
+                            )
+                            if mdev_mem_ecc_errors > 0:
+                                mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                     mdev_appendix = {
                         "vgpu": True,

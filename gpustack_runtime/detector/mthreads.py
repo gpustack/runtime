@@ -150,14 +150,15 @@ class MThreadsDetector(Detector):
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         pymtml.mtmlMemoryGetUsed(devmem),
                     )
-                    dev_mem_ecc_errors = pymtml.mtmlMemoryGetEccErrorCounter(
-                        devmem,
-                        pymtml.MTML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                        pymtml.MTML_VOLATILE_ECC,
-                        pymtml.MTML_MEMORY_LOCATION_DRAM,
-                    )
-                    if dev_mem_ecc_errors > 0:
-                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                        dev_mem_ecc_errors = pymtml.mtmlMemoryGetEccErrorCounter(
+                            devmem,
+                            pymtml.MTML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                            pymtml.MTML_VOLATILE_ECC,
+                            pymtml.MTML_MEMORY_LOCATION_DRAM,
+                        )
+                        if dev_mem_ecc_errors > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_cores_util = None
                 dev_temp = None

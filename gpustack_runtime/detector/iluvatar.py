@@ -138,17 +138,18 @@ class IluvatarDetector(Detector):
                 dev_mem = 0
                 dev_mem_used = 0
                 dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_mem_info = pyixml.nvmlDeviceGetMemoryInfo(dev)
-                    dev_mem = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.total,
-                    )
-                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.used,
-                    )
-                    dev_health = pyixml.ixmlDeviceGetHealth(dev)
-                    if dev_health != pyixml.IXML_HEALTH_OK:
-                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                    with contextlib.suppress(pyixml.NVMLError):
+                        dev_mem_info = pyixml.nvmlDeviceGetMemoryInfo(dev)
+                        dev_mem = byte_to_mebibyte(  # byte to MiB
+                            dev_mem_info.total,
+                        )
+                        dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                            dev_mem_info.used,
+                        )
+                        dev_health = pyixml.ixmlDeviceGetHealth(dev)
+                        if dev_health != pyixml.IXML_HEALTH_OK:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_cores_util = None
                 with contextlib.suppress(pyixml.NVMLError):

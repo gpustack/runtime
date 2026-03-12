@@ -148,10 +148,11 @@ class MetaXDetector(Detector):
                     dev_mem_info.vramUse,
                 )
                 dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                with contextlib.suppress(pymxsml.MXSMLError):
-                    dev_ecc_errors = pymxsml.mxSmlGetTotalEccErrors(dev_idx)
-                    if dev_ecc_errors.dramUE > 0:
-                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                    with contextlib.suppress(pymxsml.MXSMLError):
+                        dev_ecc_errors = pymxsml.mxSmlGetTotalEccErrors(dev_idx)
+                        if dev_ecc_errors.dramUE > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_temp = (
                     pymxsml.mxSmlGetTemperatureInfo(

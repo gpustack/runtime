@@ -207,14 +207,15 @@ class NVIDIADetector(Detector):
                         dev_mem_used = byte_to_mebibyte(  # byte to MiB
                             dev_mem_info.used,
                         )
-                        dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
-                            dev,
-                            pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                            pynvml.NVML_VOLATILE_ECC,
-                            pynvml.NVML_MEMORY_LOCATION_DRAM,
-                        )
-                        if dev_mem_ecc_errors > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                            dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
+                                dev,
+                                pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                                pynvml.NVML_VOLATILE_ECC,
+                                pynvml.NVML_MEMORY_LOCATION_DRAM,
+                            )
+                            if dev_mem_ecc_errors > 0:
+                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
                     if dev_mem == 0:
                         dev_mem, dev_mem_used = get_memory()
 
@@ -287,14 +288,17 @@ class NVIDIADetector(Detector):
                         mdev_mem_used = byte_to_mebibyte(  # byte to MiB
                             mdev_mem_info.used,
                         )
-                        mdev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
-                            mdev,
-                            pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                            pynvml.NVML_AGGREGATE_ECC,
-                            pynvml.NVML_MEMORY_LOCATION_SRAM,
-                        )
-                        if mdev_mem_ecc_errors > 0:
-                            mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                            mdev_mem_ecc_errors = (
+                                pynvml.nvmlDeviceGetMemoryErrorCounter(
+                                    mdev,
+                                    pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                                    pynvml.NVML_AGGREGATE_ECC,
+                                    pynvml.NVML_MEMORY_LOCATION_SRAM,
+                                )
+                            )
+                            if mdev_mem_ecc_errors > 0:
+                                mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                     mdev_appendix = {
                         "arch_family": _get_arch_family(dev_cc_t),

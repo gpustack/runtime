@@ -402,19 +402,20 @@ def _get_device_memory_status(dev_card_id, dev_device_id) -> DeviceMemoryStatusE
         DeviceMemoryStatusEnum indicating the ECC status.
 
     """
-    for dev_mem_type in [pydcmi.DCMI_DEVICE_TYPE_HBM, pydcmi.DCMI_DEVICE_TYPE_DDR]:
-        with contextlib.suppress(pydcmi.DCMIError):
-            dev_ecc_info = pydcmi.dcmi_get_device_ecc_info(
-                dev_card_id,
-                dev_device_id,
-                dev_mem_type,
-            )
-            if dev_ecc_info.enable_flag and (
-                dev_ecc_info.single_bit_error_cnt > 0
-                or dev_ecc_info.double_bit_error_cnt > 0
-            ):
-                return DeviceMemoryStatusEnum.UNHEALTHY
-            return DeviceMemoryStatusEnum.HEALTHY
+    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        for dev_mem_type in [pydcmi.DCMI_DEVICE_TYPE_HBM, pydcmi.DCMI_DEVICE_TYPE_DDR]:
+            with contextlib.suppress(pydcmi.DCMIError):
+                dev_ecc_info = pydcmi.dcmi_get_device_ecc_info(
+                    dev_card_id,
+                    dev_device_id,
+                    dev_mem_type,
+                )
+                if dev_ecc_info.enable_flag and (
+                    dev_ecc_info.single_bit_error_cnt > 0
+                    or dev_ecc_info.double_bit_error_cnt > 0
+                ):
+                    return DeviceMemoryStatusEnum.UNHEALTHY
+                return DeviceMemoryStatusEnum.HEALTHY
 
     return DeviceMemoryStatusEnum.HEALTHY
 

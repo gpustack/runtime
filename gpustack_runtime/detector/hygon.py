@@ -157,12 +157,13 @@ class HygonDetector(Detector):
                     pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                 )
                 dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                    dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
-                        dev_idx,
-                    )
-                    if dev_ecc_count.uncorrectable_err > 0:
-                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
+                            dev_idx,
+                        )
+                        if dev_ecc_count.uncorrectable_err > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                 dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)

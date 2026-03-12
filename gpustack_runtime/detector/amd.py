@@ -179,12 +179,13 @@ class AMDDetector(Detector):
                     dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
                     dev_mem = dev_gpu_vram_usage.get("vram_total")
                     dev_mem_used = dev_gpu_vram_usage.get("vram_used")
-                    dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
-                        dev,
-                        pyamdsmi.AmdSmiGpuBlock.UMC,
-                    )
-                    if dev_ecc_count.get("uncorrectable_count", 0) > 0:
-                        dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                        dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
+                            dev,
+                            pyamdsmi.AmdSmiGpuBlock.UMC,
+                        )
+                        if dev_ecc_count.get("uncorrectable_count", 0) > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
                 except pyamdsmi.AmdSmiException:
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
@@ -192,12 +193,13 @@ class AMDDetector(Detector):
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                     )
-                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
-                            dev_idx,
-                        )
-                        if dev_ecc_count.uncorrectable_err > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                        with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                            dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
+                                dev_idx,
+                            )
+                            if dev_ecc_count.uncorrectable_err > 0:
+                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
                 dev_power = None
                 dev_power_used = None
