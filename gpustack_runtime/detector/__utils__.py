@@ -16,6 +16,14 @@ from typing import Any
 
 @dataclass
 class PCIDevice:
+    address: str
+    """
+    Address of the PCI device.
+    """
+    class_: str
+    """
+    Class of the PCI device.
+    """
     vendor: str
     """
     Vendor ID of the PCI device.
@@ -28,27 +36,20 @@ class PCIDevice:
     """
     Root of the PCI device.
     """
-    switches: list[str]
-    """
-    Switches of the PCI device.
-    """
-    address: str
-    """
-    Address of the PCI device.
-    """
-    class_: bytes
-    """
-    Class of the PCI device.
-    """
     config: bytes
     """
     Device ID of the PCI device.
+    """
+    switches: list[str]
+    """
+    Switches of the PCI device.
     """
 
 
 def get_pci_devices(
     address: list[str] | str | None = None,
     vendor: list[str] | str | None = None,
+    class_prefix: list[str] | str | None = None,
 ) -> list[PCIDevice]:
     """
     Get PCI devices.
@@ -56,6 +57,7 @@ def get_pci_devices(
     Args:
         address: List of PCI addresses or a single address to filter by.
         vendor: List of vendor IDs or a single vendor ID to filter by.
+        class_prefix: List of class prefix or a single class prefix to filter by, default is ["0x03", "0x12"].
 
     Returns:
         List of PCIDevice objects.
@@ -66,38 +68,49 @@ def get_pci_devices(
     if not sysfs_pci_path.exists():
         return pci_devices
 
+    if not class_prefix:
+        class_prefix = ["0x03", "0x12"]
+
     if address and isinstance(address, str):
         address = [address]
     if vendor and isinstance(vendor, str):
         vendor = [vendor]
+    if class_prefix and isinstance(class_prefix, str):
+        class_prefix = [class_prefix]
 
     for dev_path in sysfs_pci_path.iterdir():
         dev_address = dev_path.name.lower()
         if address and dev_address not in address:
             continue
 
-        dev_vendor_file = dev_path / "vendor"
-        if not dev_vendor_file.exists():
-            continue
-        with contextlib.suppress(OSError), dev_vendor_file.open("r") as vf:
-            dev_vendor = vf.read().strip()
-            if vendor and dev_vendor not in vendor:
-                continue
-        if not dev_vendor:
-            continue
-
+        dev_class = None
         dev_class_file = dev_path / "class"
-        dev_config_file = dev_path / "config"
-        if not dev_class_file.exists() or not dev_config_file.exists():
+        if dev_class_file.exists():
+            with contextlib.suppress(OSError), dev_class_file.open("rb") as cf:
+                dev_class = cf.read().strip()
+                if type(dev_class) is bytes:
+                    dev_class = dev_class.decode(errors="ignore").lower()
+        if not dev_class or (
+            class_prefix and not any(dev_class.startswith(cls) for cls in class_prefix)
+        ):
             continue
 
-        dev_class, dev_config = None, None
-        with contextlib.suppress(OSError):
-            with dev_class_file.open("rb") as f:
-                dev_class = f.read().strip()
-            with dev_config_file.open("rb") as f:
-                dev_config = f.read().strip()
-        if dev_class is None or dev_config is None:
+        dev_vendor = None
+        dev_vendor_file = dev_path / "vendor"
+        if dev_vendor_file.exists():
+            with contextlib.suppress(OSError), dev_vendor_file.open("r") as vf:
+                dev_vendor = vf.read().strip()
+                if type(dev_vendor) is bytes:
+                    dev_vendor = dev_vendor.decode(errors="ignore").lower()
+        if not dev_vendor or (vendor and dev_vendor not in vendor):
+            continue
+
+        dev_config = None
+        dev_config_file = dev_path / "config"
+        if dev_config_file.exists():
+            with contextlib.suppress(OSError), dev_config_file.open("rb") as cf:
+                dev_config = cf.read().strip()
+        if not dev_config:
             continue
 
         dev_path_resolved = dev_path.resolve()
@@ -109,13 +122,13 @@ def get_pci_devices(
 
         pci_devices.append(
             PCIDevice(
+                address=dev_address,
+                class_=dev_class,
                 vendor=dev_vendor,
                 path=str(dev_path_resolved),
                 root=dev_root.name,
-                switches=dev_switches,
-                address=dev_address,
-                class_=dev_class,
                 config=dev_config,
+                switches=dev_switches,
             ),
         )
 
