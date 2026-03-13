@@ -3,6 +3,7 @@ from __future__ import annotations as __future_annotations__
 import contextlib
 import logging
 import math
+import threading
 import time
 from functools import lru_cache
 
@@ -544,6 +545,9 @@ def _get_gpm_metrics(
     return list(dev_gpm_metrics.metrics)
 
 
+_gpm_metrics_lock = threading.Lock()
+
+
 def _get_sm_util_from_gpm_metrics(
     dev: pyhgml.c_hgmlDevice_t,
     gpu_instance_id: int | None = None,
@@ -564,12 +568,14 @@ def _get_sm_util_from_gpm_metrics(
         The SM utilization as an integer percentage, or None if failed.
 
     """
-    dev_gpm_metrics = _get_gpm_metrics(
-        metrics=[pyhgml.HGML_GPM_METRIC_SM_UTIL],
-        dev=dev,
-        gpu_instance_id=gpu_instance_id,
-        interval=interval,
-    )
+    with _gpm_metrics_lock:
+        dev_gpm_metrics = _get_gpm_metrics(
+            metrics=[pyhgml.HGML_GPM_METRIC_SM_UTIL],
+            dev=dev,
+            gpu_instance_id=gpu_instance_id,
+            interval=interval,
+        )
+
     if dev_gpm_metrics and not math.isnan(dev_gpm_metrics[0].value):
         return int(dev_gpm_metrics[0].value)
 
