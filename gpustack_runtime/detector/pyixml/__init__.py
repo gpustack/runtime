@@ -877,7 +877,8 @@ NVML_GPU_VIRTUALIZATION_MODE_HOST_VSGA = (
 ## Lib loading ##
 nvmlLib = None
 libLoadLock = threading.Lock()
-_nvmlLib_refcount = 0  # Incremented on each nvmlInit and decremented on nvmlShutdown
+_libInitialized = False
+_libInitializedException = None
 
 ## vGPU Management
 _nvmlVgpuTypeId_t = c_uint
@@ -2125,24 +2126,29 @@ def convertStrBytes(func):
 def nvmlInitWithFlags(flags):
     _LoadNvmlLibrary()
 
-    #
     # Initialize the library
-    #
-    fn = _nvmlGetFunctionPointer("nvmlInitWithFlags")
-    ret = fn(flags)
-    _nvmlCheckReturn(ret)
+    global _libInitialized, _libInitializedException
 
-    # Atomically update refcount
-    global _nvmlLib_refcount
-    libLoadLock.acquire()
-    _nvmlLib_refcount += 1
-    libLoadLock.release()
-    return None
+    if _libInitialized:
+        if _libInitializedException is not None:
+            raise _libInitializedException
+        return
+
+    try:
+        fn = _nvmlGetFunctionPointer("nvmlInitWithFlags")
+        ret = fn(flags)
+        _nvmlCheckReturn(ret)
+    except Exception as e:
+        with libLoadLock:
+            _libInitializedException = e
+        raise
+    finally:
+        with libLoadLock:
+            _libInitialized = True
 
 
 def nvmlInit():
     nvmlInitWithFlags(0)
-    return None
 
 
 def _LoadNvmlLibrary():
@@ -2191,20 +2197,22 @@ def _LoadNvmlLibrary():
 
 
 def nvmlShutdown():
-    #
-    # Leave the library loaded, but shutdown the interface
-    #
+    # Uninitialize the library
+    global _libInitialized, _libInitializedException
+
+    if not _libInitialized:
+        return
+
     fn = _nvmlGetFunctionPointer("nvmlShutdown")
     ret = fn()
     _nvmlCheckReturn(ret)
 
-    # Atomically update refcount
-    global _nvmlLib_refcount
-    libLoadLock.acquire()
-    if 0 < _nvmlLib_refcount:
-        _nvmlLib_refcount -= 1
-    libLoadLock.release()
-    return None
+    with libLoadLock:
+        if not _libInitialized:
+            return
+
+        _libInitialized = False
+        _libInitializedException = None
 
 
 # Added in 2.285

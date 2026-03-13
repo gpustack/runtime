@@ -180,6 +180,8 @@ CUDA_ERROR_LIBRARY_NOT_FOUND = -99999
 ## Lib loading ##
 cudaLib = None
 libLoadLock = threading.Lock()
+_libInitialized = False
+_libInitializedException = None
 
 
 class CUDAError(Exception):
@@ -427,9 +429,38 @@ def cuInit(flags=0):
     _LoadCudaLibrary()
 
     # Initialize the library
-    fn = _cudaGetFunctionPointer("cuInit")
-    ret = fn(flags)
-    _cudaCheckReturn(ret)
+    global _libInitialized, _libInitializedException
+
+    if _libInitialized:
+        if _libInitializedException is not None:
+            raise _libInitializedException
+        return
+
+    try:
+        fn = _cudaGetFunctionPointer("cuInit")
+        ret = fn(flags)
+        _cudaCheckReturn(ret)
+    except CUDAError as e:
+        with libLoadLock:
+            _libInitializedException = e
+        raise
+    finally:
+        with libLoadLock:
+            _libInitialized = True
+
+
+def cuShutDown():
+    _LoadCudaLibrary()
+
+    # Shut down the library
+    global _libInitialized, _libInitializedException
+
+    with libLoadLock:
+        if not _libInitialized:
+            return
+
+        _libInitialized = False
+        _libInitializedException = None
 
 
 def cuDeviceGet(ordinal=0):

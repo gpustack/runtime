@@ -9,11 +9,9 @@ from _ctypes import byref
 from functools import lru_cache
 from pathlib import Path
 
-import pynvml
-
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import DeviceMemoryStatusEnum, Topology, pycuda
+from . import DeviceMemoryStatusEnum, Topology, pycuda, pynvml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
 from .__utils__ import (
     PCIDevice,
@@ -59,7 +57,6 @@ class NVIDIADetector(Detector):
 
         try:
             pynvml.nvmlInit()
-            pynvml.nvmlShutdown()
             supported = True
         except pynvml.NVMLError:
             debug_log_exception(logger, "Failed to initialize NVML")
@@ -416,8 +413,6 @@ class NVIDIADetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
-        finally:
-            pynvml.nvmlShutdown()
 
         return ret
 
@@ -515,8 +510,6 @@ class NVIDIADetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
-        finally:
-            pynvml.nvmlShutdown()
 
         return ret
 

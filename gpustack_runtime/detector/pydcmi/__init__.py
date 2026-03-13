@@ -169,6 +169,8 @@ DCMI_ERROR_LIBRARY_NOT_FOUND = -99999
 ## Lib loading ##
 dcmiLib = None
 libLoadLock = threading.Lock()
+_libInitialized = False
+_libInitializedException = None
 
 
 ## Error Checking ##
@@ -774,9 +776,35 @@ def dcmi_init():
     _LoadDcmiLibrary()
 
     # Initialize the library
-    fn = _dcmiGetFunctionPointer("dcmi_init")
-    ret = fn()
-    _dcmiCheckReturn(ret)
+    global _libInitialized, _libInitializedException
+
+    if _libInitialized:
+        if _libInitializedException is not None:
+            raise _libInitializedException
+        return
+
+    try:
+        fn = _dcmiGetFunctionPointer("dcmi_init")
+        ret = fn()
+        _dcmiCheckReturn(ret)
+    except Exception as e:
+        with libLoadLock:
+            _libInitializedException = e
+        raise
+    finally:
+        with libLoadLock:
+            _libInitialized = True
+
+
+def dcmi_shutdown():
+    global _libInitialized, _libInitializedException
+
+    with libLoadLock:
+        if not _libInitialized:
+            return
+
+        _libInitialized = False
+        _libInitializedException = None
 
 
 def dcmi_get_card_list():

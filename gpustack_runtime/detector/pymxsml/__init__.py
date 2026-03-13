@@ -1,3 +1,4 @@
+import threading
 from ctypes import *
 from functools import wraps
 import sys
@@ -685,6 +686,9 @@ _generateErrorSubclass()
 
 ## Lib loading ##
 mxSmlLib = None
+libLoadLock = threading.Lock()
+_libInitialized = False
+_libInitializedException = None
 
 
 def get_mxSmlLib():
@@ -747,38 +751,85 @@ def _searchMxsmlLibrary():
 
 
 def _loadMxsmlLibrary():
-    "Load the library if it isn't loaded already"
     global mxSmlLib
-    if mxSmlLib != None:
+
+    if mxSmlLib is None:
+        libLoadLock.acquire()
+        try:
+            if mxSmlLib is None:
+                try:
+                    path_libmxsml = _searchMxsmlLibrary()
+                    if path_libmxsml:
+                        mxSmlLib = CDLL(path_libmxsml)
+                except OSError:
+                    pass
+            if mxSmlLib is None:
+                _mxsmlCheckReturn(MXSML_ERROR_LOAD_DLL_FAILURE)
+        finally:
+            libLoadLock.release()
+
+
+## C function wrappers ##
+def mxSmlInit():
+    _loadMxsmlLibrary()
+
+    # Initialize the library
+    global _libInitialized, _libInitializedException
+
+    if _libInitialized:
+        if _libInitializedException is not None:
+            raise _libInitializedException
         return
 
     try:
-        path_libmxsml = _searchMxsmlLibrary()
-        if not path_libmxsml:
-            _mxsmlCheckReturn(MXSML_ERROR_LOAD_DLL_FAILURE)
-        else:
-            mxSmlLib = CDLL(path_libmxsml)
-    except OSError as ose:
-        _mxsmlCheckReturn(MXSML_ERROR_LOAD_DLL_FAILURE)
-    if mxSmlLib == None:
-        _mxsmlCheckReturn(MXSML_ERROR_LOAD_DLL_FAILURE)
-
-
-## function wrappers ##
-def mxSmlInit():
-    _loadMxsmlLibrary()
-    fn = _mxsmlGetFunctionPointer("mxSmlInit")
-    ret = fn()
-    _mxsmlCheckReturn(ret)
-    return None
+        fn = _mxsmlGetFunctionPointer("mxSmlInit")
+        ret = fn()
+        _mxsmlCheckReturn(ret)
+    except Exception as e:
+        with libLoadLock:
+            _libInitializedException = e
+        raise
+    finally:
+        with libLoadLock:
+            _libInitialized = True
 
 
 def mxSmlInitWithFlags(flags):
     _loadMxsmlLibrary()
-    fn = _mxsmlGetFunctionPointer("mxSmlInitWithFlags")
-    ret = fn(flags)
-    _mxsmlCheckReturn(ret)
-    return None
+
+    # Initialize the library
+    global _libInitialized, _libInitializedException
+
+    if _libInitialized:
+        if _libInitializedException is not None:
+            raise _libInitializedException
+        return
+
+    try:
+        fn = _mxsmlGetFunctionPointer("mxSmlInitWithFlags")
+        ret = fn(flags)
+        _mxsmlCheckReturn(ret)
+    except Exception as e:
+        with libLoadLock:
+            _libInitializedException = e
+        raise
+    finally:
+        with libLoadLock:
+            _libInitialized = True
+
+
+def mxSmlShutdown():
+    global _libInitialized, _libInitializedException
+
+    if not _libInitialized:
+        return
+
+    with libLoadLock:
+        if not _libInitialized:
+            return
+
+        _libInitialized = False
+        _libInitializedException = None
 
 
 @convertStrBytes

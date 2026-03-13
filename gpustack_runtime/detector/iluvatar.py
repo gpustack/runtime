@@ -59,7 +59,6 @@ class IluvatarDetector(Detector):
 
         try:
             pyixml.nvmlInit()
-            pyixml.nvmlShutdown()
             supported = True
         except pyixml.NVMLError:
             debug_log_exception(logger, "Failed to initialize IXML")
@@ -235,8 +234,6 @@ class IluvatarDetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
-        finally:
-            pyixml.nvmlShutdown()
 
         return ret
 
@@ -302,7 +299,5 @@ class IluvatarDetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
-        finally:
-            pyixml.nvmlShutdown()
 
         return ret

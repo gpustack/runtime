@@ -887,7 +887,8 @@ HGML_GPU_VIRTUALIZATION_MODE_HOST_VSGA = (
 ## Lib loading ##
 hgmlLib = None
 libLoadLock = threading.Lock()
-_hgmlLib_refcount = 0  # Incremented on each hgmlInit and decremented on hgmlShutdown
+_libInitialized = False
+_libInitializedException = None
 
 ## vGPU Management
 _hgmlVgpuTypeId_t = c_uint
@@ -2374,18 +2375,25 @@ def throwOnVersionMismatch(func):
 def hgmlInitWithFlags(flags):
     _LoadHgmlLibrary()
 
-    #
     # Initialize the library
-    #
-    fn = _hgmlGetFunctionPointer("hgmlInitWithFlags")
-    ret = fn(flags)
-    _hgmlCheckReturn(ret)
+    global _libInitialized, _libInitializedException
 
-    # Atomically update refcount
-    global _hgmlLib_refcount
-    libLoadLock.acquire()
-    _hgmlLib_refcount += 1
-    libLoadLock.release()
+    if _libInitialized:
+        if _libInitializedException is not None:
+            raise _libInitializedException
+        return
+
+    try:
+        fn = _hgmlGetFunctionPointer("hgmlInitWithFlags")
+        ret = fn(flags)
+        _hgmlCheckReturn(ret)
+    except Exception as e:
+        with libLoadLock:
+            _libInitializedException = e
+        raise
+    finally:
+        with libLoadLock:
+            _libInitialized = True
 
 
 def hgmlInit():
@@ -2434,19 +2442,22 @@ def _LoadHgmlLibrary():
 
 
 def hgmlShutdown():
-    #
-    # Leave the library loaded, but shutdown the interface
-    #
+    # Uninitialize the library
+    global _libInitialized, _libInitializedException
+
+    if not _libInitialized:
+        return
+
     fn = _hgmlGetFunctionPointer("hgmlShutdown")
     ret = fn()
     _hgmlCheckReturn(ret)
 
-    # Atomically update refcount
-    global _hgmlLib_refcount
-    libLoadLock.acquire()
-    if _hgmlLib_refcount > 0:
-        _hgmlLib_refcount -= 1
-    libLoadLock.release()
+    with libLoadLock:
+        if not _libInitialized:
+            return
+
+        _libInitialized = False
+        _libInitializedException = None
 
 
 # Added in 2.285

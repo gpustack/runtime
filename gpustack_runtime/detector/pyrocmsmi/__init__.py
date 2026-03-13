@@ -69,6 +69,8 @@ ROCMSMI_ERROR_FUNCTION_NOT_FOUND = -99998
 ## Lib loading ##
 rocmsmiLib = None
 libLoadLock = threading.Lock()
+_libInitialized = False
+_libInitializedException = None
 
 
 def _LoadRocmSmiLibrary():
@@ -167,9 +169,35 @@ def convertStrBytes(func):
 def rsmi_init(flags=0):
     _LoadRocmSmiLibrary()
 
-    fn = _rocmsmiGetFunctionPointer("rsmi_init")
-    ret = fn(flags)
-    _rocmsmiCheckReturn(ret)
+    global _libInitialized, _libInitializedException
+
+    if _libInitialized:
+        if _libInitializedException is not None:
+            raise _libInitializedException
+        return
+
+    try:
+        fn = _rocmsmiGetFunctionPointer("rsmi_init")
+        ret = fn(flags)
+        _rocmsmiCheckReturn(ret)
+    except Exception as e:
+        with libLoadLock:
+            _libInitializedException = e
+        raise
+    finally:
+        with libLoadLock:
+            _libInitialized = True
+
+
+def rsmi_shutdown():
+    global _libInitialized, _libInitializedException
+
+    with libLoadLock:
+        if not _libInitialized:
+            return
+
+        _libInitialized = False
+        _libInitializedException = None
 
 
 @convertStrBytes

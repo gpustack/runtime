@@ -61,7 +61,6 @@ class THeadDetector(Detector):
 
         try:
             pyhgml.hgmlInit()
-            pyhgml.hgmlShutdown()
             supported = True
         except pyhgml.HGMLError:
             debug_log_exception(logger, "Failed to initialize HGML")
@@ -385,8 +384,6 @@ class THeadDetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
-        finally:
-            pyhgml.hgmlShutdown()
 
         return ret
 
@@ -484,8 +481,6 @@ class THeadDetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
-        finally:
-            pyhgml.hgmlShutdown()
 
         return ret
 

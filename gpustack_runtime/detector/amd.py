@@ -58,7 +58,6 @@ class AMDDetector(Detector):
 
         try:
             pyamdsmi.amdsmi_init()
-            pyamdsmi.amdsmi_shut_down()
             supported = True
         except pyamdsmi.AmdSmiException:
             debug_log_exception(logger, "Failed to initialize AMD SMI")
@@ -268,8 +267,6 @@ class AMDDetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
-        finally:
-            pyamdsmi.amdsmi_shut_down()
 
         return ret
 
@@ -394,8 +391,6 @@ class AMDDetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
-        finally:
-            pyamdsmi.amdsmi_shut_down()
 
         return ret
 

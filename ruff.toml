@@ -131,6 +131,7 @@ parametrize-names-type = "csv"
 "gpustack_runtime/detector/pyixml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pymtml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pymxsml/*.py" = ["ALL"]
+"gpustack_runtime/detector/pynvml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyrocmcore/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyrocmsmi/*.py" = ["ALL"]
 "tests/*.py" = ["D", "S101"]

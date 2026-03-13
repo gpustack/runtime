@@ -4,11 +4,9 @@ import contextlib
 import logging
 from functools import lru_cache
 
-import pymtml
-
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import DeviceMemoryStatusEnum
+from . import DeviceMemoryStatusEnum, pymtml
 from .__types__ import (
     Detector,
     Device,
@@ -70,7 +68,6 @@ class MThreadsDetector(Detector):
 
         try:
             pymtml.mtmlLibraryInit()
-            pymtml.mtmlLibraryShutDown()
             supported = True
         except pymtml.MTMLError:
             debug_log_exception(logger, "Failed to initialize MTML")
@@ -106,6 +103,7 @@ class MThreadsDetector(Detector):
 
         ret: Devices = []
 
+        system = None
         try:
             pymtml.mtmlLibraryInit()
             system = pymtml.mtmlLibraryInitSystem()
@@ -220,8 +218,8 @@ class MThreadsDetector(Detector):
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
         finally:
-            pymtml.mtmlLibraryFreeSystem(system)
-            pymtml.mtmlLibraryShutDown()
+            if system is not None:
+                pymtml.mtmlLibraryFreeSystem(system)
 
         return ret
 
@@ -313,8 +311,6 @@ class MThreadsDetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process topology fetching")
             raise
-        finally:
-            pymtml.mtmlLibraryShutDown()
 
         return ret
 
