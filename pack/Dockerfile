@@ -16,12 +16,12 @@
 # - GPUSTACK_RUNTIME_BASE_IMAGE: Base image for the gpustack-runtime stage.
 # - GPUSTACK_RUNTIME_ROCM_VERSION: Version of ROCm to vendor libraries from, update this if project dependencies has changed.
 # - GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS: Semicolon-separated list of labels to filter mirrored images when deploying mirrored deployment.
-ARG PYTHON_VERSION=3.11
+ARG PYTHON_VERSION=3.12
 ARG GPUSTACK_RUNTIME_BASE_IMAGE=runtime
 ARG GPUSTACK_RUNTIME_ROCM_VERSION=7.0.2
 ARG GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS
 
-FROM ubuntu:22.04@sha256:3c61d3759c2639d4b836d32a2d3c83fa0214e36f195a3421018dbaaf79cbe37f AS runtime
+FROM ubuntu:24.04@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9 AS runtime
 SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
 
 ARG TARGETPLATFORM
@@ -119,15 +119,15 @@ RUN <<EOF
 
     # Install dependencies
     apt-get install -y --no-install-recommends \
-        perl-openssl-defaults perl yasm \
-        zlib1g zlib1g-dev libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev \
-        openssl libssl-dev libsqlite3-dev lcov libomp-dev \
-        libblas-dev liblapack-dev libopenblas-dev libblas3 liblapack3 libhdf5-dev \
-        libxml2 libxslt1-dev libgl1-mesa-glx libgmpxx4ldbl \
-        libncurses5-dev libreadline6-dev libsqlite3-dev \
-        liblzma-dev lzma lzma-dev tk-dev uuid-dev libmpdec-dev \
+        openssl libssl-dev \
+        zlib1g zlib1g-dev libbz2-dev libffi-dev \
+        lzma lzma-dev uuid-dev liblzma-dev \
         ffmpeg libjpeg-dev libpng-dev libtiff-dev libwebp-dev \
-        libnuma-dev libjemalloc-dev
+        libsqlite3-dev \
+        libxml2 libxslt1-dev \
+        libnuma1 libnuma-dev \
+        libgpgme-dev libassuan-dev libbtrfs-dev libdevmapper-dev \
+        libjemalloc-dev
 
     # Cleanup
     rm -rf /var/tmp/* \
@@ -169,8 +169,11 @@ RUN <<EOF
         python${PYTHON_VERSION}-distutils \
         python${PYTHON_VERSION}-lib2to3 \
         python${PYTHON_VERSION}-gdbm \
-        python${PYTHON_VERSION}-tk \
-        libibverbs-dev
+        python${PYTHON_VERSION}-tk
+    if (( $(echo "${PYTHON_VERSION} <= 3.11" | bc -l) )); then
+        apt-get install -y --no-install-recommends \
+            python${PYTHON_VERSION}-distutils
+    fi
 
     # Update alternatives
     if [[ -f /etc/alternatives/python3 ]]; then update-alternatives --remove-all python3; fi; update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1
@@ -243,47 +246,50 @@ ARG TARGETARCH
 
 ## Configure data volume
 VOLUME /var/lib/gpustack
-ENV GPUSTACK_RUNTIME_DOCKER_EPHEMERAL_FILES_DIR="/var/lib/gpustack/cache/gpustack-runtime"
 
 ## Install Skopeo
+
+ARG GOPROXY="https://proxy.golang.org,direct"
 
 RUN <<EOF
     # Skopeo
 
-    # Install Skopeo for images mirroring
-    apt-get update -y && apt-get install -y --no-install-recommends \
-        skopeo
+    # Install Go
+    curl --retry 3 --retry-connrefused -fL "https://go.dev/dl/go1.23.3.${TARGETOS}-${TARGETARCH}.tar.gz" | tar -zx -C /usr/local
+    export PATH="/usr/local/go/bin:${PATH}"
+    export GOPROXY="${GOPROXY}"
+    export
 
-    IFS="." read -r MAJOR MINOR PATCH <<< "$(skopeo --version | awk '{print $3}' | cut -d'-' -f1)"
-    if (( MAJOR < 1 || ( MAJOR == 1 && MINOR < 21 ) )); then
-        echo "Skopeo version ${MAJOR}.${MINOR} is lower than required 1.20.0, upgrading from source..."
+    # Download
+    git -C /tmp clone --recursive --shallow-submodules \
+        --depth 1 --branch v1.20.0 --single-branch \
+        https://github.com/containers/skopeo.git skopeo
 
-        apt-get install -y --no-install-recommends \
-            libgpgme-dev \
-            libdevmapper-dev
+    # Build and install
+    pushd /tmp/skopeo \
+        && sed -i "/export GOPROXY=.*/d" Makefile \
+        && make vendor \
+        && DISABLE_DOCS=1 PREFIX=/usr make install-binary
 
-        # Install Go
-        curl --retry 3 --retry-connrefused -fL "https://go.dev/dl/go1.23.3.${TARGETOS}-${TARGETARCH}.tar.gz" | tar -zx -C /usr/local
-        export PATH="/usr/local/go/bin:${PATH}"
+    # Configure Skopeo to allow insecure registries.
+    mkdir -p /etc/containers
+    cat<<EOT > /etc/containers/policy.json
+{
+  "default": [
+    {
+      "type": "insecureAcceptAnything"
+    }
+  ]
+}
+EOT
 
-        # Install Skopeo from source
-        git -C /tmp clone --recursive --shallow-submodules \
-            --depth 1 --branch v1.20.0 --single-branch \
-            https://github.com/containers/skopeo.git skopeo
+    # Review
+    skopeo --version
 
-        # Build and install
-        pushd /tmp/skopeo \
-            && make vendor \
-            && DISABLE_DOCS=1 PREFIX=/usr make install-binary
-
-        # Review
-        skopeo --version
-
-        # Cleanup
-        go clean -cache -modcache -testcache \
-            && rm -rf /usr/local/go \
-            && rm -rf /root/.cache/go-build
-    fi
+    # Cleanup go
+    go clean -cache -modcache -testcache \
+        && rm -rf /usr/local/go \
+        && rm -rf /root/.cache/go-build
 
     # Cleanup
     rm -rf /var/tmp/* \
