@@ -16,7 +16,7 @@
 # - GPUSTACK_RUNTIME_BASE_IMAGE: Base image for the gpustack-runtime stage.
 # - GPUSTACK_RUNTIME_ROCM_VERSION: Version of ROCm to vendor libraries from, update this if project dependencies has changed.
 # - GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS: Semicolon-separated list of labels to filter mirrored images when deploying mirrored deployment.
-ARG PYTHON_VERSION=3.12
+ARG PYTHON_VERSION=3.11
 ARG GPUSTACK_RUNTIME_BASE_IMAGE=runtime
 ARG GPUSTACK_RUNTIME_ROCM_VERSION=7.0.2
 ARG GPUSTACK_RUNTIME_DOCKER_MIRRORED_NAME_FILTER_LABELS
