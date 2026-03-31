@@ -59,7 +59,7 @@ class AMDDetector(Detector):
         try:
             pyamdsmi.amdsmi_init()
             supported = True
-        except pyamdsmi.AmdSmiException:
+        except Exception:
             debug_log_exception(logger, "Failed to initialize AMD SMI")
 
         return supported
@@ -99,7 +99,7 @@ class AMDDetector(Detector):
             pyamdsmi.amdsmi_init()
             try:
                 pyrocmsmi.rsmi_init()
-            except pyrocmsmi.ROCMSMIError:
+            except Exception:
                 debug_log_exception(logger, "Failed to initialize ROCm SMI")
 
             sys_runtime_ver_original = pyrocmcore.getROCmVersion()

@@ -73,7 +73,7 @@ class MetaXDetector(Detector):
         try:
             pymxsml.mxSmlInit()
             supported = True
-        except pymxsml.MXSMLError:
+        except Exception:
             debug_log_exception(logger, "Failed to initialize MXSML")
 
         return supported

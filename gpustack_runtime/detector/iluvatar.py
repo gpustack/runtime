@@ -60,7 +60,7 @@ class IluvatarDetector(Detector):
         try:
             pyixml.nvmlInit()
             supported = True
-        except pyixml.NVMLError:
+        except Exception:
             debug_log_exception(logger, "Failed to initialize IXML")
 
         return supported

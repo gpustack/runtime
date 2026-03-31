@@ -69,7 +69,7 @@ class MThreadsDetector(Detector):
         try:
             pymtml.mtmlLibraryInit()
             supported = True
-        except pymtml.MTMLError:
+        except Exception:
             debug_log_exception(logger, "Failed to initialize MTML")
 
         return supported

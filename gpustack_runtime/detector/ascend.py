@@ -72,7 +72,7 @@ class AscendDetector(Detector):
         try:
             pydcmi.dcmi_init()
             supported = True
-        except pydcmi.DCMIError:
+        except Exception:
             debug_log_exception(logger, "Failed to initialize DCMI")
 
         return supported

@@ -59,7 +59,7 @@ class HygonDetector(Detector):
         try:
             pyrocmsmi.rsmi_init()
             supported = True
-        except pyrocmsmi.ROCMSMIError:
+        except Exception:
             debug_log_exception(logger, "Failed to initialize ROCM SMI")
 
         return supported

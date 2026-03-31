@@ -59,7 +59,7 @@ class NVIDIADetector(Detector):
         try:
             pynvml.nvmlInit()
             supported = True
-        except pynvml.NVMLError:
+        except Exception:
             debug_log_exception(logger, "Failed to initialize NVML")
 
         return supported
