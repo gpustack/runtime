@@ -69,7 +69,7 @@ def get_pci_devices(
         return pci_devices
 
     if not class_prefix:
-        class_prefix = ["0x03", "0x12"]
+        class_prefix = ["0x02", "0x03", "0x12", "0x0b"]
 
     if address and isinstance(address, str):
         address = [address]
