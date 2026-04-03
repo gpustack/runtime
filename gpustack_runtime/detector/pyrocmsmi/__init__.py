@@ -16,6 +16,7 @@ from typing import ClassVar
 # Example ROCM_SMI_LIB_PATH
 # - /opt/hyhal/lib
 # - /opt/rocm/rocm_smi/lib
+# - /opt/dtk/.hyhal/rocm_smi/lib
 # Example ROCM_PATH/ROCM_HOME
 # - /opt/dtk-24.04.3
 # - /opt/dtk
@@ -37,6 +38,7 @@ else:
 rocmsmi_lib_loc = Path(rocmsmi_lib_path) / "librocm_smi64.so"
 if rocmsmi_lib_loc.exists():
     rocmsmi_bindings_paths = [
+        (rocm_path / "rocm_smi" / "bin"),
         (rocm_path / "rocm_smi" / "bindings"),
         (rocm_path / "libexec" / "rocm_smi"),
     ]
