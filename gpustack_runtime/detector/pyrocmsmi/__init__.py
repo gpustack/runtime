@@ -5,6 +5,7 @@
 # https://rocm.docs.amd.com/projects/rocm_smi_lib/en/latest/doxygen/html/rocm__smi_8h.html.
 from __future__ import annotations as __future_annotations__
 
+import contextlib
 import os
 import sys
 import threading
@@ -25,7 +26,7 @@ rocmsmi_lib_path = os.getenv("ROCM_SMI_LIB_PATH")
 if not rocmsmi_lib_path:
     rocm_path = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
     rocmsmi_lib_path = str(rocm_path / "lib")
-    if not Path(rocmsmi_lib_path).exists():
+    if not (Path(rocmsmi_lib_path) / "librocm_smi64.so").exists():
         rocmsmi_lib_path = str(rocm_path / "rocm_smi" / "lib")
 else:
     rocm_path = Path(
@@ -54,7 +55,11 @@ if rocmsmi_lib_loc.exists():
         if str(rocmsmi_bindings_path) not in sys.path:
             sys.path.append(str(rocmsmi_bindings_path))
         try:
-            from rsmiBindings import *
+            with (
+                Path(os.devnull).open("w") as dev_null,
+                contextlib.redirect_stdout(dev_null),
+            ):
+                from rsmiBindings import *
         except ImportError:
             pass
 
