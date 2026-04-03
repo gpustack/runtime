@@ -32,6 +32,7 @@ from .__patches__ import patch_render_payload
 from .__types__ import (
     Container,
     ContainerCheck,
+    ContainerEnv,
     ContainerImagePullPolicyEnum,
     ContainerMountModeEnum,
     ContainerProfileEnum,
@@ -420,20 +421,40 @@ class PodmanDeployer(EndoscopicDeployer):
 
         return ephemeral_volume_name_mapping
 
-    def _pull_image(self, image: str) -> podman.domain.images.Image:
+    @staticmethod
+    def _get_registry_auth_from_envs(
+        running_envs: list[ContainerEnv] | None = None,
+    ) -> dict | None:
+        usernm = passwd = None
+        for e in running_envs or []:
+            if e.name == "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME":
+                usernm = e.value
+            elif (
+                e.name == "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD"
+            ):
+                passwd = e.value
+            if usernm and passwd:
+                break
+
+        usernm = (
+            usernm or envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME
+        )
+        passwd = (
+            passwd or envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD
+        )
+
+        return {"username": usernm, "password": passwd} if usernm and passwd else None
+
+    def _pull_image(
+        self,
+        image: str,
+        running_envs: list[ContainerEnv] | None = None,
+    ) -> podman.domain.images.Image:
         try:
             logger.info("Pulling image %s", image)
 
             repo, tag = split_image(image, fill_blank_tag=True)
-            auth_config = None
-            if (
-                envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME
-                and envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD
-            ):
-                auth_config = {
-                    "username": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME,
-                    "password": envs.GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD,
-                }
+            auth_config = self._get_registry_auth_from_envs(running_envs)
 
             logs = self._client.api.pull(
                 repo,
@@ -452,13 +473,16 @@ class PodmanDeployer(EndoscopicDeployer):
             msg = f"Failed to pull image {image}, invalid response"
             raise OperationError(msg) from e
         except podman.errors.APIError as e:
-            msg = f"Failed to pull image {image}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
+            if "no unqualified-search registries are defined" not in str(e):
+                msg = f"Failed to pull image {image}{_detail_api_call_error(e)}"
+                raise OperationError(msg) from e
+            return self._pull_image(f"docker.io/{image}", running_envs)
 
     def _get_image(
         self,
         image: str,
         policy: ContainerImagePullPolicyEnum | None = None,
+        running_envs: list[ContainerEnv] | None = None,
     ) -> podman.domain.images.Image:
         """
         Get image.
@@ -469,6 +493,8 @@ class PodmanDeployer(EndoscopicDeployer):
             policy:
                 The image pull policy.
                 If not specified, defaults to IF_NOT_PRESENT.
+            running_envs:
+                The envs for container running.
 
         Returns:
             The image object.
@@ -483,7 +509,7 @@ class PodmanDeployer(EndoscopicDeployer):
 
         try:
             if policy == ContainerImagePullPolicyEnum.ALWAYS:
-                return self._pull_image(image)
+                return self._pull_image(image, running_envs)
         except podman.errors.APIError as e:
             msg = f"Failed to get image {image}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
@@ -493,7 +519,7 @@ class PodmanDeployer(EndoscopicDeployer):
         except podman.errors.ImageNotFound:
             if policy == ContainerImagePullPolicyEnum.NEVER:
                 raise
-            return self._pull_image(image)
+            return self._pull_image(image, running_envs)
         except podman.errors.APIError as e:
             msg = f"Failed to get image {image}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
@@ -943,7 +969,11 @@ class PodmanDeployer(EndoscopicDeployer):
                     create_options["cap_drop"] = cap.drop
 
             # Parameterize environment variables.
-            create_options["environment"] = {e.name: e.value for e in c.envs or []}
+            create_options["environment"] = {
+                e.name: e.value
+                for e in c.envs or []
+                if not e.name.startswith("GPUSTACK_RUNTIME_DEPLOY_")
+            }
 
             # Parameterize resources.
             if c.resources:
@@ -1114,7 +1144,7 @@ class PodmanDeployer(EndoscopicDeployer):
                     staticmethod(patch_render_payload),
                 ):
                     d_container = self._client.containers.create(
-                        image=self._get_image(c.image, c.image_pull_policy),
+                        image=self._get_image(c.image, c.image_pull_policy, c.envs),
                         detach=detach,
                         **create_options,
                     )

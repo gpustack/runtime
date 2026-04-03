@@ -14,6 +14,7 @@ import kubernetes.stream.ws_client
 import urllib3.connection
 from cachetools.func import ttl_cache
 from dataclasses_json import dataclass_json
+from gpustack_runner import parse_image
 
 from .. import envs
 from ..logging import debug_log_exception
@@ -708,7 +709,7 @@ class KubernetesDeployer(EndoscopicDeployer):
         docker_config_json = json.dumps(docker_config)
         docker_config_json_b64 = base64_encode(docker_config_json)
 
-        secret_name = f"gpustack-ips-{fnv1a_64_hex(auth_b64)}"
+        secret_name = f"gpustack-ips-{fnv1a_64_hex(registry + auth_b64)}"
         secret_namespace = envs.GPUSTACK_RUNTIME_KUBERNETES_NAMESPACE
 
         secret = kubernetes.client.V1Secret(
@@ -911,6 +912,32 @@ class KubernetesDeployer(EndoscopicDeployer):
             ),
         )
 
+        # Create dedicated image pull secret if needed, and attach to the Pod.
+        for c in workload.containers:
+            if c.profile != ContainerProfileEnum.RUN:
+                continue
+            usernm = passwd = None
+            for e in c.envs or []:
+                if (
+                    e.name
+                    == "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_USERNAME"
+                ):
+                    usernm = e.value
+                elif (
+                    e.name
+                    == "GPUSTACK_RUNTIME_DEPLOY_DEFAULT_CONTAINER_REGISTRY_PASSWORD"
+                ):
+                    passwd = e.value
+                if usernm and passwd:
+                    reg, _, _, _ = parse_image(c.image)
+                    reg = reg or "index.docker.io"
+                    self._image_pull_secret = self._apply_image_pull_secret(
+                        registry=f"https://{reg}/v1/",
+                        username=usernm,
+                        password=passwd,
+                    )
+                    break
+
         if self._image_pull_secret:
             pod.spec.image_pull_secrets = [
                 kubernetes.client.V1LocalObjectReference(
@@ -975,6 +1002,7 @@ class KubernetesDeployer(EndoscopicDeployer):
             container.env = [
                 kubernetes.client.V1EnvVar(name=e.name, value=e.value)
                 for e in c.envs or []
+                if not e.name.startswith("GPUSTACK_RUNTIME_DEPLOY_")
             ]
 
             # Parameterize resources
