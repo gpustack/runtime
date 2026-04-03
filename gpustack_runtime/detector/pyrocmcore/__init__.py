@@ -62,6 +62,10 @@ def getROCmVersion() -> str | None:
         rocm_path / ".info" / "version-rocm",
         rocm_path / ".info" / "version-dev",
         rocm_path / ".info" / "version-libs",
+        rocm_path.parent / ".info" / "version",
+        rocm_path.parent / ".info" / "version-rocm",
+        rocm_path.parent / ".info" / "version-dev",
+        rocm_path.parent / ".info" / "version-libs",
     ]
     for vf in rocm_version_files:
         if not vf.exists():
