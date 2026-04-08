@@ -252,7 +252,7 @@ def amdgpu_device_initialize(card=1):
 
     try:
         fd = os.open(f"/dev/dri/card{card}", os.O_RDONLY)
-    except FileNotFoundError:
+    except Exception:
         raise AMDGPUError(AMDGPU_ERROR_CARD_NOTFOUND)
 
     c_major = c_uint32()
