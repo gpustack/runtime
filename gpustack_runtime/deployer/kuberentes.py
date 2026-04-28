@@ -879,6 +879,9 @@ class KubernetesDeployer(EndoscopicDeployer):
             spec=kubernetes.client.V1PodSpec(
                 containers=[],
                 host_network=workload.host_network,
+                dns_policy=(
+                    "ClusterFirstWithHostNet" if workload.host_network else None
+                ),
                 host_ipc=workload.host_ipc,
                 share_process_namespace=workload.pid_shared,
                 node_name=self._node_name,
