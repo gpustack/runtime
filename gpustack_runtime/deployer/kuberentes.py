@@ -42,7 +42,7 @@ from .__utils__ import (
     sensitive_env_var,
     validate_rfc1123_domain_name,
 )
-from .k8s.deviceplugin import get_resource_injection_policy
+from .k8s.devicemanager import get_resource_injection_policy
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -873,7 +873,7 @@ class KubernetesDeployer(EndoscopicDeployer):
             metadata=kubernetes.client.V1ObjectMeta(
                 name=pod_name,
                 namespace=workload.namespace,
-                labels=workload.labels,
+                labels=workload.labels or {},
                 annotations={},
             ),
             spec=kubernetes.client.V1PodSpec(
@@ -1045,19 +1045,23 @@ class KubernetesDeployer(EndoscopicDeployer):
                     # Request devices.
                     if r_v == "all":
                         # Configure privileged.
-                        container.security_context = (
-                            container.security_context
-                            or kubernetes.client.V1SecurityContext()
-                        )
-                        container.security_context.privileged = True
+                        if not kdp:
+                            container.security_context = (
+                                container.security_context
+                                or kubernetes.client.V1SecurityContext()
+                            )
+                            container.security_context.privileged = True
                         # Request all devices.
                         for ren in runtime_envs:
                             r_vs = self.get_runtime_visible_devices(ren, fmt)
-                            # Request device via KDP.
                             if kdp:
-                                resources.update(
-                                    dict.fromkeys(r_vs, "1"),
-                                )
+                                # Request quantity of devices as resources for KDP to schedule on the correct nodes.
+                                resources.update(r_vs)
+                                # Request quantity of devices with Kueue admission.
+                                if not envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION:
+                                    pod.metadata.labels["kueue.x-k8s.io/queue-name"] = (
+                                        self._find_kdp_devices_group(ren)
+                                    )
                                 continue
                             # Request device via visible devices env.
                             container.env.append(
@@ -1069,6 +1073,25 @@ class KubernetesDeployer(EndoscopicDeployer):
                     else:
                         # Request specific devices.
                         for ren in runtime_envs:
+                            if kdp:
+                                r_vs = self.map_runtime_visible_devices(
+                                    ren,
+                                    resource_values,
+                                    fmt,
+                                )
+                                # Manually select devices via annotation for KDP.
+                                pod.metadata.annotations[
+                                    "device.gpustack.ai/accelerator.preferred-index"
+                                ] = ",".join(resource_values)
+                                # Request quantity of devices as resources for KDP to schedule on the correct nodes.
+                                resources.update(r_vs)
+                                # Request quantity of devices with Kueue admission.
+                                if not envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION:
+                                    pod.metadata.labels["kueue.x-k8s.io/queue-name"] = (
+                                        self._find_kdp_devices_group(ren)
+                                    )
+                                continue
+
                             # Request all devices if privileged,
                             # otherwise, normalize requested devices.
                             if privileged:
@@ -1079,13 +1102,6 @@ class KubernetesDeployer(EndoscopicDeployer):
                                     resource_values,
                                     fmt,
                                 )
-                            # Request device via KDP.
-                            if kdp:
-                                resources.update(
-                                    dict.fromkeys(r_vs, "1"),
-                                )
-                                continue
-                            # Request device via visible devices env.
                             container.env.append(
                                 kubernetes.client.V1EnvVar(
                                     name=ren,
@@ -1094,7 +1110,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                             )
 
                     # Configure runtime device access environment variables.
-                    if r_v != "all" and privileged:
+                    if not kdp and r_v != "all" and privileged:
                         b_vs = self.map_backend_visible_devices(
                             runtime_envs,
                             resource_values,
@@ -1530,6 +1546,28 @@ class KubernetesDeployer(EndoscopicDeployer):
             name=self_pod_name,
             namespace=self_pod_namespace,
         )
+
+    def _find_kdp_devices_group(self, runtime_env: str) -> str:
+        manu = self.get_manufacturer(runtime_env)
+        crd_api = kubernetes.client.CustomObjectsApi(self._client)
+
+        try:
+            devices = crd_api.get_cluster_custom_object(
+                group="worker.gpustack.ai",
+                version="v1",
+                plural="devices",
+                name=self._node_name,
+            )
+        except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Failed to get KDP devices of node {self._node_name} for runtime environment {runtime_env}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+
+        for group in devices["spec"]["groups"] or []:
+            if group["manufacturer"] == manu:
+                return f"gpustack-{group['id']!s}"
+
+        msg = f"Failed to find KDP devices group for runtime environment {runtime_env} on node {self._node_name}"
+        raise OperationError(msg)
 
     @_supported
     def _create(self, workload: WorkloadPlan):

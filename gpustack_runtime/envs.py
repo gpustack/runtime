@@ -290,27 +290,9 @@ if TYPE_CHECKING:
     `Env`: Injects resources using standard environment variable, depends on underlying Container Toolkit, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`.
     `KDP`: Injects resources using Kubernetes Device Plugin.
     """
-    GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS: int | None = None
+    GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION: bool = False
     """
-    Maximum allocations for one device in Kubernetes Device Plugin.
-    If not set, it should be 10.
-    """
-    GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY: str | None = None
-    """
-    Device allocation policy for the Kubernetes Device Plugin (e.g., CDI, Env, Opaque).
-    `Auto`: Automatically choose the device allocation policy based on the environment.
-    `Env`: Allocates devices using runtime-visible environment variables, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`; requires Container Toolkit support.
-    `CDI`: Allocates devices using generated CDI specifications, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI`, making it easy to debug and troubleshoot; requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to exist.
-    `Opaque`: Uses internal logic for allocation, which is convenient for deployment but difficult to troubleshoot.
-    """
-    GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE: bool = True
-    """
-    Generate CDI specifications during deployment,
-    requires `GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY` to exist.
-    Works only when `GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY` is set to `CDI`.
-    Using internal knowledge to generate the CDI specifications for deployer,
-    if the output file conflicts with other tools generating CDI specifications(e.g., NVIDIA Container Toolkit),
-    please disable this and remove the output file manually.
+    Resource injection using Kubernetes Device Plugin without queue admission.
     """
     ## Podman
     GPUSTACK_RUNTIME_PODMAN_HOST: str | None = None
@@ -702,37 +684,10 @@ variables: dict[str, Callable[[], Any]] = {
         options=["Auto", "Env", "KDP"],
         default="Auto",
     ),
-    "GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS": lambda: to_int(
+    "GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION": lambda: to_bool(
         getenv(
-            "GPUSTACK_RUNTIME_KUBERNETES_KDP_PER_DEVICE_MAX_ALLOCATIONS",
-            "10",
-        ),
-    ),
-    "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY": lambda: choice(
-        getenv(
-            "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY",
-        ),
-        options=["Auto", "Env", "CDI", "Opaque"],
-        default="Auto",
-    ),
-    "GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE": lambda: ternary(
-        lambda: (
-            getenv("GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY", "Auto")
-            == "Env"
-        ),
-        lambda: False,
-        lambda: ternary(
-            lambda: (
-                getenv(
-                    "GPUSTACK_RUNTIME_KUBERNETES_KDP_DEVICE_ALLOCATION_POLICY",
-                    "Auto",
-                )
-                not in ["Auto", "CDI"]
-            ),
-            lambda: False,
-            lambda: to_bool(
-                getenv("GPUSTACK_RUNTIME_KUBERNETES_KDP_CDI_SPECS_GENERATE", "1"),
-            ),
+            "GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION",
+            "0",
         ),
     ),
     ## Podman

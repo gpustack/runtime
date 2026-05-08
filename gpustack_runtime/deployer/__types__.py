@@ -30,7 +30,7 @@ from .__utils__ import (
     safe_yaml,
     validate_rfc1123_subdomain_name,
 )
-from .k8s.deviceplugin import cdi_kind_to_kdp_resource
+from .k8s.devicemanager import cdi_kind_to_kdp_resource
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
@@ -1491,7 +1491,7 @@ class Deployer(ABC):
         self,
         runtime_env: str,
         fmt: str = "plain",
-    ) -> list[str]:
+    ) -> list[str] | dict[str, str]:
         """
         Return the runtime visible devices values for the given runtime visible devices env name.
 
@@ -1500,10 +1500,11 @@ class Deployer(ABC):
                 The runtime visible devices environment variable name.
             fmt:
                 The format of the returned values,
-                can be "cdi", "kdp", or "plain".
+                can be "cdi", "plain" or "kdp".
 
         Returns:
-            A list of runtime visible devices values.
+            A list of runtime visible devices values if fmt is "cdi" or "plain",
+            or a dictionary mapping CDI resource to the count of runtime visible devices if fmt is "kdp".
 
         """
         m = self._get_materials()
@@ -1512,22 +1513,22 @@ class Deployer(ABC):
             return []
 
         rm = m[runtime_env]
-        match fmt:
-            case "cdi":
-                return [f"{rm.cdi}={v}" for v in rm.runtime_values.values()]
-            case "kdp":
-                return [
-                    cdi_kind_to_kdp_resource(rm.cdi, v)
-                    for v in rm.runtime_values.values()
-                ]
-        return list(rm.runtime_values.values())
+
+        if fmt == "cdi":
+            return [f"{rm.cdi}={v}" for v in rm.runtime_values.values()]
+        if fmt == "plain":
+            return list(rm.runtime_values.values())
+
+        return {
+            cdi_kind_to_kdp_resource(rm.cdi): str(len(rm.runtime_values)),
+        }
 
     def map_runtime_visible_devices(
         self,
         runtime_env: str,
         resource_values: list[str],
         fmt: str = "plain",
-    ) -> list[str]:
+    ) -> list[str] | dict[str, str]:
         """
         Map the given resource values to runtime visible devices values
         for the given runtime visible devices env name.
@@ -1539,10 +1540,11 @@ class Deployer(ABC):
                 The resource values to map.
             fmt:
                 The format of the returned values,
-                can be "cdi", "kdp", or "plain".
+                can be "cdi", "plain" or "kdp".
 
         Returns:
-            A list of mapped runtime visible devices values.
+            A list of mapped runtime visible devices values if fmt is "cdi" or "plain",
+            or a dictionary mapping CDI resource to the count of runtime visible devices if fmt is "kdp".
 
         """
         m = self._get_materials()
@@ -1551,17 +1553,13 @@ class Deployer(ABC):
             return []
 
         rm = m[runtime_env]
-        match fmt:
-            case "cdi":
-                return [
-                    f"{rm.cdi}={rm.runtime_values.get(v, v)}" for v in resource_values
-                ]
-            case "kdp":
-                return [
-                    cdi_kind_to_kdp_resource(rm.cdi, rm.runtime_values.get(v, v))
-                    for v in resource_values
-                ]
-        return [rm.runtime_values.get(v, v) for v in resource_values]
+        if fmt == "cdi":
+            return [f"{rm.cdi}={rm.runtime_values.get(v, v)}" for v in resource_values]
+        if fmt == "plain":
+            return [rm.runtime_values.get(v, v) for v in resource_values]
+        return {
+            cdi_kind_to_kdp_resource(rm.cdi): str(len(resource_values)),
+        }
 
     def map_backend_visible_devices(
         self,

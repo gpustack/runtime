@@ -19,7 +19,6 @@ from .cmds import (
     DetectDevicesSubCommand,
     ExecSelfSubCommand,
     ExecWorkloadSubCommand,
-    GenerateCDIConfigSubCommand,
     GetDevicesTopologySubCommand,
     GetWorkloadSubCommand,
     InspectSelfSubCommand,
@@ -29,7 +28,6 @@ from .cmds import (
     LogsSelfSubCommand,
     LogsWorkloadSubCommand,
     SaveImagesSubCommand,
-    ServeDevicePluginSubCommand,
 )
 from .logging import setup_logging
 
@@ -77,8 +75,6 @@ def main():
     LogsSelfSubCommand.register(subcommand_parser)
     ExecSelfSubCommand.register(subcommand_parser)
     InspectSelfSubCommand.register(subcommand_parser)
-    GenerateCDIConfigSubCommand.register(subcommand_parser)
-    ServeDevicePluginSubCommand.register(subcommand_parser)
     ListImagesSubCommand.register(subcommand_parser)
     SaveImagesSubCommand.register(subcommand_parser)
     LoadImagesSubCommand.register(subcommand_parser)

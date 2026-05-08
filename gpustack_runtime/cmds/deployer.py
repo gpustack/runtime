@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import time
-from argparse import OPTIONAL, REMAINDER
+from argparse import REMAINDER
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,10 +25,6 @@ from ..deployer import (
     WorkloadStatusStateEnum,
     async_logs_self,
     async_logs_workload,
-    cdi_available_backends,
-    cdi_available_manufacturers,
-    cdi_dump_config,
-    cdi_supported_manufacturers,
     create_workload,
     delete_workload,
     exec_self,
@@ -36,7 +32,6 @@ from ..deployer import (
     get_workload,
     inspect_self,
     inspect_workload,
-    k8s_deviceplugin_serve,
     list_workloads,
 )
 from ..detector import (
@@ -990,163 +985,6 @@ class InspectSelfSubCommand(SubCommand):
 
     def run(self):
         print(inspect_self())
-
-
-class GenerateCDIConfigSubCommand(SubCommand):
-    """
-    Command to generate CDI configurations.
-    """
-
-    manufacturer: ManufacturerEnum
-    format: str
-    output: Path | None
-
-    @staticmethod
-    def register(parser: _SubParsersAction):
-        generate_parser = parser.add_parser(
-            "generate-cdi",
-            help="Generate Container Device Interface(CDI) configurations according to the current environment",
-            aliases=["gen-cdi"],
-        )
-
-        generate_parser.add_argument(
-            "--manufacturer",
-            "--manu",
-            type=ManufacturerEnum,
-            help="Manufacturer to generate (default: all)",
-            choices=list(map(str, cdi_available_manufacturers())),
-        )
-
-        generate_parser.add_argument(
-            "--backend",
-            type=str,
-            help="Backend to generate (default: all)",
-            choices=cdi_available_backends(),
-        )
-
-        generate_parser.add_argument(
-            "--format",
-            type=str,
-            choices=["yaml", "json"],
-            default="yaml",
-            help="Format of the CDI configurations",
-        )
-
-        generate_parser.add_argument(
-            "output",
-            nargs=OPTIONAL,
-            help="Output directory to save CDI configurations (default: current directory)",
-        )
-
-        generate_parser.set_defaults(func=GenerateCDIConfigSubCommand)
-
-    def __init__(self, args: Namespace):
-        self.manufacturer = args.manufacturer
-        self.format = args.format
-        self.output = Path(args.output) if args.output else None
-
-        if args.backend:
-            if not self.manufacturer:
-                self.manufacturer = backend_to_manufacturer(args.backend)
-            elif args.backend != manufacturer_to_backend(self.manufacturer):
-                msg = (
-                    f"The backend '{args.backend}' is not compatible with "
-                    f"the manufacturer '{args.manufacturer}'."
-                )
-                raise ValueError(msg)
-
-        if self.output:
-            try:
-                if not self.output.exists():
-                    self.output.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                msg = f"Failed to prepare output directory '{self.output}' for CDI configurations"
-                raise RuntimeError(msg) from e
-
-            if not self.output.is_dir():
-                msg = f"The output path '{self.output}' is not a directory"
-                raise RuntimeError(msg)
-
-    def run(self):
-        print("\033[2J\033[H", end="")
-
-        generated = False
-        for manu in cdi_supported_manufacturers():
-            if self.manufacturer and self.manufacturer != manu:
-                continue
-            content, path = cdi_dump_config(
-                manufacturer=manu,
-                output=self.output,
-            )
-            if content:
-                generated = True
-                if path:
-                    print(f"Generated CDI configuration for '{manu}' at {path}:\n")
-                else:
-                    print(f"Generated CDI configuration for '{manu}':\n")
-                print(content)
-                print()
-
-        if not generated:
-            print("No CDI configurations were generated.")
-
-
-class ServeDevicePluginSubCommand(SubCommand):
-    """
-    Command to serve Device Plugin.
-    """
-
-    manufacturer: ManufacturerEnum
-
-    @staticmethod
-    def register(parser: _SubParsersAction):
-        serve_parser = parser.add_parser(
-            "serve-device-plugin",
-            help="Serve Device Plugin according to the current environment",
-            aliases=[
-                "start-device-plugin",
-                "serve-dp",
-                "start-dp",
-            ],
-        )
-
-        serve_parser.add_argument(
-            "--manufacturer",
-            "--manu",
-            type=ManufacturerEnum,
-            help="Manufacturer to generate (default: all)",
-            choices=list(map(str, cdi_available_manufacturers())),
-        )
-
-        serve_parser.add_argument(
-            "--backend",
-            type=str,
-            help="Backend to generate (default: all)",
-            choices=cdi_available_backends(),
-        )
-
-        serve_parser.set_defaults(func=ServeDevicePluginSubCommand)
-
-    def __init__(self, args: Namespace):
-        self.manufacturer = args.manufacturer
-
-        if args.backend:
-            if not self.manufacturer:
-                self.manufacturer = backend_to_manufacturer(args.backend)
-            elif args.backend != manufacturer_to_backend(self.manufacturer):
-                msg = (
-                    f"The backend '{args.backend}' is not compatible with "
-                    f"the manufacturer '{args.manufacturer}'."
-                )
-                raise ValueError(msg)
-
-    def run(self):
-        print("\033[2J\033[H", end="")
-
-        k8s_deviceplugin_serve(
-            manufacturer=self.manufacturer,
-            cdi_generation_output=envs.GPUSTACK_RUNTIME_DEPLOY_CDI_SPECS_DIRECTORY,
-        )
 
 
 def format_workloads_json(sts: list[WorkloadStatus]) -> str:
