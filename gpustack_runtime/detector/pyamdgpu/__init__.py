@@ -255,16 +255,26 @@ def amdgpu_device_initialize(card=1):
     except Exception:
         raise AMDGPUError(AMDGPU_ERROR_CARD_NOTFOUND)
 
-    c_major = c_uint32()
-    c_minor = c_uint32()
-    device = c_amdgpu_device_t()
-    fn = _amdgpuGetFunctionPointer("amdgpu_device_initialize")
-    # If receive an error print here, try
-    # sudo vim /etc/default/grub
-    # and add "amdgpu.dc=0" to GRUB_CMDLINE_LINUX_DEFAULT
-    # then run "sudo update-grub" and reboot.
-    ret = fn(fd, byref(c_major), byref(c_minor), byref(device))
-    _amdgpuCheckReturn(ret)
+    # libdrm_amdgpu takes ownership of ``fd`` only on success. On failure (or
+    # any other exception, including ``BaseException`` like KeyboardInterrupt)
+    # we must close it ourselves to avoid leaking fds — see gpustack/gpustack#5342.
+    initialized = False
+    try:
+        c_major = c_uint32()
+        c_minor = c_uint32()
+        device = c_amdgpu_device_t()
+        fn = _amdgpuGetFunctionPointer("amdgpu_device_initialize")
+        # If receive an error print here, try
+        # sudo vim /etc/default/grub
+        # and add "amdgpu.dc=0" to GRUB_CMDLINE_LINUX_DEFAULT
+        # then run "sudo update-grub" and reboot.
+        ret = fn(fd, byref(c_major), byref(c_minor), byref(device))
+        if ret == 0:
+            initialized = True
+        _amdgpuCheckReturn(ret)
+    finally:
+        if not initialized:
+            os.close(fd)
     return c_major.value, c_minor.value, device
 
 
