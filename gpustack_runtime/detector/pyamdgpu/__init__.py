@@ -7,6 +7,7 @@ import errno
 import os
 import sys
 import threading
+from contextlib import contextmanager
 from ctypes import *
 from typing import ClassVar
 
@@ -247,7 +248,8 @@ def _LoadAMDGPULibrary():
 
 
 ## C function wrappers ##
-def amdgpu_device_initialize(card=1):
+@contextmanager
+def amdgpu_device(card=1):
     _LoadAMDGPULibrary()
 
     try:
@@ -255,23 +257,23 @@ def amdgpu_device_initialize(card=1):
     except Exception:
         raise AMDGPUError(AMDGPU_ERROR_CARD_NOTFOUND)
 
-    c_major = c_uint32()
-    c_minor = c_uint32()
     device = c_amdgpu_device_t()
-    fn = _amdgpuGetFunctionPointer("amdgpu_device_initialize")
-    # If receive an error print here, try
-    # sudo vim /etc/default/grub
-    # and add "amdgpu.dc=0" to GRUB_CMDLINE_LINUX_DEFAULT
-    # then run "sudo update-grub" and reboot.
-    ret = fn(fd, byref(c_major), byref(c_minor), byref(device))
-    _amdgpuCheckReturn(ret)
-    return c_major.value, c_minor.value, device
 
+    try:
+        c_major = c_uint32()
+        c_minor = c_uint32()
+        fn = _amdgpuGetFunctionPointer("amdgpu_device_initialize")
+        ret = fn(fd, byref(c_major), byref(c_minor), byref(device))
+        _amdgpuCheckReturn(ret)
 
-def amdgpu_device_deinitialize(device):
-    fn = _amdgpuGetFunctionPointer("amdgpu_device_deinitialize")
-    ret = fn(device)
-    _amdgpuCheckReturn(ret)
+        yield device
+
+    finally:
+        try:
+            fn = _amdgpuGetFunctionPointer("amdgpu_device_deinitialize")
+            fn(device)
+        finally:
+            os.close(fd)
 
 
 def amdgpu_query_gpu_info(device):

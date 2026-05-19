@@ -132,12 +132,11 @@ class HygonDetector(Detector):
 
                 dev_cores = dev_hsa_agent.compute_units
                 if not dev_cores and dev_card_id is not None:
-                    with contextlib.suppress(pyamdgpu.AMDGPUError):
-                        _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(
-                            dev_card_id,
-                        )
+                    with (
+                        contextlib.suppress(pyamdgpu.AMDGPUError),
+                        pyamdgpu.amdgpu_device(dev_card_id) as dev_gpudev,
+                    ):
                         dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
-                        pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
                         dev_cores = dev_gpudev_info.cu_active_number
 
                 dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)

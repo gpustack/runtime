@@ -142,12 +142,11 @@ class AMDDetector(Detector):
                 if (
                     not dev_cores or not dev_asic_family_id
                 ) and dev_card_id is not None:
-                    with contextlib.suppress(pyamdgpu.AMDGPUError):
-                        _, _, dev_gpudev = pyamdgpu.amdgpu_device_initialize(
-                            dev_card_id,
-                        )
+                    with (
+                        contextlib.suppress(pyamdgpu.AMDGPUError),
+                        pyamdgpu.amdgpu_device(dev_card_id) as dev_gpudev,
+                    ):
                         dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
-                        pyamdgpu.amdgpu_device_deinitialize(dev_gpudev)
                         if not dev_cores:
                             dev_cores = dev_gpudev_info.cu_active_number
                         if not dev_asic_family_id:
