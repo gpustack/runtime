@@ -258,6 +258,7 @@ def amdgpu_device(card=1):
         raise AMDGPUError(AMDGPU_ERROR_CARD_NOTFOUND)
 
     device = c_amdgpu_device_t()
+    initialized = False
 
     try:
         c_major = c_uint32()
@@ -265,13 +266,14 @@ def amdgpu_device(card=1):
         fn = _amdgpuGetFunctionPointer("amdgpu_device_initialize")
         ret = fn(fd, byref(c_major), byref(c_minor), byref(device))
         _amdgpuCheckReturn(ret)
+        initialized = True
 
         yield device
-
     finally:
         try:
-            fn = _amdgpuGetFunctionPointer("amdgpu_device_deinitialize")
-            fn(device)
+            if initialized:
+                fn = _amdgpuGetFunctionPointer("amdgpu_device_deinitialize")
+                fn(device)
         finally:
             os.close(fd)
 
