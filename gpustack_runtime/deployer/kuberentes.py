@@ -1060,7 +1060,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                                 # Request quantity of devices with Kueue admission.
                                 if not envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION:
                                     pod.metadata.labels["kueue.x-k8s.io/queue-name"] = (
-                                        self._find_kdp_devices_group(ren)
+                                        self._find_kueue_queue_name(ren)
                                     )
                                 continue
                             # Request device via visible devices env.
@@ -1088,7 +1088,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                                 # Request quantity of devices with Kueue admission.
                                 if not envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION:
                                     pod.metadata.labels["kueue.x-k8s.io/queue-name"] = (
-                                        self._find_kdp_devices_group(ren)
+                                        self._find_kueue_queue_name(ren)
                                     )
                                 continue
 
@@ -1547,26 +1547,29 @@ class KubernetesDeployer(EndoscopicDeployer):
             namespace=self_pod_namespace,
         )
 
-    def _find_kdp_devices_group(self, runtime_env: str) -> str:
+    def _find_kueue_queue_name(self, runtime_env: str) -> str:
         manu = self.get_manufacturer(runtime_env)
-        crd_api = kubernetes.client.CustomObjectsApi(self._client)
-
+        core_api = kubernetes.client.CoreV1Api(self._client)
         try:
-            devices = crd_api.get_cluster_custom_object(
-                group="worker.gpustack.ai",
-                version="v1",
-                plural="devices",
-                name=self._node_name,
-            )
+            # Iterate the labels of node to find the key as below:
+            # "feature.gpustack.ai/${manu}-${device-group-id}.profile-queue: <profile>",
+            # then combine the manufacturer, device group id and profile to get the queue name for Kueue admission.
+            #
+            # For example, for `feature.gpustack.ai/nvidia-tesla-t4.profile-queue: 12c-46g-1d`,
+            # the node key is `nvidia-tesla-t4`,
+            # the queue name is `gpustack-nvidia-tesla-t4-12c-46g-1d`.
+            node = core_api.read_node(name=self._node_name)
+            prefix = "feature.gpustack.ai/"
+            suffix = ".profile-queue"
+            for k, v in node.metadata.labels.items():
+                if k.startswith(f"{prefix}{manu}-") and k.endswith(suffix):
+                    node_key = k[len(prefix) : -len(suffix)]
+                    return f"gpustack-{node_key}-{v}"
         except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to get KDP devices of node {self._node_name} for runtime environment {runtime_env}{_detail_api_call_error(e)}"
+            msg = f"Failed to get Kueue queue name on node {self._node_name} for runtime environment {runtime_env}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
-        for group in devices["spec"]["groups"] or []:
-            if group["manufacturer"] == manu:
-                return f"gpustack-{group['id']!s}"
-
-        msg = f"Failed to find KDP devices group for runtime environment {runtime_env} on node {self._node_name}"
+        msg = f"Failed to find Kueue queue name on node {self._node_name} for runtime environment {runtime_env}"
         raise OperationError(msg)
 
     @_supported
