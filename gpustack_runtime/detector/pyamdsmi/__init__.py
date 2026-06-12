@@ -74,3 +74,38 @@ except Exception:
 
     def amdsmi_shut_down():
         pass
+
+
+# Example ROCM_HOME/ROCM_PATH
+# - /opt/rocm
+_rocm_home = Path(os.getenv("ROCM_HOME", os.getenv("ROCM_PATH") or "/opt/rocm"))
+
+
+# NB: Defined after the `from amdsmi import *` above on purpose:
+# the amdsmi package may export its own amdsmi_get_rocm_version
+# (returning a tuple), which this file-based implementation must override.
+def amdsmi_get_rocm_version() -> str | None:
+    """
+    Read the ROCm version from known files under the ROCm installation.
+
+    Returns:
+        The ROCm version string, or None if not found.
+
+    """
+    for vf in (
+        _rocm_home / ".info" / "version",
+        _rocm_home / ".info" / "version-rocm",
+        _rocm_home / ".info" / "version-dev",
+        _rocm_home / ".info" / "version-libs",
+    ):
+        if not vf.is_file():
+            continue
+
+        try:
+            version = vf.read_text().strip()
+        except OSError:
+            continue
+        if version:
+            return version
+
+    return None

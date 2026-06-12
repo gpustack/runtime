@@ -453,10 +453,24 @@ def has_agent_get_asic_family_id(agent):
     return c_family_id.value
 
 
+def hsa_agent_get_info_bdf(agent):
+    c_bdfid = c_uint64()
+    hsa_agent_get_info(agent, HSA_AMD_AGENT_INFO_BDFID, byref(c_bdfid))
+    # BDFID = ((DOMAIN & 0xFFFFFFFF) << 32) | ((BUS & 0xFF) << 8)
+    #         | ((DEVICE & 0x1F) << 3) | (FUNCTION & 0x7)
+    bdfid = c_bdfid.value
+    domain = (bdfid >> 32) & 0xFFFFFFFF
+    bus = (bdfid >> 8) & 0xFF
+    device_id = (bdfid >> 3) & 0x1F
+    function = bdfid & 0x7
+    return f"{domain:04x}:{bus:02x}:{device_id:02x}.{function:x}"
+
+
 @dataclass
 class Agent:
     device_type: int | None = None
     device_id: str | None = None
+    bdf: str | None = None
     uuid: str | None = None
     name: str | None = None
     compute_capability: str | None = None
@@ -476,6 +490,9 @@ def get_agents() -> list[Agent]:
                 return 0
 
             agent_device_id = hex(hsa_agent_get_info_chip_id(agent))
+            agent_bdf = None
+            with contextlib.suppress(HSAError):
+                agent_bdf = hsa_agent_get_info_bdf(agent)
             agent_uuid = hsa_agent_get_info_uuid(agent)
             agent_name = hsa_agent_get_info_product_name(agent)
             agent_compute_capability = hsa_agent_get_info_name(agent)
@@ -488,6 +505,7 @@ def get_agents() -> list[Agent]:
                 Agent(
                     device_type=agent_device_type,
                     device_id=agent_device_id,
+                    bdf=agent_bdf,
                     uuid=agent_uuid,
                     name=agent_name,
                     compute_capability=agent_compute_capability,

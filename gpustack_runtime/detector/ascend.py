@@ -2,11 +2,14 @@ from __future__ import annotations as __future_annotations__
 
 import contextlib
 import logging
+import os
+import re
 from functools import lru_cache
+from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import pyacl, pydcmi
+from . import pydcmi
 from .__types__ import (
     Detector,
     Device,
@@ -111,7 +114,7 @@ class AscendDetector(Detector):
 
             sys_driver_ver = pydcmi.dcmi_get_driver_version()
 
-            sys_runtime_ver_original = pyacl.aclsysGetVersion()
+            sys_runtime_ver_original = _get_toolkit_version()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             _, card_list = pydcmi.dcmi_get_card_list()
@@ -210,10 +213,7 @@ class AscendDetector(Detector):
                             dev_numa = map_cpu_affinity_to_numa_node(dev_cpu_affinity)
 
                     dev_appendix = {
-                        "arch_family": (
-                            pyacl.aclrtGetSocName()
-                            or _guess_soc_name_from_dev_name(dev_name)
-                        ),
+                        "arch_family": _guess_soc_name_from_dev_name(dev_name),
                         "vgpu": dev_is_vgpu,
                         "bdf": dev_bdf,
                         "card_id": dev_card_id,
@@ -478,6 +478,58 @@ def _get_device_virtual_info(
     return None
 
 
+def _get_toolkit_home() -> Path:
+    """
+    Resolve the Ascend toolkit home directory.
+
+    Returns:
+        The path to the Ascend toolkit home.
+
+    """
+    # Example ASCEND_TOOLKIT_HOME
+    # - /usr/local/Ascend/cann
+    # - /usr/local/Ascend/ascend-toolkit/latest/runtime
+    toolkit_home = os.getenv("ASCEND_TOOLKIT_HOME")
+    if toolkit_home:
+        return Path(toolkit_home)
+
+    default_home = Path("/usr/local/Ascend/cann")
+    if default_home.is_dir():
+        return default_home
+
+    return Path("/usr/local/Ascend/ascend-toolkit/latest/runtime")
+
+
+def _get_toolkit_version() -> str | None:
+    """
+    Read the Ascend toolkit (CANN) version from known version.info files.
+
+    Returns:
+        The toolkit version string, or None if not found.
+
+    """
+    prefix = "Version="
+    toolkit_home = _get_toolkit_home()
+
+    for vf in (
+        toolkit_home / "version.info",
+        toolkit_home / "share" / "info" / "runtime" / "version.info",
+    ):
+        if not vf.is_file():
+            continue
+
+        try:
+            content = vf.read_text()
+        except OSError:
+            continue
+
+        for line in content.splitlines():
+            if line.startswith(prefix):
+                return line[len(prefix) :].strip()
+
+    return None
+
+
 # Borrowed from https://gitcode.com/Ascend/pytorch/blob/master/torch_npu/csrc/core/npu/NpuVariables.cpp#L13-L40 and
 # https://gitcode.com/Ascend/pytorch/blob/master/torch_npu/csrc/core/npu/NpuVariables.h#L5-L34.
 # Ascend product category, please refer to:
@@ -518,6 +570,11 @@ _soc_name_version_mapping: dict[str, int] = {
 }
 
 
+_910A_REGEX = re.compile(r"^910")
+_910B_REGEX = re.compile(r"^(910B\d|A2G\d)")
+_310P_REGEX = re.compile(r"^(310P\d?|I2\d?)")
+
+
 def _guess_soc_name_from_dev_name(dev_name: str) -> str | None:
     """
     Guess the SoC name from the device name.
@@ -530,11 +587,23 @@ def _guess_soc_name_from_dev_name(dev_name: str) -> str | None:
         The guessed SoC name, or None if not found.
 
     """
+    dev_name = dev_name.strip()
     if dev_name.startswith("Ascend"):
-        dev_name = dev_name[6:].strip()
+        dev_name = dev_name[len("Ascend") :].strip()
     soc_name = f"Ascend{dev_name}"
     if soc_name in _soc_name_version_mapping:
         return soc_name
+
+    # https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/devmanager/common/utils.go#L159-L176
+    if _310P_REGEX.match(dev_name):
+        return "Ascend310P1"
+    if "310B" in dev_name:
+        return "Ascend310B1"
+    if _910B_REGEX.match(dev_name):
+        return "Ascend910B1"
+    if _910A_REGEX.match(dev_name):
+        return "Ascend910A"
+
     return None
 
 

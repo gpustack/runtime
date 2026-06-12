@@ -207,6 +207,37 @@ def rsmi_shutdown():
         _libInitializedException = None
 
 
+def rsmi_get_rocm_version() -> str | None:
+    """
+    Read the ROCm version from known files under the ROCm installation.
+
+    Returns:
+        The ROCm version string, or None if not found.
+
+    """
+    for vf in (
+        rocm_path / ".info" / "version",
+        rocm_path / ".info" / "version-rocm",
+        rocm_path / ".info" / "version-dev",
+        rocm_path / ".info" / "version-libs",
+        rocm_path.parent / ".info" / "version",
+        rocm_path.parent / ".info" / "version-rocm",
+        rocm_path.parent / ".info" / "version-dev",
+        rocm_path.parent / ".info" / "version-libs",
+    ):
+        if not vf.is_file():
+            continue
+
+        try:
+            version = vf.read_text().strip()
+        except OSError:
+            continue
+        if version:
+            return version
+
+    return None
+
+
 @convertStrBytes
 def rsmi_driver_version_get():
     component = rsmi_sw_component_t.RSMI_SW_COMP_DRIVER

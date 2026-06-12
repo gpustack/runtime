@@ -121,10 +121,8 @@ parametrize-names-type = "csv"
 
 [lint.per-file-ignores]
 "gpustack_runtime/deployer/__patches__.py" = ["ALL"]
-"gpustack_runtime/detector/pyacl/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyamdsmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyamdgpu/*.py" = ["ALL"]
-"gpustack_runtime/detector/pycuda/*.py" = ["ALL"]
 "gpustack_runtime/detector/pydcmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyhgml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyhsa/*.py" = ["ALL"]
@@ -132,7 +130,6 @@ parametrize-names-type = "csv"
 "gpustack_runtime/detector/pymtml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pymxsml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pynvml/*.py" = ["ALL"]
-"gpustack_runtime/detector/pyrocmcore/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyrocmsmi/*.py" = ["ALL"]
 "tests/*.py" = ["D", "S101"]
 

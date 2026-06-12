@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import Topology, pyamdgpu, pyamdsmi, pyhsa, pyrocmcore, pyrocmsmi
+from . import Topology, pyamdgpu, pyamdsmi, pyhsa, pyrocmsmi
 from .__types__ import (
     Detector,
     Device,
@@ -94,7 +94,10 @@ class AMDDetector(Detector):
         ret: Devices = []
 
         try:
-            hsa_agents = {hsa_agent.uuid: hsa_agent for hsa_agent in pyhsa.get_agents()}
+            hsa_agents = {
+                hsa_agent.bdf or hsa_agent.uuid: hsa_agent
+                for hsa_agent in pyhsa.get_agents()
+            }
 
             pyamdsmi.amdsmi_init()
             try:
@@ -102,7 +105,7 @@ class AMDDetector(Detector):
             except Exception:
                 debug_log_exception(logger, "Failed to initialize ROCm SMI")
 
-            sys_runtime_ver_original = pyrocmcore.getROCmVersion()
+            sys_runtime_ver_original = pyamdsmi.amdsmi_get_rocm_version()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             devs = pyamdsmi.amdsmi_get_processor_handles()
@@ -115,7 +118,13 @@ class AMDDetector(Detector):
                     dev_uuid = f"GPU-{(asic_serial[2:]).lower()}"
                 else:
                     dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
-                dev_hsa_agent = hsa_agents.get(dev_uuid, pyhsa.Agent())
+
+                dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
+                dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
+
+                dev_hsa_agent = (
+                    hsa_agents.get(dev_bdf) or hsa_agents.get(dev_uuid) or pyhsa.Agent()
+                )
 
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
                 dev_driver_ver = dev_gpu_driver_info.get("driver_version")
@@ -133,9 +142,6 @@ class AMDDetector(Detector):
                             dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(
                                 dev_idx,
                             )
-
-                dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
-                dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
 
                 dev_cores = dev_hsa_agent.compute_units
                 dev_asic_family_id = dev_hsa_agent.asic_family_id

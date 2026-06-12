@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import DeviceMemoryStatusEnum, Topology, pycuda, pynvml
+from . import DeviceMemoryStatusEnum, Topology, pynvml
 from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
 from .__utils__ import (
     PCIDevice,
@@ -97,11 +97,6 @@ class NVIDIADetector(Detector):
             pci_devs = NVIDIADetector.detect_pci_devices()
 
             pynvml.nvmlInit()
-            if not envs.GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL:
-                try:
-                    pycuda.cuInit()
-                except pycuda.CUDAError:
-                    debug_log_exception(logger, "Failed to initialize CUDA")
 
             sys_driver_ver = pynvml.nvmlSystemGetDriverVersion()
 
@@ -173,13 +168,8 @@ class NVIDIADetector(Detector):
                     dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
 
                     dev_cores = None
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL:
-                        with contextlib.suppress(pycuda.CUDAError):
-                            dev_gpudev = pycuda.cuDeviceGet(dev_idx)
-                            dev_cores = pycuda.cuDeviceGetAttribute(
-                                dev_gpudev,
-                                pycuda.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
-                            )
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
 
                     dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
                     if dev_cores_util is None:

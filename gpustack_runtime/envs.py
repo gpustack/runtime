@@ -44,15 +44,6 @@ if TYPE_CHECKING:
     The PCI class prefixes to check during detection.
     When `GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK` is false, the detector will check if the PCI class of the device starts with any of the given prefixes.
     """
-    GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL: bool = False
-    """
-    Set true to disable toolkit calls during detection.
-    Device detection typically involves calling platform-side management libraries and platform-side toolkit to retrieve extra information.
-    For example, during NVIDIA detection, the NVML and CUDA are called, with CUDA used to retrieve GPU cores.
-    However, if certain toolchains are not correctly installed in the environment,
-    such as the Nvidia Fabric Manager being missing, calling the CUDA can cause blocking.
-    Enabling this parameter can prevent blocking events.
-    """
     GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK: bool = True
     """
     Set true to disable ECC errors check during detection,
@@ -388,12 +379,6 @@ variables: dict[str, Callable[[], Any]] = {
             "02,03,0b,12",
         ),
         sep=",",
-    ),
-    "GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL": lambda: to_bool(
-        getenv(
-            "GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL",
-            "0",
-        ),
     ),
     "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK": lambda: to_bool(
         getenv(

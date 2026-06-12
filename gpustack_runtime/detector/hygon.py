@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import Topology, pyamdgpu, pyhsa, pyrocmcore, pyrocmsmi
+from . import Topology, pyamdgpu, pyhsa, pyrocmsmi
 from .__types__ import (
     Detector,
     Device,
@@ -27,6 +27,7 @@ from .__utils__ import (
     get_utilization,
     map_numa_node_to_cpu_affinity,
 )
+from .amd import _get_arch_family
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,10 @@ class HygonDetector(Detector):
         ret: Devices = []
 
         try:
-            hsa_agents = {hsa_agent.uuid: hsa_agent for hsa_agent in pyhsa.get_agents()}
+            hsa_agents = {
+                hsa_agent.bdf or hsa_agent.uuid: hsa_agent
+                for hsa_agent in pyhsa.get_agents()
+            }
 
             pyrocmsmi.rsmi_init()
 
@@ -108,7 +112,7 @@ class HygonDetector(Detector):
                         sys_driver_ver = path.read_text().strip()
                     break
 
-            sys_runtime_ver_original = pyrocmcore.getROCmVersion()
+            sys_runtime_ver_original = pyrocmsmi.rsmi_get_rocm_version()
             sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
 
             devs_count = pyrocmsmi.rsmi_num_monitor_devices()
@@ -116,7 +120,13 @@ class HygonDetector(Detector):
                 dev_index = dev_idx
 
                 dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
-                dev_hsa_agent = hsa_agents.get(dev_uuid, pyhsa.Agent())
+
+                dev_bdf = pyrocmsmi.rsmi_dev_pci_id_get(dev_idx)
+                dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
+
+                dev_hsa_agent = (
+                    hsa_agents.get(dev_bdf) or hsa_agents.get(dev_uuid) or pyhsa.Agent()
+                )
 
                 dev_name = dev_hsa_agent.name
                 if not dev_name:
@@ -127,17 +137,20 @@ class HygonDetector(Detector):
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         dev_cc = pyrocmsmi.rsmi_dev_target_graphics_version_get(dev_idx)
 
-                dev_bdf = pyrocmsmi.rsmi_dev_pci_id_get(dev_idx)
-                dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
-
                 dev_cores = dev_hsa_agent.compute_units
-                if not dev_cores and dev_card_id is not None:
+                dev_asic_family_id = dev_hsa_agent.asic_family_id
+                if (
+                    not dev_cores or not dev_asic_family_id
+                ) and dev_card_id is not None:
                     with (
                         contextlib.suppress(pyamdgpu.AMDGPUError),
                         pyamdgpu.amdgpu_device(dev_card_id) as dev_gpudev,
                     ):
                         dev_gpudev_info = pyamdgpu.amdgpu_query_gpu_info(dev_gpudev)
-                        dev_cores = dev_gpudev_info.cu_active_number
+                        if not dev_cores:
+                            dev_cores = dev_gpudev_info.cu_active_number
+                        if not dev_asic_family_id:
+                            dev_asic_family_id = dev_gpudev_info.family_id
 
                 dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
                 dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
@@ -177,6 +190,7 @@ class HygonDetector(Detector):
                         )
 
                 dev_appendix = {
+                    "arch_family": _get_arch_family(dev_asic_family_id),
                     "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
                 }
@@ -305,8 +319,6 @@ class HygonDetector(Detector):
                                     )
                                 else:
                                     distance = TopologyDistanceEnum.SYS
-                            case pyrocmsmi.ROCMSMI_IOLINK_TYPE_XGMI:
-                                distance = TopologyDistanceEnum.LINK
                             case _:
                                 if link_hops == 0:
                                     distance = TopologyDistanceEnum.SELF
