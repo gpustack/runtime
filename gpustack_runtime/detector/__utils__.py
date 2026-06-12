@@ -13,6 +13,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from gpustack_runtime import envs
+
 
 @dataclass
 class PCIDevice:
@@ -69,7 +71,10 @@ def get_pci_devices(
         return pci_devices
 
     if not class_prefix:
-        class_prefix = ["0x02", "0x03", "0x12", "0x0b"]
+        class_prefix = []
+        for prefix in envs.GPUSTACK_RUNTIME_DETECT_PCI_CLASS_PREFIXES:
+            if prefix:
+                class_prefix.append(f"0x{prefix.lower()}")
 
     if address and isinstance(address, str):
         address = [address]

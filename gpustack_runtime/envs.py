@@ -39,6 +39,11 @@ if TYPE_CHECKING:
     Set true to disable PCI check during detection.
     Useful for WSL environments, where PCI information may not be available.
     """
+    GPUSTACK_RUNTIME_DETECT_PCI_CLASS_PREFIXES: set[str] | None = None
+    """
+    The PCI class prefixes to check during detection.
+    When `GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK` is false, the detector will check if the PCI class of the device starts with any of the given prefixes.
+    """
     GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL: bool = False
     """
     Set true to disable toolkit calls during detection.
@@ -373,6 +378,16 @@ variables: dict[str, Callable[[], Any]] = {
         lambda: getenv("GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK") is not None,
         lambda: to_bool(getenv("GPUSTACK_RUNTIME_DETECT_NO_PCI_CHECK")),
         lambda: any(x in get_os_release() for x in ("microsoft", "wsl")),
+    ),
+    "GPUSTACK_RUNTIME_DETECT_PCI_CLASS_PREFIXES": lambda: to_set(
+        getenvs(
+            [
+                "GPUSTACK_RUNTIME_DETECT_PCI_CLASS_PREFIXES",
+                "GPUSTACK_PCI_CLASS_PREFIXES",
+            ],
+            "02,03,0b,12",
+        ),
+        sep=",",
     ),
     "GPUSTACK_RUNTIME_DETECT_NO_TOOLKIT_CALL": lambda: to_bool(
         getenv(
