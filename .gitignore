@@ -3,6 +3,7 @@
 .vscode/
 .DS_Store
 *.swp
+.claude/
 
 # Python-generated files
 _version.py
