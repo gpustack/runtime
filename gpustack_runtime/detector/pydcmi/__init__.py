@@ -780,7 +780,12 @@ def dcmi_init():
 
     if _libInitialized:
         if _libInitializedException is not None:
-            raise _libInitializedException
+            # Re-raise a fresh copy: re-raising the same cached exception object
+            # appends a traceback frame on every call, and those frames retain the
+            # caller's locals, leaking memory over time. See gpustack/gpustack#5342.
+            from ..__utils__ import clone_exception
+
+            raise clone_exception(_libInitializedException) from None
         return
 
     try:

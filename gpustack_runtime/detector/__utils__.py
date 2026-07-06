@@ -16,6 +16,38 @@ from typing import Any
 from gpustack_runtime import envs
 
 
+def clone_exception(exc: BaseException) -> BaseException:
+    """
+    Build a fresh copy of an exception, without its traceback or chaining state.
+
+    The detector library wrappers cache the init failure and re-raise it on every
+    subsequent call to fail fast. Re-raising the *same* object is a memory leak:
+    CPython appends a new frame to its ``__traceback__`` on each raise, and those
+    frames retain the caller's locals indefinitely (gpustack/gpustack#5342).
+
+    Cloning via ``BaseException.__new__`` preserves the original type and
+    attributes regardless of the class's constructor signature -- some binding
+    error types take an error code and leave ``args`` empty (e.g. amdsmi's
+    ``AmdSmiLibraryException``), so ``type(exc)(*exc.args)`` cannot reconstruct them.
+
+    Args:
+        exc:
+            The exception to clone.
+
+    Returns:
+        A fresh exception of the same type, carrying the same args and attributes
+        but no traceback or ``__cause__``/``__context__`` chain.
+
+    """
+    clone = BaseException.__new__(type(exc))
+    clone.args = exc.args
+    # Copy instance state (custom attributes, and __notes__ if any live here too).
+    # Guard against exotic exception types that don't expose __dict__.
+    if hasattr(exc, "__dict__"):
+        clone.__dict__.update(exc.__dict__)
+    return clone
+
+
 @dataclass
 class PCIDevice:
     address: str
