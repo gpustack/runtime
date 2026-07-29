@@ -273,6 +273,29 @@ Name of the Kubernetes deployer.
 """
 
 
+def _pin_pod_for_kueue(
+    pod: kubernetes.client.V1Pod,
+    node_name: str | None,
+) -> None:
+    """
+    Adjust node pinning for Kueue-gated Pods in place.
+
+    Kueue-gated Pods (queue label present) cannot set spec.nodeName:
+    the API forbids nodeName until all schedulingGates have been
+    cleared. Pin via nodeSelector instead; kube-scheduler places
+    the Pod on the same node once Kueue admits it.
+    """
+    if not node_name:
+        return
+    if "kueue.x-k8s.io/queue-name" not in (pod.metadata.labels or {}):
+        return
+    pod.spec.node_name = None
+    pod.spec.node_selector = {
+        **(pod.spec.node_selector or {}),
+        "kubernetes.io/hostname": node_name,
+    }
+
+
 class KubernetesDeployer(EndoscopicDeployer):
     """
     Deployer implementation for Kubernetes.
@@ -1197,6 +1220,8 @@ class KubernetesDeployer(EndoscopicDeployer):
 
         core_api = kubernetes.client.CoreV1Api(self._client)
         try:
+            _pin_pod_for_kueue(pod, self._node_name)
+
             pod = self._mutate_create_pod(pod)
             if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
                 clogger.info(
