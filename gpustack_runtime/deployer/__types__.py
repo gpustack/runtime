@@ -1135,6 +1135,8 @@ class WorkloadStatus:
             Namespace for the workload.
         labels (dict[str, str] | None):
             Labels for the workload.
+        annotations (dict[str, str] | None):
+            Annotations for the workload.
         executable (list[WorkloadStatusOperation]):
             The operation for the executable containers of the workload.
         loggable (list[WorkloadStatusOperation]):
@@ -1160,6 +1162,10 @@ class WorkloadStatus:
     labels: dict[str, str] | None = field(default_factory=dict)
     """
     Labels for the workload.
+    """
+    annotations: dict[str, str] | None = field(default_factory=dict)
+    """
+    Annotations for the workload.
     """
     executable: list[WorkloadStatusOperation] | None = field(default_factory=list)
     """

@@ -227,12 +227,18 @@ class KubernetesWorkloadStatus(WorkloadStatus):
             for k, v in (k_pod.metadata.labels or {}).items()
             if not k.startswith("runtime.gpustack.ai/")
         }
+        annotations = {
+            k: v
+            for k, v in (k_pod.metadata.annotations or {}).items()
+            if not k.startswith("runtime.gpustack.ai/")
+        }
 
         super().__init__(
             name=name,
             created_at=created_at,
             namespace=k_pod.metadata.namespace,
             labels=labels,
+            annotations=annotations,
             **kwargs,
         )
 
