@@ -843,6 +843,8 @@ class WorkloadPlan(WorkloadSecurity):
             Name for the workload, it should be unique in the deployer.
         labels (dict[str, str] | None):
             Labels for the workload.
+        instance_type (str | None):
+            Name of the operator InstanceType the workload deploys onto.
         host_network (bool):
             Indicates if the containers of the workload use the host network.
         host_ipc (bool):
@@ -877,6 +879,13 @@ class WorkloadPlan(WorkloadSecurity):
     labels: dict[str, str] | None = None
     """
     Labels for the workload.
+    """
+    instance_type: str | None = None
+    """
+    Name of the operator InstanceType the workload deploys onto.
+    When set (and Kueue admission is not disabled), the Kubernetes deployer
+    stamps the queue-name label of the InstanceType's entrance LocalQueue
+    onto the Pod so it is admitted by Kueue.
     """
     host_network: bool = False
     """

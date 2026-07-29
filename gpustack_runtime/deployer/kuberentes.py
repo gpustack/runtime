@@ -278,6 +278,30 @@ Name of the Kubernetes deployer.
 """
 
 
+def _apply_instance_type_admission(
+    pod: kubernetes.client.V1Pod,
+    instance_type: str | None,
+) -> None:
+    """
+    Stamp the Kueue queue-name label of the InstanceType's entrance
+    LocalQueue onto the Pod, so the workload is admitted through the
+    operator's queue for that InstanceType. The LocalQueue name is the
+    FNV-1a 64 hash of the InstanceType name, mirroring the operator's
+    FormatLocalQueueName ("gpustack-fnv64-<fnv64a-hex>").
+
+    Skipped when no InstanceType is set, or when Kueue admission is
+    disabled via GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION —
+    then the Pod is scheduled by the plain Kubernetes scheduler.
+    """
+    if not instance_type:
+        return
+    if envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION:
+        return
+    pod.metadata.labels["kueue.x-k8s.io/queue-name"] = (
+        f"gpustack-fnv64-{fnv1a_64_hex(instance_type)}"
+    )
+
+
 def _pin_pod_for_kueue(
     pod: kubernetes.client.V1Pod,
     node_name: str | None,
@@ -1091,11 +1115,6 @@ class KubernetesDeployer(EndoscopicDeployer):
                             if kdp:
                                 # Request quantity of devices as resources for KDP to schedule on the correct nodes.
                                 resources.update(r_vs)
-                                # Request quantity of devices with Kueue admission.
-                                if not envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION:
-                                    pod.metadata.labels["kueue.x-k8s.io/queue-name"] = (
-                                        self._find_kueue_queue_name(ren)
-                                    )
                                 continue
                             # Request device via visible devices env.
                             container.env.append(
@@ -1119,11 +1138,6 @@ class KubernetesDeployer(EndoscopicDeployer):
                                 ] = ",".join(resource_values)
                                 # Request quantity of devices as resources for KDP to schedule on the correct nodes.
                                 resources.update(r_vs)
-                                # Request quantity of devices with Kueue admission.
-                                if not envs.GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION:
-                                    pod.metadata.labels["kueue.x-k8s.io/queue-name"] = (
-                                        self._find_kueue_queue_name(ren)
-                                    )
                                 continue
 
                             # Request all devices if privileged,
@@ -1225,6 +1239,7 @@ class KubernetesDeployer(EndoscopicDeployer):
 
         core_api = kubernetes.client.CoreV1Api(self._client)
         try:
+            _apply_instance_type_admission(pod, workload.instance_type)
             _pin_pod_for_kueue(pod, self._node_name)
 
             pod = self._mutate_create_pod(pod)
@@ -1582,31 +1597,6 @@ class KubernetesDeployer(EndoscopicDeployer):
             name=self_pod_name,
             namespace=self_pod_namespace,
         )
-
-    def _find_kueue_queue_name(self, runtime_env: str) -> str:
-        manu = self.get_manufacturer(runtime_env)
-        core_api = kubernetes.client.CoreV1Api(self._client)
-        try:
-            # Iterate the labels of node to find the key as below:
-            # "feature.gpustack.ai/${manu}-${device-group-id}.profile-queue: <profile>",
-            # then combine the manufacturer, device group id and profile to get the queue name for Kueue admission.
-            #
-            # For example, for `feature.gpustack.ai/nvidia-tesla-t4.profile-queue: 12c-46g-1d`,
-            # the node key is `nvidia-tesla-t4`,
-            # the queue name is `gpustack-nvidia-tesla-t4-12c-46g-1d`.
-            node = core_api.read_node(name=self._node_name)
-            prefix = "feature.gpustack.ai/"
-            suffix = ".profile-queue"
-            for k, v in node.metadata.labels.items():
-                if k.startswith(f"{prefix}{manu}-") and k.endswith(suffix):
-                    node_key = k[len(prefix) : -len(suffix)]
-                    return f"gpustack-{node_key}-{v}"
-        except kubernetes.client.exceptions.ApiException as e:
-            msg = f"Failed to get Kueue queue name on node {self._node_name} for runtime environment {runtime_env}{_detail_api_call_error(e)}"
-            raise OperationError(msg) from e
-
-        msg = f"Failed to find Kueue queue name on node {self._node_name} for runtime environment {runtime_env}"
-        raise OperationError(msg)
 
     @_supported
     def _create(self, workload: WorkloadPlan):

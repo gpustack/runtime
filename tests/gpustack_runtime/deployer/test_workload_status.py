@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import kubernetes.client
 
+from gpustack_runtime import envs
 from gpustack_runtime.deployer.__types__ import WorkloadStatus
 from gpustack_runtime.deployer.kuberentes import (
     KubernetesWorkloadStatus,
@@ -115,3 +116,40 @@ def test_kubernetes_workload_status_state_message():
 def test_kubernetes_workload_status_state_message_default():
     status = KubernetesWorkloadStatus(name="test", k_pod=_pod())
     assert status.state_message == ""
+
+
+from gpustack_runtime.deployer.kuberentes import (  # noqa: E402
+    _apply_instance_type_admission,
+)
+
+
+def test_apply_instance_type_admission_stamps_entrance_queue():
+    pod = _pinning_pod()
+    _apply_instance_type_admission(
+        pod,
+        "gpustack--nvidia-geforce-rtx-4090-linux-amd64",
+    )
+    # Vector observed on a live operator cluster.
+    assert (
+        pod.metadata.labels["kueue.x-k8s.io/queue-name"]
+        == "gpustack-fnv64-1a7145d0a5248d55"
+    )
+
+
+def test_apply_instance_type_admission_skipped_without_instance_type():
+    pod = _pinning_pod()
+    _apply_instance_type_admission(pod, None)
+    assert "kueue.x-k8s.io/queue-name" not in pod.metadata.labels
+
+
+def test_apply_instance_type_admission_disabled_by_env(monkeypatch):
+    monkeypatch.setenv("GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION", "true")
+
+    monkeypatch.setattr(
+        envs,
+        "GPUSTACK_RUNTIME_KUBERNETES_KDP_NO_KUEUE_ADMISSION",
+        True,
+    )
+    pod = _pinning_pod()
+    _apply_instance_type_admission(pod, "some-type")
+    assert "kueue.x-k8s.io/queue-name" not in pod.metadata.labels
