@@ -265,6 +265,11 @@ class KubernetesWorkloadStatus(WorkloadStatus):
             self.loggable.append(op)
 
         self.state = self.parse_state(k_pod)
+        if k_pod.status.message:
+            # Surface the Pod's status message, e.g. a device-plugin
+            # admission rejection ("UnexpectedAdmissionError: Allocate
+            # failed ...") on Failed Pods.
+            self.state_message = k_pod.status.message
 
 
 _NAME = "kubernetes"

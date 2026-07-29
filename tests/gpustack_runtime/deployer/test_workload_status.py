@@ -100,3 +100,18 @@ def test_pin_pod_for_kueue_noop_without_node_name():
     pod = _pinning_pod(labels={"kueue.x-k8s.io/queue-name": "q"})
     _pin_pod_for_kueue(pod, None)
     assert pod.spec.node_name == "node-a"
+
+
+def test_kubernetes_workload_status_state_message():
+    pod = _pod()
+    pod.status = kubernetes.client.V1PodStatus(
+        phase="Failed",
+        message="Allocate failed due to no enough GPU devices",
+    )
+    status = KubernetesWorkloadStatus(name="test", k_pod=pod)
+    assert status.state_message == "Allocate failed due to no enough GPU devices"
+
+
+def test_kubernetes_workload_status_state_message_default():
+    status = KubernetesWorkloadStatus(name="test", k_pod=_pod())
+    assert status.state_message == ""

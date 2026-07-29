@@ -1137,6 +1137,8 @@ class WorkloadStatus:
             Labels for the workload.
         annotations (dict[str, str] | None):
             Annotations for the workload.
+        state_message (str):
+            Message accompanying the current state.
         executable (list[WorkloadStatusOperation]):
             The operation for the executable containers of the workload.
         loggable (list[WorkloadStatusOperation]):
@@ -1166,6 +1168,11 @@ class WorkloadStatus:
     annotations: dict[str, str] | None = field(default_factory=dict)
     """
     Annotations for the workload.
+    """
+    state_message: str = ""
+    """
+    Message accompanying the current state, e.g. the Kubernetes Pod's
+    status message on failure (such as a device-plugin admission rejection).
     """
     executable: list[WorkloadStatusOperation] | None = field(default_factory=list)
     """
