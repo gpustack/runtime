@@ -3,12 +3,10 @@ from __future__ import annotations as __future_annotations__
 import contextlib
 import logging
 import math
-import re
 import threading
 import time
 from _ctypes import byref
 from functools import lru_cache
-from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
@@ -76,7 +74,7 @@ class NVIDIADetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.NVIDIA)
 
-    def detect(self) -> Devices | None:  # noqa: PLR0915
+    def detect(self) -> Devices | None:
         """
         Detect NVIDIA GPUs using pynvml.
 
@@ -160,9 +158,13 @@ class NVIDIADetector(Detector):
                     with contextlib.suppress(pynvml.NVMLError):
                         dev_index = pynvml.nvmlDeviceGetMinorNumber(dev)
 
-                # With MIG disabled, treat as a single device.
+                # Report the physical card, whether or not MIG is enabled.
+                # MIG instances are partitioned on demand by the operator's
+                # device-manager; they are not separate allocatable devices
+                # in this inventory. A MIG-enabled card is marked ``mig``
+                # in the appendix instead.
 
-                if dev_mig_mode == pynvml.NVML_DEVICE_MIG_DISABLE:
+                if True:
                     dev_name = pynvml.nvmlDeviceGetName(dev)
 
                     dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
@@ -214,6 +216,7 @@ class NVIDIADetector(Detector):
                     dev_appendix = {
                         "arch_family": _get_arch_family(dev_cc_t),
                         "vgpu": dev_is_vgpu,
+                        "mig": dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE,
                         "bdf": dev_bdf,
                     }
                     if dev_numa:
@@ -247,203 +250,6 @@ class NVIDIADetector(Detector):
 
                     continue
 
-                # Otherwise, get MIG devices,
-                # inspired by https://github.com/NVIDIA/go-nvlib/blob/fdfe25d0ffc9d7a8c166f4639ef236da81116262/pkg/nvlib/device/mig_device.go#L61-L154.
-
-                dev_mig_minors = _get_mig_minors()
-
-                mdev_name = ""
-                mdev_cores = None
-                mdevs_before = len(ret)
-                mdev_count = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
-                for mdev_idx in range(mdev_count):
-                    mdev = None
-                    with contextlib.suppress(pynvml.NVMLError):
-                        mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
-                    if not mdev:
-                        continue
-
-                    mdev_index = mdev_idx + dev_count * (dev_idx + 1)
-                    mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
-
-                    mdev_mem = 0
-                    mdev_mem_used = 0
-                    mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                    with contextlib.suppress(pynvml.NVMLError):
-                        mdev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(mdev)
-                        mdev_mem = byte_to_mebibyte(  # byte to MiB
-                            mdev_mem_info.total,
-                        )
-                        mdev_mem_used = byte_to_mebibyte(  # byte to MiB
-                            mdev_mem_info.used,
-                        )
-                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                            mdev_mem_ecc_errors = (
-                                pynvml.nvmlDeviceGetMemoryErrorCounter(
-                                    mdev,
-                                    pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                                    pynvml.NVML_AGGREGATE_ECC,
-                                    pynvml.NVML_MEMORY_LOCATION_SRAM,
-                                )
-                            )
-                            if mdev_mem_ecc_errors > 0:
-                                mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
-
-                    mdev_appendix = {
-                        "arch_family": _get_arch_family(dev_cc_t),
-                        "vgpu": True,
-                        "sliced": True,
-                        "bdf": dev_bdf,
-                    }
-                    if dev_numa:
-                        mdev_appendix["numa"] = dev_numa
-
-                    mdev_gi_id = pynvml.nvmlDeviceGetGpuInstanceId(mdev)
-                    mdev_appendix["gpu_instance_id"] = mdev_gi_id
-                    mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
-                    mdev_appendix["compute_instance_id"] = mdev_ci_id
-                    if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                        mdev_appendix["gpu_instance_index"] = dev_mig_minors.get(
-                            (dev_index, mdev_gi_id, None),
-                        )
-                        mdev_appendix["compute_instance_index"] = dev_mig_minors.get(
-                            (dev_index, mdev_gi_id, mdev_ci_id),
-                        )
-
-                    mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
-
-                    mdev_gi = pynvml.nvmlDeviceGetGpuInstanceById(dev, mdev_gi_id)
-                    mdev_ci = pynvml.nvmlGpuInstanceGetComputeInstanceById(
-                        mdev_gi,
-                        mdev_ci_id,
-                    )
-                    mdev_gi_info = pynvml.nvmlGpuInstanceGetInfo(mdev_gi)
-                    mdev_ci_info = pynvml.nvmlComputeInstanceGetInfo(mdev_ci)
-                    for dev_gi_prf_id in range(
-                        pynvml.NVML_GPU_INSTANCE_PROFILE_COUNT,
-                    ):
-                        try:
-                            dev_gi_prf = pynvml.nvmlDeviceGetGpuInstanceProfileInfo(
-                                dev,
-                                dev_gi_prf_id,
-                            )
-                            if dev_gi_prf.id != mdev_gi_info.profileId:
-                                continue
-                        except pynvml.NVMLError:
-                            continue
-
-                        for dev_ci_prf_id in range(
-                            pynvml.NVML_COMPUTE_INSTANCE_PROFILE_COUNT,
-                        ):
-                            for dev_cig_prf_id in range(
-                                pynvml.NVML_COMPUTE_INSTANCE_ENGINE_PROFILE_COUNT,
-                            ):
-                                try:
-                                    dev_ci_prf = pynvml.nvmlGpuInstanceGetComputeInstanceProfileInfo(
-                                        mdev_gi,
-                                        dev_ci_prf_id,
-                                        dev_cig_prf_id,
-                                    )
-                                    if dev_ci_prf.id != mdev_ci_info.profileId:
-                                        continue
-                                except pynvml.NVMLError:
-                                    continue
-
-                                ci_slice = _get_compute_instance_slice(dev_ci_prf_id)
-                                gi_slice = _get_gpu_instance_slice(dev_gi_prf_id)
-                                if ci_slice == gi_slice:
-                                    if hasattr(dev_gi_prf, "name"):
-                                        mdev_name = dev_gi_prf.name
-                                    else:
-                                        gi_mem = round(
-                                            math.ceil(dev_gi_prf.memorySizeMB >> 10),
-                                        )
-                                        mdev_name = f"{gi_slice}g.{gi_mem}gb"
-                                elif hasattr(dev_ci_prf, "name"):
-                                    mdev_name = dev_ci_prf.name
-                                else:
-                                    gi_mem = round(
-                                        math.ceil(dev_gi_prf.memorySizeMB >> 10),
-                                    )
-                                    mdev_name = f"{ci_slice}c.{gi_slice}g.{gi_mem}gb"
-                                gi_attrs = _get_gpu_instance_attrs(dev_gi_prf_id)
-                                if gi_attrs:
-                                    mdev_name += f"+{gi_attrs}"
-                                gi_neg_attrs = _get_gpu_instance_negattrs(dev_gi_prf_id)
-                                if gi_neg_attrs:
-                                    mdev_name += f"-{gi_neg_attrs}"
-
-                                mdev_cores = dev_ci_prf.multiprocessorCount
-
-                                break
-
-                    ret.append(
-                        Device(
-                            manufacturer=self.manufacturer,
-                            index=mdev_index,
-                            name=mdev_name,
-                            uuid=mdev_uuid,
-                            driver_version=sys_driver_ver,
-                            runtime_version=sys_runtime_ver,
-                            runtime_version_original=sys_runtime_ver_original,
-                            compute_capability=dev_cc,
-                            cores=mdev_cores,
-                            cores_utilization=mdev_cores_util,
-                            memory=mdev_mem,
-                            memory_used=mdev_mem_used,
-                            memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
-                            memory_status=mdev_mem_status,
-                            temperature=dev_temp,
-                            power=dev_power,
-                            power_used=dev_power_used,
-                            appendix=mdev_appendix,
-                        ),
-                    )
-
-                if len(ret) == mdevs_before:
-                    # MIG is enabled but no GPU instances exist yet (an
-                    # operator/device-manager typically partitions the card
-                    # on demand). Report the physical card anyway so the
-                    # worker inventory keeps it visible for vendor/backend
-                    # matching; mark it MIG-managed so it is not mistaken
-                    # for a whole-card allocatable device.
-                    dev_name = pynvml.nvmlDeviceGetName(dev)
-                    dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
-                    dev_mem = 0
-                    dev_mem_used = 0
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
-                        dev_mem = byte_to_mebibyte(dev_mem_info.total)
-                        dev_mem_used = byte_to_mebibyte(dev_mem_info.used)
-                    dev_cores = None
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
-                    ret.append(
-                        Device(
-                            manufacturer=self.manufacturer,
-                            index=dev_index,
-                            name=dev_name,
-                            uuid=dev_uuid,
-                            driver_version=sys_driver_ver,
-                            runtime_version=sys_runtime_ver,
-                            runtime_version_original=sys_runtime_ver_original,
-                            compute_capability=dev_cc,
-                            cores=dev_cores,
-                            cores_utilization=0,
-                            memory=dev_mem,
-                            memory_used=dev_mem_used,
-                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
-                            temperature=dev_temp,
-                            power=dev_power,
-                            power_used=dev_power_used,
-                            appendix={
-                                "arch_family": _get_arch_family(dev_cc_t),
-                                "vgpu": False,
-                                "mig": True,
-                                "bdf": dev_bdf,
-                            },
-                        ),
-                    )
         except pynvml.NVMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
@@ -792,141 +598,6 @@ def _get_arch_family(dev_cc_t: list[int]) -> str:
     return "Unknown"
 
 
-def _get_gpu_instance_slice(dev_gi_prf_id: int) -> int:
-    """
-    Get the number of slice for a given GPU Instance Profile ID.
-
-    Args:
-        dev_gi_prf_id:
-            The GPU Instance Profile ID.
-
-    Returns:
-        The number of slices.
-
-    """
-    match dev_gi_prf_id:
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_REV1
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_REV2
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_GFX
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_NO_ME
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME
-        ):
-            return 1
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_REV1
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_GFX
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_NO_ME
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME
-        ):
-            return 2
-        case pynvml.NVML_GPU_INSTANCE_PROFILE_3_SLICE:
-            return 3
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_4_SLICE
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_4_SLICE_GFX
-        ):
-            return 4
-        case pynvml.NVML_GPU_INSTANCE_PROFILE_6_SLICE:
-            return 6
-        case pynvml.NVML_GPU_INSTANCE_PROFILE_7_SLICE:
-            return 7
-        case pynvml.NVML_GPU_INSTANCE_PROFILE_8_SLICE:
-            return 8
-
-    msg = f"Invalid GPU Instance Profile ID: {dev_gi_prf_id}"
-    raise AttributeError(msg)
-
-
-def _get_compute_instance_slice(dev_ci_prf_id: int) -> int:
-    """
-    Get the number of slice for a given Compute Instance Profile ID.
-
-    Args:
-        dev_ci_prf_id:
-            The Compute Instance Profile ID.
-
-    Returns:
-        The number of slices.
-
-    """
-    match dev_ci_prf_id:
-        case (
-            pynvml.NVML_COMPUTE_INSTANCE_PROFILE_1_SLICE
-            | pynvml.NVML_COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1
-        ):
-            return 1
-        case pynvml.NVML_COMPUTE_INSTANCE_PROFILE_2_SLICE:
-            return 2
-        case pynvml.NVML_COMPUTE_INSTANCE_PROFILE_3_SLICE:
-            return 3
-        case pynvml.NVML_COMPUTE_INSTANCE_PROFILE_4_SLICE:
-            return 4
-        case pynvml.NVML_COMPUTE_INSTANCE_PROFILE_6_SLICE:
-            return 6
-        case pynvml.NVML_COMPUTE_INSTANCE_PROFILE_7_SLICE:
-            return 7
-        case pynvml.NVML_COMPUTE_INSTANCE_PROFILE_8_SLICE:
-            return 8
-
-    msg = f"Invalid Compute Instance Profile ID: {dev_ci_prf_id}"
-    raise AttributeError(msg)
-
-
-def _get_gpu_instance_attrs(dev_gi_prf_id: int) -> str:
-    """
-    Get attributes for a given GPU Instance Profile ID.
-
-    Args:
-        dev_gi_prf_id:
-            The GPU Instance Profile ID.
-
-    Returns:
-        A string representing the attributes, or an empty string if none.
-
-    """
-    match dev_gi_prf_id:
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_REV1
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_REV1
-        ):
-            return "me"
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME
-        ):
-            return "me.all"
-        case (
-            pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_GFX
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_GFX
-            | pynvml.NVML_GPU_INSTANCE_PROFILE_4_SLICE_GFX
-        ):
-            return "gfx"
-    return ""
-
-
-def _get_gpu_instance_negattrs(dev_gi_prf_id) -> str:
-    """
-    Get negative attributes for a given GPU Instance Profile ID.
-
-    Args:
-        dev_gi_prf_id:
-            The GPU Instance Profile ID.
-
-    Returns:
-        A string representing the negative attributes, or an empty string if none.
-
-    """
-    if dev_gi_prf_id in [
-        pynvml.NVML_GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
-        pynvml.NVML_GPU_INSTANCE_PROFILE_2_SLICE_NO_ME,
-    ]:
-        return "me"
-    return ""
-
-
 def _is_vgpu(dev_config: bytes) -> bool:
     """
     Determine if the device is a vGPU based on its PCI configuration space.
@@ -960,46 +631,3 @@ def _is_vgpu(dev_config: bytes) -> bool:
     # Check for vGPU signature,
     # which is either 0x56 (NVIDIA vGPU) or 0x46 (NVIDIA GRID).
     return dev_cap[3] == 0x56 or dev_cap[4] == 0x46
-
-
-def _get_mig_minors() -> dict[tuple, int] | None:
-    """
-    Get the minor mapping for MIG capability devices.
-
-    Returns:
-        A dict mapping (gpu_id, gi_id, ci_id) to minor number,
-        or None if not supported.
-
-    """
-    mig_minors_path = Path("/proc/driver/nvidia-caps/mig-minors")
-    if not mig_minors_path.exists():
-        return None
-
-    ret = {}
-    for _line in mig_minors_path.read_text(encoding="utf-8").splitlines():
-        line = _line.strip()
-        if not line:
-            continue
-
-        # Scan lines like:
-        # gpu%d/gi%d/ci%d/access %d
-        m = re.match(r"gpu(\d+)/gi(\d+)/ci(\d+)/access (\d+)", line)
-        if m:
-            gpu_id = int(m.group(1))
-            gi_id = int(m.group(2))
-            ci_id = int(m.group(3))
-            minor = int(m.group(4))
-            ret[(gpu_id, gi_id, ci_id)] = minor
-            continue
-
-        # Scan lines like:
-        # gpu%d/gi%d/access %d
-        m = re.match(r"gpu(\d+)/gi(\d+)/access (\d+)", line)
-        if m:
-            gpu_id = int(m.group(1))
-            gi_id = int(m.group(2))
-            minor = int(m.group(3))
-            ret[(gpu_id, gi_id, None)] = minor
-            continue
-
-    return ret
