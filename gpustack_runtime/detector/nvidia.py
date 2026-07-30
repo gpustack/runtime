@@ -164,92 +164,88 @@ class NVIDIADetector(Detector):
                 # in this inventory. A MIG-enabled card is marked ``mig``
                 # in the appendix instead.
 
-                if True:
-                    dev_name = pynvml.nvmlDeviceGetName(dev)
+                dev_name = pynvml.nvmlDeviceGetName(dev)
 
-                    dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+                dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
 
-                    dev_cores = None
+                dev_cores = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
+
+                dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
+                if dev_cores_util is None:
                     with contextlib.suppress(pynvml.NVMLError):
-                        dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
-
-                    dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
-                    if dev_cores_util is None:
-                        with contextlib.suppress(pynvml.NVMLError):
-                            dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
-                            dev_cores_util = dev_util_rates.gpu
-                    if dev_cores_util is None:
-                        debug_log_warning(
-                            logger,
-                            "Failed to get device %d cores utilization, setting to 0",
-                            dev_index,
-                        )
-                        dev_cores_util = 0
-
-                    dev_mem = 0
-                    dev_mem_used = 0
-                    dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
-                        dev_mem = byte_to_mebibyte(  # byte to MiB
-                            dev_mem_info.total,
-                        )
-                        dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                            dev_mem_info.used,
-                        )
-                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                            dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
-                                dev,
-                                pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                                pynvml.NVML_VOLATILE_ECC,
-                                pynvml.NVML_MEMORY_LOCATION_DRAM,
-                            )
-                            if dev_mem_ecc_errors > 0:
-                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
-                    if dev_mem == 0:
-                        dev_mem, dev_mem_used = get_memory()
-
-                    dev_is_vgpu = False
-                    if dev_bdf in pci_devs:
-                        dev_is_vgpu = _is_vgpu(pci_devs[dev_bdf].config)
-
-                    dev_appendix = {
-                        "arch_family": _get_arch_family(dev_cc_t),
-                        "vgpu": dev_is_vgpu,
-                        "mig": dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE,
-                        "bdf": dev_bdf,
-                    }
-                    if dev_numa:
-                        dev_appendix["numa"] = dev_numa
-
-                    if dev_fabric_info := _get_fabric_info(dev):
-                        dev_appendix.update(dev_fabric_info)
-
-                    ret.append(
-                        Device(
-                            manufacturer=self.manufacturer,
-                            index=dev_index,
-                            name=dev_name,
-                            uuid=dev_uuid,
-                            driver_version=sys_driver_ver,
-                            runtime_version=sys_runtime_ver,
-                            runtime_version_original=sys_runtime_ver_original,
-                            compute_capability=dev_cc,
-                            cores=dev_cores,
-                            cores_utilization=dev_cores_util,
-                            memory=dev_mem,
-                            memory_used=dev_mem_used,
-                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
-                            memory_status=dev_mem_status,
-                            temperature=dev_temp,
-                            power=dev_power,
-                            power_used=dev_power_used,
-                            appendix=dev_appendix,
-                        ),
+                        dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
+                        dev_cores_util = dev_util_rates.gpu
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
                     )
+                    dev_cores_util = 0
 
-                    continue
+                dev_mem = 0
+                dev_mem_used = 0
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
+                    dev_mem = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.total,
+                    )
+                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.used,
+                    )
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                        dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
+                            dev,
+                            pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                            pynvml.NVML_VOLATILE_ECC,
+                            pynvml.NVML_MEMORY_LOCATION_DRAM,
+                        )
+                        if dev_mem_ecc_errors > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                if dev_mem == 0:
+                    dev_mem, dev_mem_used = get_memory()
 
+                dev_is_vgpu = False
+                if dev_bdf in pci_devs:
+                    dev_is_vgpu = _is_vgpu(pci_devs[dev_bdf].config)
+
+                dev_appendix = {
+                    "arch_family": _get_arch_family(dev_cc_t),
+                    "vgpu": dev_is_vgpu,
+                    "mig": dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE,
+                    "bdf": dev_bdf,
+                }
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
+
+                if dev_fabric_info := _get_fabric_info(dev):
+                    dev_appendix.update(dev_fabric_info)
+
+                ret.append(
+                    Device(
+                        manufacturer=self.manufacturer,
+                        index=dev_index,
+                        name=dev_name,
+                        uuid=dev_uuid,
+                        driver_version=sys_driver_ver,
+                        runtime_version=sys_runtime_ver,
+                        runtime_version_original=sys_runtime_ver_original,
+                        compute_capability=dev_cc,
+                        cores=dev_cores,
+                        cores_utilization=dev_cores_util,
+                        memory=dev_mem,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power=dev_power,
+                        power_used=dev_power_used,
+                        appendix=dev_appendix,
+                    ),
+                )
         except pynvml.NVMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
