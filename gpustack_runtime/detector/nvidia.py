@@ -218,6 +218,22 @@ class NVIDIADetector(Detector):
                     "mig": dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE,
                     "bdf": dev_bdf,
                 }
+                if dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE:
+                    dev_appendix["mig_devices"] = _get_mig_devices(
+                        dev,
+                        dev_idx,
+                        dev_count,
+                        dev_cc_t,
+                        sys_driver_ver,
+                        sys_runtime_ver,
+                        sys_runtime_ver_original,
+                        dev_cc,
+                        dev_temp,
+                        dev_power,
+                        dev_power_used,
+                        dev_bdf,
+                        dev_numa,
+                    )
                 if dev_numa:
                     dev_appendix["numa"] = dev_numa
 
@@ -556,6 +572,148 @@ def _get_links_state(
         "links_state": dev_links_state,
         "links_active_count": dev_links_active_count,
     }
+
+
+def _get_mig_devices(
+    dev,
+    dev_idx: int,
+    dev_count: int,
+    dev_cc_t,
+    sys_driver_ver,
+    sys_runtime_ver,
+    sys_runtime_ver_original,
+    dev_cc,
+    dev_temp,
+    dev_power,
+    dev_power_used,
+    dev_bdf: str,
+    dev_numa,
+) -> list[dict]:
+    """
+    Enumerate the card's current MIG devices with the same detail a plain
+    device carries (profile name, uuid, compute/memory utilization, memory
+    health, temperature and power), returned as appendix entries of the
+    physical card rather than standalone devices. Empty when MIG is enabled
+    but no GPU instances exist yet.
+    """
+    ret: list[dict] = []
+    with contextlib.suppress(pynvml.NVMLError):
+        for mdev_idx in range(pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)):
+            mdev = None
+            with contextlib.suppress(pynvml.NVMLError):
+                mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+            if not mdev:
+                continue
+
+            mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
+
+            mdev_mem = 0
+            mdev_mem_used = 0
+            mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+            with contextlib.suppress(pynvml.NVMLError):
+                mdev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(mdev)
+                mdev_mem = byte_to_mebibyte(mdev_mem_info.total)
+                mdev_mem_used = byte_to_mebibyte(mdev_mem_info.used)
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                    mdev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
+                        mdev,
+                        pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                        pynvml.NVML_AGGREGATE_ECC,
+                        pynvml.NVML_MEMORY_LOCATION_SRAM,
+                    )
+                    if mdev_mem_ecc_errors > 0:
+                        mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+
+            mdev_appendix = {
+                "arch_family": _get_arch_family(dev_cc_t),
+                "vgpu": True,
+                "sliced": True,
+                "mig": True,
+                "bdf": dev_bdf,
+            }
+            if dev_numa:
+                mdev_appendix["numa"] = dev_numa
+
+            mdev_gi_id = pynvml.nvmlDeviceGetGpuInstanceId(mdev)
+            mdev_appendix["gpu_instance_id"] = mdev_gi_id
+            mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
+            mdev_appendix["compute_instance_id"] = mdev_ci_id
+
+            mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
+
+            mdev_name = ""
+            mdev_cores = None
+            mdev_gi = pynvml.nvmlDeviceGetGpuInstanceById(dev, mdev_gi_id)
+            mdev_ci = pynvml.nvmlGpuInstanceGetComputeInstanceById(
+                mdev_gi,
+                mdev_ci_id,
+            )
+            mdev_gi_info = pynvml.nvmlGpuInstanceGetInfo(mdev_gi)
+            mdev_ci_info = pynvml.nvmlComputeInstanceGetInfo(mdev_ci)
+            for dev_gi_prf_id in range(pynvml.NVML_GPU_INSTANCE_PROFILE_COUNT):
+                try:
+                    dev_gi_prf = pynvml.nvmlDeviceGetGpuInstanceProfileInfo(
+                        dev,
+                        dev_gi_prf_id,
+                    )
+                    if dev_gi_prf.id != mdev_gi_info.profileId:
+                        continue
+                except pynvml.NVMLError:
+                    continue
+
+                gi_mem = round(math.ceil(dev_gi_prf.memorySizeMB >> 10))
+                gi_prf_name = getattr(dev_gi_prf, "name", None)
+                mdev_name = (
+                    gi_prf_name.removeprefix("MIG ")
+                    if gi_prf_name
+                    else f"{dev_gi_prf.sliceCount}g.{gi_mem}gb"
+                )
+
+                for dev_ci_prf_id in range(
+                    pynvml.NVML_COMPUTE_INSTANCE_PROFILE_COUNT,
+                ):
+                    for dev_cig_prf_id in range(
+                        pynvml.NVML_COMPUTE_INSTANCE_ENGINE_PROFILE_COUNT,
+                    ):
+                        try:
+                            mdev_ci_prf = (
+                                pynvml.nvmlGpuInstanceGetComputeInstanceProfileInfo(
+                                    mdev_gi,
+                                    dev_ci_prf_id,
+                                    dev_cig_prf_id,
+                                )
+                            )
+                            if mdev_ci_prf.id != mdev_ci_info.profileId:
+                                continue
+                        except pynvml.NVMLError:
+                            continue
+                        mdev_cores = mdev_ci_prf.multiprocessorCount
+                        break
+
+                break
+
+            ret.append(
+                {
+                    "index": mdev_idx + dev_count * (dev_idx + 1),
+                    "name": mdev_name,
+                    "uuid": mdev_uuid,
+                    "driver_version": sys_driver_ver,
+                    "runtime_version": sys_runtime_ver,
+                    "runtime_version_original": sys_runtime_ver_original,
+                    "compute_capability": dev_cc,
+                    "cores": mdev_cores,
+                    "cores_utilization": mdev_cores_util,
+                    "memory": mdev_mem,
+                    "memory_used": mdev_mem_used,
+                    "memory_utilization": get_utilization(mdev_mem_used, mdev_mem),
+                    "memory_status": mdev_mem_status,
+                    "temperature": dev_temp,
+                    "power": dev_power,
+                    "power_used": dev_power_used,
+                    "appendix": mdev_appendix,
+                },
+            )
+    return ret
 
 
 def _get_arch_family(dev_cc_t: list[int]) -> str:

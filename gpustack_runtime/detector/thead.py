@@ -162,220 +162,104 @@ class THeadDetector(Detector):
 
                 dev_index = dev_idx
 
-                # With MIG disabled, treat as a single device.
+                # Report the physical card, whether or not MIG is enabled.
+                # MIG instances are partitioned on demand by the operator's
+                # device-manager; they are not separate allocatable devices
+                # in this inventory. A MIG-enabled card is marked ``mig``
+                # in the appendix instead.
 
-                if dev_mig_mode == pyhgml.HGML_DEVICE_MIG_DISABLE:
-                    dev_name = pyhgml.hgmlDeviceGetName(dev)
+                dev_name = pyhgml.hgmlDeviceGetName(dev)
 
-                    dev_uuid = pyhgml.hgmlDeviceGetUUID(dev)
+                dev_uuid = pyhgml.hgmlDeviceGetUUID(dev)
 
-                    dev_cores = None
-                    with contextlib.suppress(pyhgml.HGMLError):
-                        dev_cores = pyhgml.hgmlDeviceGetNumGpuCores(dev)
+                dev_cores = None
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_cores = pyhgml.hgmlDeviceGetNumGpuCores(dev)
 
-                    dev_cores_util = None
-                    with contextlib.suppress(pyhgml.HGMLError):
-                        dev_util_rates = pyhgml.hgmlDeviceGetUtilizationRates(dev)
-                        dev_cores_util = dev_util_rates.gpu
-                    if dev_cores_util is None:
-                        debug_log_warning(
-                            logger,
-                            "Failed to get device %d cores utilization, setting to 0",
-                            dev_index,
-                        )
-                        dev_cores_util = 0
-
-                    dev_mem = 0
-                    dev_mem_used = 0
-                    dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                    with contextlib.suppress(pyhgml.HGMLError):
-                        dev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(dev)
-                        dev_mem = byte_to_mebibyte(  # byte to MiB
-                            dev_mem_info.total,
-                        )
-                        dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                            dev_mem_info.used,
-                        )
-                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                            dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
-                                dev,
-                                pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                                pyhgml.HGML_VOLATILE_ECC,
-                                pyhgml.HGML_MEMORY_LOCATION_DRAM,
-                            )
-                            if dev_mem_ecc_errors > 0:
-                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
-
-                    dev_is_vgpu = False
-                    if dev_bdf:
-                        dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
-
-                    dev_appendix = {
-                        "vgpu": dev_is_vgpu,
-                        "bdf": dev_bdf,
-                    }
-                    if dev_numa:
-                        dev_appendix["numa"] = dev_numa
-
-                    ret.append(
-                        Device(
-                            manufacturer=self.manufacturer,
-                            index=dev_index,
-                            name=dev_name,
-                            uuid=dev_uuid,
-                            driver_version=sys_driver_ver,
-                            runtime_version=sys_runtime_ver,
-                            runtime_version_original=sys_runtime_ver_original,
-                            compute_capability=dev_cc,
-                            cores=dev_cores,
-                            cores_utilization=dev_cores_util,
-                            memory=dev_mem,
-                            memory_used=dev_mem_used,
-                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
-                            memory_status=dev_mem_status,
-                            temperature=dev_temp,
-                            power=dev_power,
-                            power_used=dev_power_used,
-                            appendix=dev_appendix,
-                        ),
+                dev_cores_util = None
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_util_rates = pyhgml.hgmlDeviceGetUtilizationRates(dev)
+                    dev_cores_util = dev_util_rates.gpu
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
                     )
+                    dev_cores_util = 0
 
-                    continue
-
-                # Otherwise, get MIG devices.
-
-                mdev_name = ""
-                mdev_cores = None
-                mdev_count = pyhgml.hgmlDeviceGetMaxMigDeviceCount(dev)
-                for mdev_idx in range(mdev_count):
-                    mdev = None
-                    with contextlib.suppress(pyhgml.HGMLError):
-                        mdev = pyhgml.hgmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
-                    if not mdev:
-                        continue
-
-                    mdev_index = mdev_idx + dev_count * (dev_idx + 1)
-                    mdev_uuid = pyhgml.hgmlDeviceGetUUID(mdev)
-
-                    mdev_mem = 0
-                    mdev_mem_used = 0
-                    mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                    with contextlib.suppress(pyhgml.HGMLError):
-                        mdev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(mdev)
-                        mdev_mem = byte_to_mebibyte(  # byte to MiB
-                            mdev_mem_info.total,
-                        )
-                        mdev_mem_used = byte_to_mebibyte(  # byte to MiB
-                            mdev_mem_info.used,
-                        )
-                        if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                            mdev_mem_ecc_errors = (
-                                pyhgml.hgmlDeviceGetMemoryErrorCounter(
-                                    mdev,
-                                    pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                                    pyhgml.HGML_AGGREGATE_ECC,
-                                    pyhgml.HGML_MEMORY_LOCATION_SRAM,
-                                )
-                            )
-                            if mdev_mem_ecc_errors > 0:
-                                mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
-
-                    mdev_appendix = {
-                        "vgpu": True,
-                        "sliced": True,
-                        "bdf": dev_bdf,
-                    }
-                    if dev_numa:
-                        mdev_appendix["numa"] = dev_numa
-
-                    mdev_gi_id = pyhgml.hgmlDeviceGetGpuInstanceId(mdev)
-                    mdev_appendix["gpu_instance_id"] = mdev_gi_id
-                    mdev_ci_id = pyhgml.hgmlDeviceGetComputeInstanceId(mdev)
-                    mdev_appendix["compute_instance_id"] = mdev_ci_id
-
-                    mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
-
-                    mdev_gi = pyhgml.hgmlDeviceGetGpuInstanceById(dev, mdev_gi_id)
-                    mdev_ci = pyhgml.hgmlGpuInstanceGetComputeInstanceById(
-                        mdev_gi,
-                        mdev_ci_id,
+                dev_mem = 0
+                dev_mem_used = 0
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(dev)
+                    dev_mem = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.total,
                     )
-                    mdev_gi_info = pyhgml.hgmlGpuInstanceGetInfo(mdev_gi)
-                    mdev_ci_info = pyhgml.hgmlComputeInstanceGetInfo(mdev_ci)
-                    for dev_gi_prf_id in range(
-                        pyhgml.HGML_GPU_INSTANCE_PROFILE_COUNT,
-                    ):
-                        try:
-                            dev_gi_prf = pyhgml.hgmlDeviceGetGpuInstanceProfileInfo(
-                                dev,
-                                dev_gi_prf_id,
-                            )
-                            if dev_gi_prf.id != mdev_gi_info.profileId:
-                                continue
-                        except pyhgml.HGMLError:
-                            continue
-
-                        for dev_ci_prf_id in range(
-                            pyhgml.HGML_COMPUTE_INSTANCE_PROFILE_COUNT,
-                        ):
-                            for dev_cig_prf_id in range(
-                                pyhgml.HGML_COMPUTE_INSTANCE_ENGINE_PROFILE_COUNT,
-                            ):
-                                try:
-                                    mdev_ci_prf = pyhgml.hgmlGpuInstanceGetComputeInstanceProfileInfo(
-                                        mdev_gi,
-                                        dev_ci_prf_id,
-                                        dev_cig_prf_id,
-                                    )
-                                    if mdev_ci_prf.id != mdev_ci_info.profileId:
-                                        continue
-                                except pyhgml.HGMLError:
-                                    continue
-
-                                ci_slice = _get_compute_instance_slice(dev_ci_prf_id)
-                                gi_slice = _get_gpu_instance_slice(dev_gi_prf_id)
-                                if ci_slice == gi_slice:
-                                    if hasattr(dev_gi_prf, "name"):
-                                        mdev_name = dev_gi_prf.name
-                                    else:
-                                        gi_mem = round(
-                                            math.ceil(dev_gi_prf.memorySizeMB >> 10),
-                                        )
-                                        mdev_name = f"{gi_slice}g.{gi_mem}gb"
-                                elif hasattr(mdev_ci_prf, "name"):
-                                    mdev_name = mdev_ci_prf.name
-                                else:
-                                    gi_mem = round(
-                                        math.ceil(dev_gi_prf.memorySizeMB >> 10),
-                                    )
-                                    mdev_name = f"{ci_slice}u.{gi_slice}g.{gi_mem}gb"
-
-                                mdev_cores = mdev_ci_prf.multiprocessorCount
-
-                                break
-
-                    ret.append(
-                        Device(
-                            manufacturer=self.manufacturer,
-                            index=mdev_index,
-                            name=mdev_name,
-                            uuid=mdev_uuid,
-                            driver_version=sys_driver_ver,
-                            runtime_version=sys_runtime_ver,
-                            runtime_version_original=sys_runtime_ver_original,
-                            compute_capability=dev_cc,
-                            cores=mdev_cores,
-                            cores_utilization=mdev_cores_util,
-                            memory=mdev_mem,
-                            memory_used=mdev_mem_used,
-                            memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
-                            memory_status=mdev_mem_status,
-                            temperature=dev_temp,
-                            power=dev_power,
-                            power_used=dev_power_used,
-                            appendix=mdev_appendix,
-                        ),
+                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.used,
                     )
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                        dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
+                            dev,
+                            pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                            pyhgml.HGML_VOLATILE_ECC,
+                            pyhgml.HGML_MEMORY_LOCATION_DRAM,
+                        )
+                        if dev_mem_ecc_errors > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+
+                dev_is_vgpu = False
+                if dev_bdf:
+                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+
+                dev_appendix = {
+                    "vgpu": dev_is_vgpu,
+                    "mig": dev_mig_mode != pyhgml.HGML_DEVICE_MIG_DISABLE,
+                    "bdf": dev_bdf,
+                }
+                if dev_mig_mode != pyhgml.HGML_DEVICE_MIG_DISABLE:
+                    dev_appendix["mig_devices"] = _get_mig_devices(
+                        dev,
+                        dev_idx,
+                        dev_count,
+                        dev_cc_t,
+                        sys_driver_ver,
+                        sys_runtime_ver,
+                        sys_runtime_ver_original,
+                        dev_cc,
+                        dev_temp,
+                        dev_power,
+                        dev_power_used,
+                        dev_bdf,
+                        dev_numa,
+                    )
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
+
+                ret.append(
+                    Device(
+                        manufacturer=self.manufacturer,
+                        index=dev_index,
+                        name=dev_name,
+                        uuid=dev_uuid,
+                        driver_version=sys_driver_ver,
+                        runtime_version=sys_runtime_ver,
+                        runtime_version_original=sys_runtime_ver_original,
+                        compute_capability=dev_cc,
+                        cores=dev_cores,
+                        cores_utilization=dev_cores_util,
+                        memory=dev_mem,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power=dev_power,
+                        power_used=dev_power_used,
+                        appendix=dev_appendix,
+                    ),
+                )
+
         except pyhgml.HGMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
@@ -653,6 +537,158 @@ def _get_links_state(
         "links_state": dev_links_state,
         "links_active_count": dev_links_active_count,
     }
+
+
+def _get_mig_devices(
+    dev,
+    dev_idx: int,
+    dev_count: int,
+    sys_driver_ver,
+    sys_runtime_ver,
+    sys_runtime_ver_original,
+    dev_cc,
+    dev_temp,
+    dev_power,
+    dev_power_used,
+    dev_bdf: str,
+    dev_numa,
+) -> list[dict]:
+    """
+    Enumerate the card's current MIG devices with the same detail a plain
+    device carries (profile name, uuid, compute/memory utilization, memory
+    health, temperature and power), returned as appendix entries of the
+    physical card rather than standalone devices. Empty when MIG is enabled
+    but no GPU instances exist yet.
+    """
+    ret: list[dict] = []
+    with contextlib.suppress(pyhgml.HGMLError):
+        for mdev_idx in range(pyhgml.hgmlDeviceGetMaxMigDeviceCount(dev)):
+            mdev = None
+            with contextlib.suppress(pyhgml.HGMLError):
+                mdev = pyhgml.hgmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+            if not mdev:
+                continue
+
+            mdev_uuid = pyhgml.hgmlDeviceGetUUID(mdev)
+
+            mdev_mem = 0
+            mdev_mem_used = 0
+            mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+            with contextlib.suppress(pyhgml.HGMLError):
+                mdev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(mdev)
+                mdev_mem = byte_to_mebibyte(mdev_mem_info.total)
+                mdev_mem_used = byte_to_mebibyte(mdev_mem_info.used)
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                    mdev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
+                        mdev,
+                        pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                        pyhgml.HGML_AGGREGATE_ECC,
+                        pyhgml.HGML_MEMORY_LOCATION_SRAM,
+                    )
+                    if mdev_mem_ecc_errors > 0:
+                        mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+
+            mdev_appendix = {
+                "vgpu": True,
+                "sliced": True,
+                "mig": True,
+                "bdf": dev_bdf,
+            }
+            if dev_numa:
+                mdev_appendix["numa"] = dev_numa
+
+            mdev_gi_id = pyhgml.hgmlDeviceGetGpuInstanceId(mdev)
+            mdev_appendix["gpu_instance_id"] = mdev_gi_id
+            mdev_ci_id = pyhgml.hgmlDeviceGetComputeInstanceId(mdev)
+            mdev_appendix["compute_instance_id"] = mdev_ci_id
+
+            mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
+
+            mdev_name = ""
+            mdev_cores = None
+            mdev_gi = pyhgml.hgmlDeviceGetGpuInstanceById(dev, mdev_gi_id)
+            mdev_ci = pyhgml.hgmlGpuInstanceGetComputeInstanceById(
+                mdev_gi,
+                mdev_ci_id,
+            )
+            mdev_gi_info = pyhgml.hgmlGpuInstanceGetInfo(mdev_gi)
+            mdev_ci_info = pyhgml.hgmlComputeInstanceGetInfo(mdev_ci)
+            for dev_gi_prf_id in range(pyhgml.HGML_GPU_INSTANCE_PROFILE_COUNT):
+                try:
+                    dev_gi_prf = pyhgml.hgmlDeviceGetGpuInstanceProfileInfo(
+                        dev,
+                        dev_gi_prf_id,
+                    )
+                    if dev_gi_prf.id != mdev_gi_info.profileId:
+                        continue
+                except pyhgml.HGMLError:
+                    continue
+
+                for dev_ci_prf_id in range(
+                    pyhgml.HGML_COMPUTE_INSTANCE_PROFILE_COUNT,
+                ):
+                    for dev_cig_prf_id in range(
+                        pyhgml.HGML_COMPUTE_INSTANCE_ENGINE_PROFILE_COUNT,
+                    ):
+                        try:
+                            mdev_ci_prf = (
+                                pyhgml.hgmlGpuInstanceGetComputeInstanceProfileInfo(
+                                    mdev_gi,
+                                    dev_ci_prf_id,
+                                    dev_cig_prf_id,
+                                )
+                            )
+                            if mdev_ci_prf.id != mdev_ci_info.profileId:
+                                continue
+                        except pyhgml.HGMLError:
+                            continue
+
+                        ci_slice = _get_compute_instance_slice(dev_ci_prf_id)
+                        gi_slice = _get_gpu_instance_slice(dev_gi_prf_id)
+                        if ci_slice == gi_slice:
+                            if hasattr(dev_gi_prf, "name"):
+                                mdev_name = dev_gi_prf.name
+                            else:
+                                gi_mem = round(
+                                    math.ceil(dev_gi_prf.memorySizeMB >> 10),
+                                )
+                                mdev_name = f"{gi_slice}g.{gi_mem}gb"
+                        elif hasattr(mdev_ci_prf, "name"):
+                            mdev_name = mdev_ci_prf.name
+                        else:
+                            gi_mem = round(
+                                math.ceil(dev_gi_prf.memorySizeMB >> 10),
+                            )
+                            mdev_name = f"{ci_slice}u.{gi_slice}g.{gi_mem}gb"
+
+                        mdev_cores = mdev_ci_prf.multiprocessorCount
+
+                        break
+
+                break
+
+            ret.append(
+                {
+                    "index": mdev_idx + dev_count * (dev_idx + 1),
+                    "name": mdev_name,
+                    "uuid": mdev_uuid,
+                    "driver_version": sys_driver_ver,
+                    "runtime_version": sys_runtime_ver,
+                    "runtime_version_original": sys_runtime_ver_original,
+                    "compute_capability": dev_cc,
+                    "cores": mdev_cores,
+                    "cores_utilization": mdev_cores_util,
+                    "memory": mdev_mem,
+                    "memory_used": mdev_mem_used,
+                    "memory_utilization": get_utilization(mdev_mem_used, mdev_mem),
+                    "memory_status": mdev_mem_status,
+                    "temperature": dev_temp,
+                    "power": dev_power,
+                    "power_used": dev_power_used,
+                    "appendix": mdev_appendix,
+                },
+            )
+    return ret
 
 
 def _get_gpu_instance_slice(dev_gi_prf_id: int) -> int:
