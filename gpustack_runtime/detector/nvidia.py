@@ -254,6 +254,7 @@ class NVIDIADetector(Detector):
 
                 mdev_name = ""
                 mdev_cores = None
+                mdevs_before = len(ret)
                 mdev_count = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
                 for mdev_idx in range(mdev_count):
                     mdev = None
@@ -396,6 +397,51 @@ class NVIDIADetector(Detector):
                             power=dev_power,
                             power_used=dev_power_used,
                             appendix=mdev_appendix,
+                        ),
+                    )
+
+                if len(ret) == mdevs_before:
+                    # MIG is enabled but no GPU instances exist yet (an
+                    # operator/device-manager typically partitions the card
+                    # on demand). Report the physical card anyway so the
+                    # worker inventory keeps it visible for vendor/backend
+                    # matching; mark it MIG-managed so it is not mistaken
+                    # for a whole-card allocatable device.
+                    dev_name = pynvml.nvmlDeviceGetName(dev)
+                    dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+                    dev_mem = 0
+                    dev_mem_used = 0
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
+                        dev_mem = byte_to_mebibyte(dev_mem_info.total)
+                        dev_mem_used = byte_to_mebibyte(dev_mem_info.used)
+                    dev_cores = None
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
+                    ret.append(
+                        Device(
+                            manufacturer=self.manufacturer,
+                            index=dev_index,
+                            name=dev_name,
+                            uuid=dev_uuid,
+                            driver_version=sys_driver_ver,
+                            runtime_version=sys_runtime_ver,
+                            runtime_version_original=sys_runtime_ver_original,
+                            compute_capability=dev_cc,
+                            cores=dev_cores,
+                            cores_utilization=0,
+                            memory=dev_mem,
+                            memory_used=dev_mem_used,
+                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                            temperature=dev_temp,
+                            power=dev_power,
+                            power_used=dev_power_used,
+                            appendix={
+                                "arch_family": _get_arch_family(dev_cc_t),
+                                "vgpu": False,
+                                "mig": True,
+                                "bdf": dev_bdf,
+                            },
                         ),
                     )
         except pynvml.NVMLError:
