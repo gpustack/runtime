@@ -291,6 +291,42 @@ def filter_devices_by_manufacturer(
     return [dev for dev in devices or [] if dev.manufacturer == manufacturer]
 
 
+def expand_mig_devices(devices: Devices | None) -> Devices:
+    """
+    Replace every MIG-partitioned card with its MIG devices.
+
+    Detection reports the physical card and carries its MIG devices in the
+    `mig_devices` appendix, because where a partitioner (e.g. the GPUStack
+    Operator's device manager) owns MIG, the instances come and go and the
+    card is the only stable inventory item. Callers that address MIG devices
+    themselves need them as devices instead: a MIG-enabled card cannot run a
+    workload, only its instances can.
+
+    A MIG-enabled card with no instances is kept as-is: there is nothing to
+    address yet, and dropping it would make the card disappear from the
+    inventory.
+
+    Args:
+        devices:
+            A list of devices to be expanded.
+
+    Returns:
+        A list of devices where MIG-partitioned cards are substituted by their
+        MIG devices.
+
+    """
+    expanded: Devices = []
+    for dev in devices or []:
+        mig_devs = (dev.appendix or {}).get("mig_devices")
+        if not mig_devs:
+            expanded.append(dev)
+            continue
+        expanded.extend(
+            Device(manufacturer=dev.manufacturer, **mig_dev) for mig_dev in mig_devs
+        )
+    return expanded
+
+
 __all__ = [
     "Device",
     "DeviceMemoryStatusEnum",
@@ -302,6 +338,7 @@ __all__ = [
     "backend_to_manufacturer",
     "detect_backend",
     "detect_devices",
+    "expand_mig_devices",
     "filter_devices_by_manufacturer",
     "get_devices_topologies",
     "group_devices_by_manufacturer",

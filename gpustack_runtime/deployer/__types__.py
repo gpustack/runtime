@@ -16,6 +16,7 @@ from .. import envs
 from ..detector import (
     ManufacturerEnum,
     detect_devices,
+    expand_mig_devices,
     group_devices_by_manufacturer,
     manufacturer_to_backend,
 )
@@ -1373,9 +1374,11 @@ class Deployer(ABC):
 
         self._materials = {}
 
-        group_devices = group_devices_by_manufacturer(
-            detect_devices(fast=False),
-        )
+        devices = detect_devices(fast=False)
+        if self.allowed_mig_devices:
+            devices = expand_mig_devices(devices)
+
+        group_devices = group_devices_by_manufacturer(devices)
 
         if group_devices:
             for manu, devs in group_devices.items():
@@ -1694,6 +1697,18 @@ class Deployer(ABC):
 
         Returns:
             True if allowed, False otherwise.
+
+        """
+        return True
+
+    @property
+    def allowed_mig_devices(self) -> bool:
+        """
+        Return whether the deployer addresses the MIG devices of a MIG-partitioned
+        card, instead of the card itself.
+
+        Returns:
+            True if addressed, False otherwise.
 
         """
         return True

@@ -1308,6 +1308,15 @@ class KubernetesDeployer(EndoscopicDeployer):
     def allowed_runtime_uuid_values(self) -> bool:
         return get_resource_injection_policy() != "kdp"
 
+    @property
+    def allowed_mig_devices(self) -> bool:
+        # On Kubernetes a partitioner (e.g. the GPUStack Operator's device
+        # manager) owns MIG: it creates and destroys the instances on demand,
+        # so the card is the item to hold on to, and a pod asks for a slice of
+        # it by resource rather than by addressing an instance that may not
+        # outlive the request.
+        return False
+
     def _prepare_mirrored_deployment(self):
         """
         Prepare for mirrored deployment.

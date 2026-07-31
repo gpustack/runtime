@@ -3,6 +3,7 @@ from __future__ import annotations
 from gpustack_runtime.detector import (
     Device,
     ManufacturerEnum,
+    expand_mig_devices,
 )
 from gpustack_runtime.detector.__types__ import index_mig_devices
 
@@ -87,3 +88,29 @@ def test_index_mig_devices_isolates_a_cards_numbering():
     index_mig_devices(cards, partitioned, 8)
 
     assert full[1][0]["index"] == partitioned[1][0]["index"]
+
+
+def test_expand_mig_devices_substitutes_the_card():
+    cards = [
+        _card(0, "GPU-0", [_mig(0, "MIG-0-0"), _mig(1, "MIG-0-1")]),
+        _card(1, "GPU-1"),
+    ]
+    index_mig_devices(cards, {0: cards[0].appendix["mig_devices"]}, 8)
+
+    expanded = expand_mig_devices(cards)
+
+    assert [dev.uuid for dev in expanded] == ["MIG-0-0", "MIG-0-1", "GPU-1"]
+    assert [dev.index for dev in expanded] == [2, 3, 1]
+    assert all(dev.manufacturer == ManufacturerEnum.NVIDIA for dev in expanded)
+    assert expanded[0].memory == 4864
+
+
+def test_expand_mig_devices_keeps_an_unpartitioned_card():
+    # MIG enabled, no GPU instance yet: nothing to address, keep the card.
+    cards = [_card(0, "GPU-0", [])]
+
+    assert expand_mig_devices(cards) == cards
+
+
+def test_expand_mig_devices_tolerates_no_devices():
+    assert expand_mig_devices(None) == []
