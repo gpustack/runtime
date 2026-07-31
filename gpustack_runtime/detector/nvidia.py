@@ -11,7 +11,14 @@ from functools import lru_cache
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 from . import DeviceMemoryStatusEnum, Topology, pynvml
-from .__types__ import Detector, Device, Devices, ManufacturerEnum, TopologyDistanceEnum
+from .__types__ import (
+    Detector,
+    Device,
+    Devices,
+    ManufacturerEnum,
+    TopologyDistanceEnum,
+    index_mig_devices,
+)
 from .__utils__ import (
     PCIDevice,
     bitmask_to_str,
@@ -112,6 +119,13 @@ class NVIDIADetector(Detector):
             sys_runtime_ver = get_brief_version(
                 sys_runtime_ver_original,
             )
+
+            # MIG devices of every MIG-enabled card, keyed by the card's
+            # enumeration index, and the largest number of MIG devices a card
+            # can host: both are needed to number them once every card is
+            # detected, see index_mig_devices.
+            devs_mig_devices: dict[int, list[dict]] = {}
+            devs_mig_slots = 0
 
             dev_count = pynvml.nvmlDeviceGetCount()
             for dev_idx in range(dev_count):
@@ -219,10 +233,13 @@ class NVIDIADetector(Detector):
                     "bdf": dev_bdf,
                 }
                 if dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE:
-                    dev_appendix["mig_devices"] = _get_mig_devices(
+                    dev_mig_slots = 0
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_mig_slots = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
+                    devs_mig_slots = max(devs_mig_slots, dev_mig_slots)
+                    dev_mig_devices = _get_mig_devices(
                         dev,
-                        dev_idx,
-                        dev_count,
+                        dev_mig_slots,
                         dev_cc_t,
                         sys_driver_ver,
                         sys_runtime_ver,
@@ -234,6 +251,8 @@ class NVIDIADetector(Detector):
                         dev_bdf,
                         dev_numa,
                     )
+                    dev_appendix["mig_devices"] = dev_mig_devices
+                    devs_mig_devices[dev_idx] = dev_mig_devices
                 if dev_numa:
                     dev_appendix["numa"] = dev_numa
 
@@ -262,6 +281,8 @@ class NVIDIADetector(Detector):
                         appendix=dev_appendix,
                     ),
                 )
+
+            index_mig_devices(ret, devs_mig_devices, devs_mig_slots)
         except pynvml.NVMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
@@ -576,8 +597,7 @@ def _get_links_state(
 
 def _get_mig_devices(
     dev,
-    dev_idx: int,
-    dev_count: int,
+    dev_mig_slots: int,
     dev_cc_t,
     sys_driver_ver,
     sys_runtime_ver,
@@ -595,10 +615,14 @@ def _get_mig_devices(
     health, temperature and power), returned as appendix entries of the
     physical card rather than standalone devices. Empty when MIG is enabled
     but no GPU instances exist yet.
+
+    Each entry's `index` is the driver slot the MIG device was found at:
+    index_mig_devices turns it into the device index once every card is
+    detected.
     """
     ret: list[dict] = []
     with contextlib.suppress(pynvml.NVMLError):
-        for mdev_idx in range(pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)):
+        for mdev_idx in range(dev_mig_slots):
             mdev = None
             with contextlib.suppress(pynvml.NVMLError):
                 mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
@@ -694,7 +718,7 @@ def _get_mig_devices(
 
             ret.append(
                 {
-                    "index": mdev_idx + dev_count * (dev_idx + 1),
+                    "index": mdev_idx,
                     "name": mdev_name,
                     "uuid": mdev_uuid,
                     "driver_version": sys_driver_ver,

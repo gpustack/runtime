@@ -461,6 +461,42 @@ def reduce_devices_distances(
     return result
 
 
+def index_mig_devices(
+    devices: Devices,
+    mig_devices: dict[int, list[dict]],
+    slots: int,
+) -> None:
+    """
+    Number the given cards' MIG devices in place.
+
+    A MIG device carries no driver-side inventory index, so its index is
+    synthetic: every card owns a block of `slots` indexes, and the blocks
+    start above the largest index the physical cards report. The reported
+    index may be the card's minor number
+    (`GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY`), which is not bound by
+    the card count, hence the offset is measured from the reported indexes
+    instead of the count. Sizing a block by the slots a card can host, rather
+    than by the MIG devices it currently has, keeps a card's numbering
+    independent of its neighbours: partitioning one card never renumbers
+    another's MIG devices.
+
+    Args:
+        devices:
+            The detected physical cards, already indexed.
+        mig_devices:
+            The MIG devices to number, keyed by the enumeration index of the
+            card hosting them. Each entry's `index` is the driver slot it was
+            found at, which the block offset is added to.
+        slots:
+            The number of MIG devices a card can host, i.e. the block size.
+
+    """
+    base = max((dev.index for dev in devices), default=-1) + 1
+    for dev_idx, migs in mig_devices.items():
+        for mig in migs:
+            mig["index"] += base + dev_idx * slots
+
+
 class Detector(ABC):
     """
     Base class for all detectors.

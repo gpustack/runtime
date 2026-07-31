@@ -18,6 +18,7 @@ from .__types__ import (
     ManufacturerEnum,
     Topology,
     TopologyDistanceEnum,
+    index_mig_devices,
 )
 from .__utils__ import (
     PCIDevice,
@@ -120,6 +121,13 @@ class THeadDetector(Detector):
                     sys_runtime_ver_original,
                 )
 
+            # MIG devices of every MIG-enabled card, keyed by the card's
+            # enumeration index, and the largest number of MIG devices a card
+            # can host: both are needed to number them once every card is
+            # detected, see index_mig_devices.
+            devs_mig_devices: dict[int, list[dict]] = {}
+            devs_mig_slots = 0
+
             dev_count = pyhgml.hgmlDeviceGetCount()
             for dev_idx in range(dev_count):
                 dev = pyhgml.hgmlDeviceGetHandleByIndex(dev_idx)
@@ -219,11 +227,13 @@ class THeadDetector(Detector):
                     "bdf": dev_bdf,
                 }
                 if dev_mig_mode != pyhgml.HGML_DEVICE_MIG_DISABLE:
-                    dev_appendix["mig_devices"] = _get_mig_devices(
+                    dev_mig_slots = 0
+                    with contextlib.suppress(pyhgml.HGMLError):
+                        dev_mig_slots = pyhgml.hgmlDeviceGetMaxMigDeviceCount(dev)
+                    devs_mig_slots = max(devs_mig_slots, dev_mig_slots)
+                    dev_mig_devices = _get_mig_devices(
                         dev,
-                        dev_idx,
-                        dev_count,
-                        dev_cc_t,
+                        dev_mig_slots,
                         sys_driver_ver,
                         sys_runtime_ver,
                         sys_runtime_ver_original,
@@ -234,6 +244,8 @@ class THeadDetector(Detector):
                         dev_bdf,
                         dev_numa,
                     )
+                    dev_appendix["mig_devices"] = dev_mig_devices
+                    devs_mig_devices[dev_idx] = dev_mig_devices
                 if dev_numa:
                     dev_appendix["numa"] = dev_numa
 
@@ -260,6 +272,7 @@ class THeadDetector(Detector):
                     ),
                 )
 
+            index_mig_devices(ret, devs_mig_devices, devs_mig_slots)
         except pyhgml.HGMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
@@ -541,8 +554,7 @@ def _get_links_state(
 
 def _get_mig_devices(
     dev,
-    dev_idx: int,
-    dev_count: int,
+    dev_mig_slots: int,
     sys_driver_ver,
     sys_runtime_ver,
     sys_runtime_ver_original,
@@ -559,10 +571,14 @@ def _get_mig_devices(
     health, temperature and power), returned as appendix entries of the
     physical card rather than standalone devices. Empty when MIG is enabled
     but no GPU instances exist yet.
+
+    Each entry's `index` is the driver slot the MIG device was found at:
+    index_mig_devices turns it into the device index once every card is
+    detected.
     """
     ret: list[dict] = []
     with contextlib.suppress(pyhgml.HGMLError):
-        for mdev_idx in range(pyhgml.hgmlDeviceGetMaxMigDeviceCount(dev)):
+        for mdev_idx in range(dev_mig_slots):
             mdev = None
             with contextlib.suppress(pyhgml.HGMLError):
                 mdev = pyhgml.hgmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
@@ -669,7 +685,7 @@ def _get_mig_devices(
 
             ret.append(
                 {
-                    "index": mdev_idx + dev_count * (dev_idx + 1),
+                    "index": mdev_idx,
                     "name": mdev_name,
                     "uuid": mdev_uuid,
                     "driver_version": sys_driver_ver,
