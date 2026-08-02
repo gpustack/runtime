@@ -325,6 +325,61 @@ def _pin_pod_for_kueue(
     }
 
 
+def _is_device_plugin_resource(resource_key: str) -> bool:
+    """
+    Report whether a resource key belongs to a device plugin resource family,
+    which is either a CDI kind ("nvidia.com/gpu") or one of its suffixed
+    variants ("nvidia.com/gpu.shared", "nvidia.com/gpu.sliced.units",
+    "nvidia.com/gpu.partitioned.mig-1g.20gb").
+    """
+    return any(
+        resource_key == cdi or resource_key.startswith(f"{cdi}.")
+        for cdi in envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI.values()
+    )
+
+
+def _resolve_privileged(container: Container) -> bool:
+    """
+    Resolve whether a container runs privileged.
+
+    Privilege is dropped when the container's devices are handed out by a
+    device plugin, which is the case for every device plugin resource family
+    and, under the KDP injection policy, for every mapped device request.
+
+    A privileged container receives all device nodes of the host, so it
+    enumerates -- and can use -- every accelerator on the node, no matter
+    which one the device plugin allocated to it. That silently undoes
+    slicing: a workload holding a single MIG device or a single memory slice
+    still sees the untouched cards next to it, and a soft-slicing limit
+    lands on whichever device comes first instead of the allocated one.
+    """
+    if not container.execution or not container.execution.privileged:
+        return False
+    if not container.resources:
+        return True
+
+    kdp = get_resource_injection_policy() == "kdp"
+    for r_k in container.resources:
+        if r_k in ("cpu", "memory"):
+            continue
+        if _is_device_plugin_resource(r_k) or (
+            kdp
+            and (
+                r_k
+                in envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES
+                or r_k == envs.GPUSTACK_RUNTIME_DEPLOY_AUTOMAP_RESOURCE_KEY
+            )
+        ):
+            clogger.info(
+                "Dropping privilege of container '%s', "
+                "as its device request '%s' is allocated by a device plugin",
+                container.name,
+                r_k,
+            )
+            return False
+    return True
+
+
 class KubernetesDeployer(EndoscopicDeployer):
     """
     Deployer implementation for Kubernetes.
@@ -1048,7 +1103,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                     run_as_user=c.execution.run_as_user,
                     run_as_group=c.execution.run_as_group,
                     read_only_root_filesystem=c.execution.readonly_rootfs,
-                    privileged=c.execution.privileged,
+                    privileged=_resolve_privileged(c),
                     capabilities=(
                         kubernetes.client.V1Capabilities(
                             add=c.execution.capabilities.add,
