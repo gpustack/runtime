@@ -185,6 +185,17 @@ if TYPE_CHECKING:
     e.g., `{"nvidia.com/devices": ["CUDA_VISIBLE_DEVICES"], "amd.com/devices": ["ROCR_VISIBLE_DEVICES"]}`.
     The key is the resource key, and the value is a list of environment variable names.
     """
+    GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_CLASS: dict[str, str] | None = None
+    """
+    Manual mapping of Kubernetes RuntimeClass names,
+    which is used to tell the Kubernetes Deployer which RuntimeClass to run the workload Pod with,
+    e.g., `{"nvidia.com/gpu": "nvidia", "huawei.com/npu": "ascend"}`.
+    The key is the device plugin base resource key, and the value is the RuntimeClass name.
+    During deployment, if any container requests a resource of a mapped family
+    (the base key or one of its suffixed variants, e.g., "huawei.com/npu.sliced"),
+    and a RuntimeClass object with the mapped name exists in the cluster,
+    the workload Pod carries that RuntimeClass name.
+    """
     GPUSTACK_RUNTIME_DEPLOY_RUNTIME_VISIBLE_DEVICES_VALUE_UUID: set[str] | None = None
     """
     Apply UUIDs for the given runtime visible devices environment variables.
@@ -536,6 +547,17 @@ variables: dict[str, Callable[[], Any]] = {
             "mthreads.com/devices=mthreads.com/gpu;"
             "nvidia.com/devices=nvidia.com/gpu;"
             "alibabacloud.com/devices=alibabacloud.com/ppu;",
+        ),
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_CLASS": lambda: to_dict(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_CLASS",
+            "amd.com/gpu=amd;"
+            "huawei.com/npu=ascend;"
+            "cambricon.com/mlu=cambricon;"
+            "iluvatar.com/gpu=iluvatar;"
+            "mthreads.com/gpu=mthreads;"
+            "nvidia.com/gpu=nvidia;",
         ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES": lambda: to_dict(
