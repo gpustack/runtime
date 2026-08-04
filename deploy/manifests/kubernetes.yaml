@@ -25,6 +25,14 @@ rules:
       - "pods/exec"
     verbs:
       - "*"
+  # Allow resolving the vendor RuntimeClass (e.g. "ascend", "nvidia") for
+  # accelerated workload Pods, see GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_CLASS.
+  - apiGroups:
+      - "node.k8s.io"
+    resources:
+      - "runtimeclasses"
+    verbs:
+      - "get"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -76,6 +84,11 @@ spec:
         "app.kubernetes.io/name": "gpustack-runtime"
     spec:
     # Provide GPU resource request for gpustack-runtime if not using default runtime.
+    # The runtimeClassName set here is mirrored to every deployed workload Pod
+    # that does not resolve one itself. Usually this is unnecessary: workload
+    # Pods requesting device plugin resources automatically adopt the mapped
+    # vendor RuntimeClass when it exists in the cluster,
+    # see GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_CLASS.
     #
     # runtimeClassName: nvidia
 

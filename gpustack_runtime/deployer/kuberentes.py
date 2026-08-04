@@ -338,6 +338,96 @@ def _is_device_plugin_resource(resource_key: str) -> bool:
     )
 
 
+def _match_runtime_class(resource_key: str) -> str:
+    """
+    Return the RuntimeClass name mapped to the device plugin resource family
+    of the given resource key, which matches either a mapped base key
+    ("huawei.com/npu") or one of its suffixed variants
+    ("huawei.com/npu.sliced", "huawei.com/npu.sliced.units").
+    Return an empty string if the key belongs to no mapped family.
+    """
+    for base_key, runtime_class_name in (
+        envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_CLASS or {}
+    ).items():
+        if resource_key == base_key or resource_key.startswith(f"{base_key}."):
+            return runtime_class_name
+    return ""
+
+
+def _resolve_runtime_class_name(
+    pod: kubernetes.client.V1Pod,
+    client: kubernetes.client.ApiClient,
+):
+    """
+    Resolve the RuntimeClass for the Pod from the device plugin resources
+    requested by its containers, and set `pod.spec.runtime_class_name`
+    when the mapped RuntimeClass object exists in the cluster.
+
+    A Pod that already names a runtime class is left untouched, and the
+    mirrored deployment fill stays the fallback for Pods without any
+    mapped device request, so the precedence is:
+    explicit > discovered > mirrored.
+    """
+    if pod.spec.runtime_class_name:
+        return
+
+    # Find the RuntimeClass mapped to the requested device resources,
+    # keeping the first match on multi-vendor conflicts.
+    runtime_class_name = ""
+    for container in (pod.spec.containers or []) + (pod.spec.init_containers or []):
+        resources = container.resources
+        if not resources or not resources.requests:
+            continue
+        for r_k in resources.requests:
+            matched = _match_runtime_class(r_k)
+            if not matched:
+                continue
+            if runtime_class_name and runtime_class_name != matched:
+                logger.warning(
+                    "Container '%s' requests resource '%s' mapped to RuntimeClass '%s', "
+                    "but keeping the first matched RuntimeClass '%s'",
+                    container.name,
+                    r_k,
+                    matched,
+                    runtime_class_name,
+                )
+                continue
+            runtime_class_name = matched
+    if not runtime_class_name:
+        return
+
+    # Set the RuntimeClass only if the object exists in the cluster,
+    # as naming a missing class makes the kubelet reject the Pod.
+    node_api = kubernetes.client.NodeV1Api(client)
+    try:
+        node_api.read_runtime_class(name=runtime_class_name)
+    except kubernetes.client.exceptions.ApiException as e:
+        if e.status == 403:
+            logger.warning(
+                "Workload requests device resources mapped to RuntimeClass '%s', "
+                "but the deployer has no permission to read RuntimeClasses, "
+                "leaving the Pod runtimeClassName empty",
+                runtime_class_name,
+            )
+            return
+        if e.status == 404:
+            logger.warning(
+                "Workload requests device resources mapped to RuntimeClass '%s', "
+                "but that RuntimeClass is not available in the cluster, "
+                "leaving the Pod runtimeClassName empty",
+                runtime_class_name,
+            )
+            return
+        raise
+
+    logger.info(
+        "Setting Pod runtimeClassName to '%s', "
+        "resolved from the requested device resources",
+        runtime_class_name,
+    )
+    pod.spec.runtime_class_name = runtime_class_name
+
+
 def _resolve_privileged(container: Container) -> bool:
     """
     Resolve whether a container runs privileged.
@@ -1297,6 +1387,7 @@ class KubernetesDeployer(EndoscopicDeployer):
             _apply_instance_type_admission(pod, workload.instance_type)
             _pin_pod_for_kueue(pod, self._node_name)
 
+            _resolve_runtime_class_name(pod, self._client)
             pod = self._mutate_create_pod(pod)
             if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
                 clogger.info(
