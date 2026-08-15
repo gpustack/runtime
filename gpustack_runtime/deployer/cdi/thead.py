@@ -82,11 +82,29 @@ class THeadGenerator(Generator):
 
             container_device_nodes = []
 
+            # Named after the card ordinal, i.e. the enumeration index, not
+            # after the driver's minor number that the detector records in
+            # appendix["minor_number"]. Unlike /dev/nvidia{N} and
+            # /dev/iluvatar{N}, which the minor number does name, the operator
+            # records T-Head's purely to PROVE this node addresses the card it
+            # describes, by comparing it against the node's character-device
+            # minor.
             cdn = device_to_cdi_device_node(
                 path=f"/dev/alixpu_ppu{dev.index}",
             )
             if not cdn:
                 continue
+
+            # So make that comparison rather than assume it: where the detector
+            # read a minor, the node this ordinal names must carry it. The two
+            # numbers are independent -- neither is computed from the other, at
+            # any offset or none -- so a mismatch means this ordinal addresses a
+            # neighbouring accelerator, which the operator's allocator refuses
+            # outright rather than hand over.
+            dev_minor_number = dev.appendix.get("minor_number")
+            if dev_minor_number is not None and cdn.minor != dev_minor_number:
+                continue
+
             all_device_nodes.append(cdn)
             container_device_nodes.append(cdn)
 
