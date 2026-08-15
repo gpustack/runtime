@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -31,6 +32,7 @@ from .__types__ import (
     WorkloadOperationToken,
     WorkloadPlan,
     WorkloadStatus,
+    WorkloadStatusExit,
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
 )
@@ -52,6 +54,29 @@ clogger = logger.getChild("conversion")
 
 _LABEL_WORKLOAD = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/workload"
 _LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
+
+_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
+
+_IMAGE_PULL_BLOCKED_REASONS = frozenset(
+    {
+        "ErrImageNeverPull",
+        "ErrImagePull",
+        "ImagePullBackOff",
+        "InvalidImageName",
+        "RegistryUnavailable",
+    },
+)
+"""
+Container waiting reasons meaning the image can never be pulled as requested,
+so the workload has failed instead of merely waiting to start.
+"""
+
+_IMAGE_PULL_FAILED_EVENT_REASON = "Failed"
+"""
+The reason a kubelet stamps on the Event carrying the registry error, e.g.
+"Failed to pull image ...: unauthorized". Any other warning the Pod collected,
+a stale FailedScheduling among them, explains something else.
+"""
 
 
 class KubernetesWorkloadServiceTypeEnum(str, Enum):
@@ -196,6 +221,11 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         """
         match k_pod.status.phase:
             case "Pending":
+                # A Pod blocked on an image it can never pull is not waiting for
+                # anything: report it as failed so the caller stops watching a
+                # workload that will never become ready.
+                if KubernetesWorkloadStatus.parse_image_pull_block(k_pod):
+                    return WorkloadStatusStateEnum.FAILED
                 return WorkloadStatusStateEnum.PENDING
             case "Succeeded":
                 return WorkloadStatusStateEnum.INACTIVE
@@ -215,10 +245,171 @@ class KubernetesWorkloadStatus(WorkloadStatus):
 
         return WorkloadStatusStateEnum.RUNNING
 
+    @staticmethod
+    def parse_image_pull_block(
+        k_pod: kubernetes.client.V1Pod,
+    ) -> kubernetes.client.V1ContainerStateWaiting | None:
+        """
+        Find the container state blocking the workload on an image pull.
+
+        Args:
+            k_pod:
+                Pod object from Kubernetes API.
+
+        Returns:
+            The waiting state of the first container blocked on its image pull,
+            None if no container is.
+
+        """
+        for cs in [
+            *(k_pod.status.init_container_statuses or []),
+            *(k_pod.status.container_statuses or []),
+        ]:
+            waiting = cs.state.waiting if cs.state else None
+            if waiting and waiting.reason in _IMAGE_PULL_BLOCKED_REASONS:
+                return waiting
+        return None
+
+    @staticmethod
+    def _parse_exit(
+        cs: kubernetes.client.V1ContainerStatus | None,
+        name: str,
+    ) -> WorkloadStatusExit | None:
+        """
+        Build the exit entry for a container that has terminated or is blocked
+        from starting.
+
+        Args:
+            cs:
+                Status of the container, None if the Pod reports none yet.
+            name:
+                Human-readable name of the container.
+
+        Returns:
+            A WorkloadStatusExit if the container has terminated or is blocked,
+            None if it is running or has no state at all, and so contributes
+            nothing.
+
+        """
+        if not cs or not cs.state:
+            return None
+
+        # Prefer the current termination, and fall back to the previous one, so
+        # a container that has already restarted still reports why it died.
+        terminated = cs.state.terminated or (
+            cs.last_state.terminated if cs.last_state else None
+        )
+        if terminated:
+            return WorkloadStatusExit(
+                name=name,
+                token=cs.name,
+                exit_code=terminated.exit_code,
+                reason=terminated.reason or "",
+                message=terminated.message or "",
+                started_at=(
+                    terminated.started_at.strftime(_TIMESTAMP_FORMAT)
+                    if terminated.started_at
+                    else ""
+                ),
+                finished_at=(
+                    terminated.finished_at.strftime(_TIMESTAMP_FORMAT)
+                    if terminated.finished_at
+                    else ""
+                ),
+                restart_count=cs.restart_count or 0,
+            )
+
+        if cs.state.waiting:
+            # A container blocked from starting has never terminated,
+            # so it carries a reason but no exit code.
+            return WorkloadStatusExit(
+                name=name,
+                token=cs.name,
+                reason=cs.state.waiting.reason or "",
+                message=cs.state.waiting.message or "",
+                restart_count=cs.restart_count or 0,
+            )
+
+        return None
+
+    @staticmethod
+    def _parse_pod_event_message(
+        k_pod: kubernetes.client.V1Pod,
+        core_api: kubernetes.client.CoreV1Api,
+    ) -> str:
+        """
+        Read the Events of the given Pod and return the most relevant message.
+
+        Args:
+            k_pod:
+                Pod object from Kubernetes API.
+            core_api:
+                Core API client to read the Events with.
+
+        Returns:
+            The message of the Pod's latest warning Event,
+            empty if there is none or if the Events cannot be read.
+
+        """
+        field_selector = f"involvedObject.name={k_pod.metadata.name}"
+        if k_pod.metadata.uid:
+            # A recreated Pod takes the same name, so selecting by name alone
+            # also selects its predecessor's Events.
+            field_selector += f",involvedObject.uid={k_pod.metadata.uid}"
+
+        try:
+            k_events = core_api.list_namespaced_event(
+                namespace=k_pod.metadata.namespace,
+                field_selector=field_selector,
+            )
+        except kubernetes.client.exceptions.ApiException:
+            # Any API failure degrades to no message rather than propagating:
+            # this read only enriches a diagnosis the state and the reason
+            # already carry. The expected one is a 403 on a cluster whose
+            # manifest predates the Events rule, but a 500 or a timeout is no
+            # reason to fail a status poll either.
+            debug_log_exception(
+                logger,
+                "Failed to list events of pod %s/%s",
+                k_pod.metadata.namespace,
+                k_pod.metadata.name,
+            )
+            return ""
+
+        # The warning Events carry the registry error, e.g. the "Failed" Event
+        # behind a bare "ImagePullBackOff" reason.
+        k_warnings = [
+            k_event
+            for k_event in k_events.items or []
+            if k_event.type == "Warning" and k_event.message
+        ]
+        if not k_warnings:
+            return ""
+
+        # The API guarantees no ordering and an Event name carries a random
+        # suffix, so list order is not time order: sort it. An Event carrying no
+        # timestamp at all sorts first, i.e. loses to any that does.
+        k_warnings.sort(
+            key=lambda e: (e.last_timestamp or e.event_time or e.first_timestamp)
+            or datetime.min.replace(tzinfo=timezone.utc),
+        )
+
+        # Among the warnings, the kubelet's image-pull failure is the one being
+        # diagnosed, so it wins over a later warning about something else.
+        return next(
+            (
+                k_event.message
+                for k_event in reversed(k_warnings)
+                if k_event.reason == _IMAGE_PULL_FAILED_EVENT_REASON
+            ),
+            k_warnings[-1].message,
+        )
+
     def __init__(
         self,
         name: WorkloadName,
         k_pod: kubernetes.client.V1Pod,
+        core_api: kubernetes.client.CoreV1Api | None = None,
         **kwargs,
     ):
         created_at = k_pod.metadata.creation_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -244,6 +435,9 @@ class KubernetesWorkloadStatus(WorkloadStatus):
 
         self._k_pod = k_pod
 
+        k_init_css = {cs.name: cs for cs in k_pod.status.init_container_statuses or []}
+        k_css = {cs.name: cs for cs in k_pod.status.container_statuses or []}
+
         k_pod_annos = k_pod.metadata.annotations or {}
         for ci, c in enumerate(k_pod.spec.init_containers or []):
             cn = k_pod_annos.get(f"{_LABEL_COMPONENT}-init-{ci}-name", c.name)
@@ -255,6 +449,10 @@ class KubernetesWorkloadStatus(WorkloadStatus):
                 self.executable.append(op)
             self.loggable.append(op)
 
+            exit_ = self._parse_exit(k_init_css.get(c.name), cn)
+            if exit_:
+                self.exits.append(exit_)
+
         for ci, c in enumerate(k_pod.spec.containers):
             cn = k_pod_annos.get(f"{_LABEL_COMPONENT}-run-{ci}-name", c.name)
             op = WorkloadStatusOperation(
@@ -264,8 +462,38 @@ class KubernetesWorkloadStatus(WorkloadStatus):
             self.executable.append(op)
             self.loggable.append(op)
 
+            exit_ = self._parse_exit(k_css.get(c.name), cn)
+            if exit_:
+                self.exits.append(exit_)
+
         self.state = self.parse_state(k_pod)
-        if k_pod.status.message:
+
+        # Only a Pod failed on an image pull reads Events, which is both the
+        # verdict's own condition and the traffic guard: any other Pod, running
+        # or pending, costs no extra API call.
+        image_pull_block = (
+            self.parse_image_pull_block(k_pod)
+            if self.state == WorkloadStatusStateEnum.FAILED
+            and k_pod.status.phase == "Pending"
+            else None
+        )
+        if image_pull_block:
+            # The waiting reason alone ("ImagePullBackOff") omits the registry
+            # error, which is the part explaining why the pull fails, so append
+            # the Pod's Event message to it. This diagnosis is more specific
+            # than the Pod's own status message, hence it wins.
+            blocked_message = ": ".join(
+                p for p in [image_pull_block.reason, image_pull_block.message] if p
+            )
+            event_message = (
+                self._parse_pod_event_message(k_pod, core_api) if core_api else ""
+            )
+            self.state_message = (
+                f"{blocked_message}; {event_message}"
+                if event_message
+                else blocked_message
+            )
+        elif k_pod.status.message:
             # Surface the Pod's status message, e.g. a device-plugin
             # admission rejection ("UnexpectedAdmissionError: Allocate
             # failed ...") on Failed Pods.
@@ -1318,6 +1546,29 @@ class KubernetesDeployer(EndoscopicDeployer):
                             ],
                         )
 
+                    # If requesting all devices or privileged,
+                    # the container sees every device of the host,
+                    # so pin the device ordering to keep its numbering
+                    # aligned with the detection.
+                    # This includes requesting all devices under KDP:
+                    # the device plugin allocates every device of the node,
+                    # hence the container still enumerates all of them.
+                    # Never overwrite the ordering declared by the container.
+                    if r_v == "all" or privileged:
+                        declared_envs = {e.name for e in container.env}
+                        container.env.extend(
+                            [
+                                kubernetes.client.V1EnvVar(
+                                    name=o_k,
+                                    value=o_v,
+                                )
+                                for o_k, o_v in self.map_visible_devices_ordering(
+                                    runtime_envs,
+                                ).items()
+                                if o_k not in declared_envs
+                            ],
+                        )
+
                 container.resources = kubernetes.client.V1ResourceRequirements(
                     limits=(resources if resources else None),
                     requests=(resources if resources else None),
@@ -1860,6 +2111,7 @@ class KubernetesDeployer(EndoscopicDeployer):
         return KubernetesWorkloadStatus(
             name=name,
             k_pod=k_pod,
+            core_api=core_api,
         )
 
     @_supported
@@ -2041,6 +2293,7 @@ class KubernetesDeployer(EndoscopicDeployer):
             KubernetesWorkloadStatus(
                 name=k_pod.metadata.labels[_LABEL_WORKLOAD],
                 k_pod=k_pod,
+                core_api=core_api,
             )
             for k_pod in k_pods.items or []
             if (

@@ -25,6 +25,17 @@ rules:
       - "pods/exec"
     verbs:
       - "*"
+  # Allow reading the Events of a workload Pod, so an image-pull failure
+  # reports the registry error behind a bare "ImagePullBackOff" reason.
+  # Kept as its own rule with only "get"/"list": the rule above grants "*",
+  # which would also allow creating and deleting Events.
+  - apiGroups:
+      - ""
+    resources:
+      - "events"
+    verbs:
+      - "get"
+      - "list"
   # Allow resolving the vendor RuntimeClass (e.g. "ascend", "nvidia") for
   # accelerated workload Pods, see GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_CLASS.
   - apiGroups:
