@@ -15,6 +15,7 @@ from .__types__ import (
     Devices,
     ManufacturerEnum,
     TopologyDistanceEnum,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -22,13 +23,25 @@ from .__utils__ import (
     compare_pci_devices,
     get_brief_version,
     get_numa_node_by_bdf,
+    get_pci_device_name,
     get_pci_devices,
-    get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
 )
 
 logger = logging.getLogger(__name__)
+
+_PCI_DEVICES_PATH = Path("/sys/bus/pci/devices")
+"""
+Location where sysfs exposes the PCI devices,
+which a device's PCI IDs are read from.
+"""
+
+_PCI_ID_FILES = ("vendor", "device", "subsystem_vendor", "subsystem_device")
+"""
+The sysfs files holding a PCI device's IDs,
+in the order the PCI ID database is queried with.
+"""
 
 
 class AMDDetector(Detector):
@@ -76,9 +89,10 @@ class AMDDetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.AMD)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect AMD GPUs using pyamdsmi, pyamdgpu and pyrocmsmi.
+        Detect AMD GPUs' inventory using pyamdsmi, pyamdgpu and pyrocmsmi,
+        without usage metrics.
 
         Returns:
             A list of detected AMD GPU devices,
@@ -113,11 +127,7 @@ class AMDDetector(Detector):
                 dev_index = dev_idx
 
                 dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
-                if dev_gpu_asic_info.get("asic_serial") != "N/A":
-                    asic_serial = dev_gpu_asic_info.get("asic_serial")
-                    dev_uuid = f"GPU-{(asic_serial[2:]).lower()}"
-                else:
-                    dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
+                dev_uuid = _get_device_uuid(dev_gpu_asic_info, dev_idx)
 
                 dev_bdf = pyamdsmi.amdsmi_get_gpu_device_bdf(dev)
                 dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
@@ -129,7 +139,23 @@ class AMDDetector(Detector):
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
                 dev_driver_ver = dev_gpu_driver_info.get("driver_version")
 
-                dev_name = dev_hsa_agent.name
+                # The operator resolves the name from the local PCI ID database
+                # first: pci.ids knows the board -- the subsystem vendor's name
+                # for the card -- where the driver only knows the chip. The
+                # driver-reported names stay as fallbacks.
+                dev_name = _get_pci_device_name_by_bdf(dev_bdf)
+                if not dev_name:
+                    dev_name = dev_hsa_agent.name
+                if not dev_name and dev_card_id is not None:
+                    # The operator asks libdrm for the board's marketing name
+                    # between the HSA and the ASIC name, so this is that step.
+                    # Reached only when the two above found nothing, which is
+                    # why the device is opened here rather than up front.
+                    with (
+                        contextlib.suppress(pyamdgpu.AMDGPUError),
+                        pyamdgpu.amdgpu_device(dev_card_id) as dev_gpudev,
+                    ):
+                        dev_name = pyamdgpu.amdgpu_get_marketing_name(dev_gpudev)
                 if not dev_name:
                     dev_name = dev_gpu_asic_info.get("market_name")
 
@@ -158,6 +184,126 @@ class AMDDetector(Detector):
                         if not dev_asic_family_id:
                             dev_asic_family_id = dev_gpudev_info.family_id
 
+                dev_mem = 0
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+                try:
+                    dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
+                    dev_mem = dev_gpu_vram_usage.get("vram_total")
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                        dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
+                            dev,
+                            pyamdsmi.AmdSmiGpuBlock.UMC,
+                        )
+                        if dev_ecc_count.get("uncorrectable_count", 0) > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                except pyamdsmi.AmdSmiException:
+                    dev_mem = byte_to_mebibyte(  # byte to MiB
+                        pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
+                    )
+                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                        with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                            dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
+                                dev_idx,
+                            )
+                            if dev_ecc_count.uncorrectable_err > 0:
+                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+
+                # The power limit is inventory, so it stays here, while the used
+                # power the same call carries belongs to the usage query.
+                dev_power = None
+                try:
+                    dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
+                    dev_power = (
+                        dev_power_info.get("power_limit", 0) // 1000000
+                    )  # uW to W
+                except pyamdsmi.AmdSmiException:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
+
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    with contextlib.suppress(pyamdsmi.AmdSmiException):
+                        dev_numa = str(pyamdsmi.amdsmi_topo_get_numa_node_number(dev))
+
+                dev_appendix = {
+                    "arch_family": _get_arch_family(dev_asic_family_id),
+                    "bdf": dev_bdf,
+                }
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
+                if dev_card_id is not None:
+                    dev_appendix["card_id"] = dev_card_id
+                if dev_renderd_id is not None:
+                    dev_appendix["renderd_id"] = dev_renderd_id
+
+                if dev_xgmi_info := _get_xgmi_info(dev):
+                    dev_appendix.update(dev_xgmi_info)
+
+                ret.append(
+                    Device(
+                        manufacturer=self.manufacturer,
+                        index=dev_index,
+                        name=dev_name,
+                        uuid=dev_uuid,
+                        driver_version=dev_driver_ver,
+                        runtime_version=sys_runtime_ver,
+                        runtime_version_original=sys_runtime_ver_original,
+                        compute_capability=dev_cc,
+                        cores=dev_cores,
+                        memory=dev_mem,
+                        memory_status=dev_mem_status,
+                        power=dev_power,
+                        appendix=dev_appendix,
+                    ),
+                )
+        except pyamdsmi.AmdSmiException:
+            debug_log_exception(logger, "Failed to fetch devices")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices fetching")
+            raise
+
+        return ret
+
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch AMD GPUs' usage using pyamdsmi and pyrocmsmi.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage,
+            or None if not supported.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+        if not devices:
+            return devices
+
+        usages: Devices = []
+
+        try:
+            pyamdsmi.amdsmi_init()
+            try:
+                pyrocmsmi.rsmi_init()
+            except Exception:
+                debug_log_exception(logger, "Failed to initialize ROCm SMI")
+
+            devs = pyamdsmi.amdsmi_get_processor_handles()
+            for dev_idx, dev in enumerate(devs):
+                dev_gpu_asic_info = pyamdsmi.amdsmi_get_gpu_asic_info(dev)
+                dev_uuid = _get_device_uuid(dev_gpu_asic_info, dev_idx)
+
                 dev_cores_util = None
                 dev_temp = None
                 try:
@@ -172,12 +318,14 @@ class AMDDetector(Detector):
                     debug_log_warning(
                         logger,
                         "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
+                        dev_idx,
                     )
                     dev_cores_util = 0
 
                 dev_mem = 0
                 dev_mem_used = 0
+                # Health is reported by both queries, as the operator reports it
+                # from DetectAccelerator and MonitorAccelerator alike.
                 dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 try:
                     dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
@@ -205,13 +353,9 @@ class AMDDetector(Detector):
                             if dev_ecc_count.uncorrectable_err > 0:
                                 dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
-                dev_power = None
                 dev_power_used = None
                 try:
                     dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
-                    dev_power = (
-                        dev_power_info.get("power_limit", 0) // 1000000
-                    )  # uW to W
                     dev_power_used = (
                         dev_power_info.get("current_socket_power")
                         if dev_power_info.get("current_socket_power", "N/A") != "N/A"
@@ -219,61 +363,27 @@ class AMDDetector(Detector):
                     )
                 except pyamdsmi.AmdSmiException:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                        dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
                         dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
-                dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
-
-                dev_numa = get_numa_node_by_bdf(dev_bdf)
-                if not dev_numa:
-                    with contextlib.suppress(pyamdsmi.AmdSmiException):
-                        dev_numa = str(pyamdsmi.amdsmi_topo_get_numa_node_number(dev))
-
-                dev_appendix = {
-                    "arch_family": _get_arch_family(dev_asic_family_id),
-                    "vgpu": dev_is_vgpu,
-                    "bdf": dev_bdf,
-                }
-                if dev_numa:
-                    dev_appendix["numa"] = dev_numa
-                if dev_card_id is not None:
-                    dev_appendix["card_id"] = dev_card_id
-                if dev_renderd_id is not None:
-                    dev_appendix["renderd_id"] = dev_renderd_id
-
-                if dev_xgmi_info := _get_xgmi_info(dev):
-                    dev_appendix.update(dev_xgmi_info)
-
-                ret.append(
+                usages.append(
                     Device(
-                        manufacturer=self.manufacturer,
-                        index=dev_index,
-                        name=dev_name,
                         uuid=dev_uuid,
-                        driver_version=dev_driver_ver,
-                        runtime_version=sys_runtime_ver,
-                        runtime_version_original=sys_runtime_ver_original,
-                        compute_capability=dev_cc,
-                        cores=dev_cores,
                         cores_utilization=dev_cores_util,
-                        memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         memory_status=dev_mem_status,
                         temperature=dev_temp,
-                        power=dev_power,
                         power_used=dev_power_used,
-                        appendix=dev_appendix,
                     ),
                 )
         except pyamdsmi.AmdSmiException:
-            debug_log_exception(logger, "Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices usage")
             raise
         except Exception:
-            debug_log_exception(logger, "Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices usage fetching")
             raise
 
-        return ret
+        return merge_devices_usage(devices, usages)
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
@@ -289,7 +399,7 @@ class AMDDetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 
@@ -398,6 +508,56 @@ class AMDDetector(Detector):
             raise
 
         return ret
+
+
+def _get_pci_device_name_by_bdf(dev_bdf: str) -> str:
+    """
+    Get the name of a device from the local PCI ID database.
+
+    Mirrors the operator, which prefers this name over every driver-reported
+    one: pci.ids knows the board -- the subsystem vendor's name for the card --
+    where the driver only knows the chip.
+
+    Args:
+        dev_bdf:
+            The device bdf.
+
+    Returns:
+        The name of the device,
+        or an empty string if the database or the device is unknown.
+
+    """
+    if not dev_bdf:
+        return ""
+
+    dev_pci_ids = []
+    for id_file in _PCI_ID_FILES:
+        dev_pci_id = ""
+        with contextlib.suppress(OSError):
+            dev_pci_id = (_PCI_DEVICES_PATH / dev_bdf / id_file).read_text().strip()
+        dev_pci_ids.append(dev_pci_id)
+
+    return get_pci_device_name(*dev_pci_ids)
+
+
+def _get_device_uuid(dev_gpu_asic_info: dict, dev_idx: int) -> str:
+    """
+    Get the UUID of a device.
+
+    Args:
+        dev_gpu_asic_info:
+            The ASIC information of the device.
+        dev_idx:
+            The index of the device.
+
+    Returns:
+        The UUID of the device.
+
+    """
+    if dev_gpu_asic_info.get("asic_serial") != "N/A":
+        asic_serial = dev_gpu_asic_info.get("asic_serial")
+        return f"GPU-{(asic_serial[2:]).lower()}"
+    return f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
 
 
 def _get_arch_family(dev_family_id: int | None) -> str:

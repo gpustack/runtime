@@ -284,3 +284,16 @@ def amdgpu_query_gpu_info(device):
     ret = fn(device, byref(c_info))
     _amdgpuCheckReturn(ret)
     return c_info
+
+
+def amdgpu_get_marketing_name(device):
+    fn = _amdgpuGetFunctionPointer("amdgpu_get_marketing_name")
+    # This one answers with a pointer into libdrm's own table rather than
+    # filling a buffer, so the return type has to be declared before the call
+    # or ctypes truncates the pointer to an int.
+    fn.restype = c_char_p
+    c_name = fn(device)
+    # The table carries no entry for every device id, and libdrm answers NULL
+    # rather than failing, so an unnamed board is empty here and the caller
+    # falls through to its next name source.
+    return c_name.decode() if c_name else ""
