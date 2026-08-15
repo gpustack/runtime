@@ -1,13 +1,13 @@
 [
   {
-    "manufacturer": "amd",
+    "manufacturer": "nvidia",
     "devices_distances": [
       [
         0,
-        50
+        30
       ],
       [
-        50,
+        30,
         0
       ]
     ],

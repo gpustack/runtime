@@ -19,7 +19,7 @@
     "power_used": 11,
     "appendix": {
       "arch_family": "Ada-Lovelace",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:01:00.0",
       "numa": "0"
     }
@@ -44,7 +44,7 @@
     "power_used": 5,
     "appendix": {
       "arch_family": "Ada-Lovelace",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:72:00.0",
       "numa": "0"
     }

@@ -19,7 +19,7 @@
     "power_used": 68,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:0e:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -46,7 +46,7 @@
     "power_used": 68,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:15:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -73,7 +73,7 @@
     "power_used": 67,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:1b:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -100,7 +100,7 @@
     "power_used": 68,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:67:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -127,7 +127,7 @@
     "power_used": 69,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:9a:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -154,7 +154,7 @@
     "power_used": 68,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:ab:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -181,7 +181,7 @@
     "power_used": 70,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:ba:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -208,7 +208,7 @@
     "power_used": 70,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:db:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",

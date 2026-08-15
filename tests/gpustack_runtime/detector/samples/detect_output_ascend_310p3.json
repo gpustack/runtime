@@ -19,7 +19,6 @@
     "power_used": null,
     "appendix": {
       "arch_family": "Ascend310P3",
-      "vgpu": false,
       "bdf": "0000:81:00.0",
       "numa": "2",
       "card_id": 4,
@@ -47,7 +46,6 @@
     "power_used": null,
     "appendix": {
       "arch_family": "Ascend310P3",
-      "vgpu": false,
       "bdf": "0000:81:00.0",
       "numa": "2",
       "card_id": 4,
