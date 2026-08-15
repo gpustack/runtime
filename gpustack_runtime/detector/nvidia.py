@@ -18,6 +18,7 @@ from .__types__ import (
     ManufacturerEnum,
     TopologyDistanceEnum,
     index_mig_devices,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -81,9 +82,9 @@ class NVIDIADetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.NVIDIA)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect NVIDIA GPUs using pynvml.
+        Detect NVIDIA GPUs' inventory using pynvml, without usage metrics.
 
         Returns:
             A list of detected NVIDIA GPU devices,
@@ -99,8 +100,6 @@ class NVIDIADetector(Detector):
         ret: Devices = []
 
         try:
-            pci_devs = NVIDIADetector.detect_pci_devices()
-
             pynvml.nvmlInit()
 
             sys_driver_ver = pynvml.nvmlSystemGetDriverVersion()
@@ -134,6 +133,13 @@ class NVIDIADetector(Detector):
                 dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
 
+                # Unversioned on purpose, unlike the memory query above: pynvml
+                # exposes no v2 PCI accessor to prefer or fall back to --
+                # `nvmlDeviceGetPciInfo` is its alias of `nvmlDeviceGetPciInfo_v3`,
+                # a superset of the v2 structure the operator's `GetPciInfoV`
+                # prefers, and `nvmlPciInfo_v2_t` is declared but unused. The
+                # operator never reads the structure's string either, its
+                # `GetBusId()` formatting the BDF from domain/bus/device.
                 dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
                 dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
@@ -147,30 +153,27 @@ class NVIDIADetector(Detector):
                         )
                         dev_numa = bitmask_to_str(list(dev_node_affinity))
 
-                dev_temp = None
-                with contextlib.suppress(pynvml.NVMLError):
-                    dev_temp = pynvml.nvmlDeviceGetTemperature(
-                        dev,
-                        pynvml.NVML_TEMPERATURE_GPU,
-                    )
-
+                # The power limit is inventory; the power actually drawn is
+                # usage, and belongs to detect_usage.
                 dev_power = None
-                dev_power_used = None
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_power = pynvml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
                     dev_power = dev_power // 1000  # mW to W
-                    dev_power_used = (
-                        pynvml.nvmlDeviceGetPowerUsage(dev) // 1000
-                    )  # mW to W
 
                 dev_mig_mode = pynvml.NVML_DEVICE_MIG_DISABLE
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_mig_mode, _ = pynvml.nvmlDeviceGetMigMode(dev)
 
                 dev_index = dev_idx
-                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_index = pynvml.nvmlDeviceGetMinorNumber(dev)
+
+                # Device.index is the enumeration index, while the driver's
+                # minor number is what a device node path is made of, so the
+                # latter goes to the appendix. Mirrors the operator, which
+                # keeps a sequential Index next to PhysicalIndexes, and omits
+                # the physical one when the driver cannot answer.
+                dev_minor_number = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_minor_number = pynvml.nvmlDeviceGetMinorNumber(dev)
 
                 # Report the physical card, whether or not MIG is enabled.
                 # MIG instances are partitioned on demand by the operator's
@@ -186,52 +189,34 @@ class NVIDIADetector(Detector):
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_cores = pynvml.nvmlDeviceGetNumGpuCores(dev)
 
-                dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
-                if dev_cores_util is None:
-                    with contextlib.suppress(pynvml.NVMLError):
-                        dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
-                        dev_cores_util = dev_util_rates.gpu
-                if dev_cores_util is None:
-                    debug_log_warning(
-                        logger,
-                        "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
-                    )
-                    dev_cores_util = 0
-
-                dev_mem = 0
-                dev_mem_used = 0
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                with contextlib.suppress(pynvml.NVMLError):
-                    dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
-                    dev_mem = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.total,
-                    )
-                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.used,
-                    )
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                        dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
-                            dev,
-                            pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                            pynvml.NVML_VOLATILE_ECC,
-                            pynvml.NVML_MEMORY_LOCATION_DRAM,
-                        )
-                        if dev_mem_ecc_errors > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                # Reported as the driver reports it, i.e. what the card can
+                # actually allocate. A deliberate divergence: the operator adds
+                # back the ~1/16 that ECC parity carves out of a GDDR part, but
+                # that capacity is not reachable, and its restored figure is a
+                # display value that takes no part in allocation. Here `memory`
+                # does take part, and `memory - memory_used` has to mean free
+                # space, so restoring it would over-commit every GDDR card with
+                # ECC enabled.
+                dev_mem, _ = _get_memory_info(dev)
+                dev_mem_status = _get_memory_status(
+                    dev,
+                    pynvml.NVML_VOLATILE_ECC,
+                    pynvml.NVML_MEMORY_LOCATION_DRAM,
+                )
                 if dev_mem == 0:
-                    dev_mem, dev_mem_used = get_memory()
-
-                dev_is_vgpu = False
-                if dev_bdf in pci_devs:
-                    dev_is_vgpu = _is_vgpu(pci_devs[dev_bdf].config)
+                    # A deliberate divergence from the operator, which skips a
+                    # device whose total reads 0: here it falls back to the host
+                    # memory, tolerating WSL and integrated GPUs, which report
+                    # no device memory of their own.
+                    dev_mem, _ = get_memory()
 
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_cc_t),
-                    "vgpu": dev_is_vgpu,
                     "mig": dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE,
                     "bdf": dev_bdf,
                 }
+                if dev_minor_number is not None:
+                    dev_appendix["minor_number"] = dev_minor_number
                 if dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE:
                     dev_mig_slots = 0
                     with contextlib.suppress(pynvml.NVMLError):
@@ -245,9 +230,7 @@ class NVIDIADetector(Detector):
                         sys_runtime_ver,
                         sys_runtime_ver_original,
                         dev_cc,
-                        dev_temp,
                         dev_power,
-                        dev_power_used,
                         dev_bdf,
                         dev_numa,
                     )
@@ -270,14 +253,9 @@ class NVIDIADetector(Detector):
                         runtime_version_original=sys_runtime_ver_original,
                         compute_capability=dev_cc,
                         cores=dev_cores,
-                        cores_utilization=dev_cores_util,
                         memory=dev_mem,
-                        memory_used=dev_mem_used,
-                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         memory_status=dev_mem_status,
-                        temperature=dev_temp,
                         power=dev_power,
-                        power_used=dev_power_used,
                         appendix=dev_appendix,
                     ),
                 )
@@ -291,6 +269,120 @@ class NVIDIADetector(Detector):
             raise
 
         return ret
+
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch NVIDIA GPUs' usage using pynvml, merged into the given devices.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID, MIG entries in
+                ``appendix["mig_devices"]`` included.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage,
+            or None if not supported.
+
+        Raises:
+            If there is an error during fetching.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+        if not devices:
+            return devices
+
+        # The usage query enumerates the driver's devices on its own and returns
+        # them keyed by UUID, mirroring the operator's MonitorAccelerator: a
+        # metrics list is joined by device identity, never by index, as an index
+        # is not stable across a re-detection.
+        usages: Devices = []
+
+        try:
+            pynvml.nvmlInit()
+
+            dev_count = pynvml.nvmlDeviceGetCount()
+            for dev_idx in range(dev_count):
+                dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
+
+                dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+
+                dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
+                if dev_cores_util is None:
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_util_rates = pynvml.nvmlDeviceGetUtilizationRates(dev)
+                        dev_cores_util = dev_util_rates.gpu
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_idx,
+                    )
+                    dev_cores_util = 0
+
+                dev_mem, dev_mem_used = _get_memory_info(dev)
+                dev_mem_status = _get_memory_status(
+                    dev,
+                    pynvml.NVML_VOLATILE_ECC,
+                    pynvml.NVML_MEMORY_LOCATION_DRAM,
+                )
+                if dev_mem == 0:
+                    # The same deliberate divergence detect_info records: a
+                    # device whose total reads 0 falls back to the host memory.
+                    dev_mem, dev_mem_used = get_memory()
+
+                dev_temp = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_temp = pynvml.nvmlDeviceGetTemperature(
+                        dev,
+                        pynvml.NVML_TEMPERATURE_GPU,
+                    )
+
+                dev_power_used = None
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_power_used = (
+                        pynvml.nvmlDeviceGetPowerUsage(dev) // 1000
+                    )  # mW to W
+
+                usages.append(
+                    Device(
+                        uuid=dev_uuid,
+                        cores_utilization=dev_cores_util,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power_used=dev_power_used,
+                    ),
+                )
+
+                dev_mig_mode = pynvml.NVML_DEVICE_MIG_DISABLE
+                with contextlib.suppress(pynvml.NVMLError):
+                    dev_mig_mode, _ = pynvml.nvmlDeviceGetMigMode(dev)
+                if dev_mig_mode != pynvml.NVML_DEVICE_MIG_DISABLE:
+                    dev_mig_slots = 0
+                    with contextlib.suppress(pynvml.NVMLError):
+                        dev_mig_slots = pynvml.nvmlDeviceGetMaxMigDeviceCount(dev)
+                    usages.extend(
+                        _get_mig_usages(
+                            dev,
+                            dev_mig_slots,
+                            dev_temp,
+                            dev_power_used,
+                        ),
+                    )
+        except pynvml.NVMLError:
+            debug_log_exception(logger, "Failed to fetch devices usage")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices usage fetching")
+            raise
+
+        return merge_devices_usage(devices, usages)
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
@@ -306,7 +398,7 @@ class NVIDIADetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 
@@ -388,6 +480,86 @@ class NVIDIADetector(Detector):
             raise
 
         return ret
+
+
+def _get_memory_info(
+    dev: pynvml.c_nvmlDevice_t,
+) -> tuple[int, int]:
+    """
+    Get a device's total and used memory, preferring the v2 memory structure
+    with a v1 fallback, as the operator's `GetMemoryInfoV` does.
+
+    Args:
+        dev:
+            The NVML device handle.
+
+    Returns:
+        The total and used memory in MiB, both 0 if unreadable.
+
+    """
+    # `version` is the packed struct version the driver validates, not a plain
+    # ordinal, so it is the binding's own constant. Probing for it keeps a
+    # binding predating the v2 structure on the v1 path, instead of raising the
+    # dependency floor for it.
+    dev_mem_info_ver = getattr(pynvml, "nvmlMemory_v2", None)
+    if dev_mem_info_ver is not None:
+        with contextlib.suppress(pynvml.NVMLError):
+            dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(
+                dev,
+                version=dev_mem_info_ver,
+            )
+            return (
+                byte_to_mebibyte(dev_mem_info.total),
+                byte_to_mebibyte(dev_mem_info.used),
+            )
+
+    with contextlib.suppress(pynvml.NVMLError):
+        dev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(dev)
+        return (
+            byte_to_mebibyte(dev_mem_info.total),
+            byte_to_mebibyte(dev_mem_info.used),
+        )
+
+    return 0, 0
+
+
+def _get_memory_status(
+    dev: pynvml.c_nvmlDevice_t,
+    ecc_counter_type: int,
+    memory_location: int,
+) -> DeviceMemoryStatusEnum:
+    """
+    Get a device's memory health from its uncorrected ECC error counter.
+
+    Both queries produce it, mirroring the operator, which reports `Unhealthy`
+    from `DetectAccelerator` and `MonitorAccelerator` alike.
+
+    Args:
+        dev:
+            The NVML device handle.
+        ecc_counter_type:
+            The ECC counter type to read, volatile or aggregate.
+        memory_location:
+            The memory location to read the counter of.
+
+    Returns:
+        The memory status.
+
+    """
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    with contextlib.suppress(pynvml.NVMLError):
+        dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
+            dev,
+            pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+            ecc_counter_type,
+            memory_location,
+        )
+        if dev_mem_ecc_errors > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY
 
 
 def _get_gpm_metrics(
@@ -603,54 +775,48 @@ def _get_mig_devices(
     sys_runtime_ver,
     sys_runtime_ver_original,
     dev_cc,
-    dev_temp,
     dev_power,
-    dev_power_used,
     dev_bdf: str,
     dev_numa,
 ) -> list[dict]:
     """
-    Enumerate the card's current MIG devices with the same detail a plain
-    device carries (profile name, uuid, compute/memory utilization, memory
-    health, temperature and power), returned as appendix entries of the
-    physical card rather than standalone devices. Empty when MIG is enabled
-    but no GPU instances exist yet.
+    Enumerate the card's current MIG devices with the same inventory detail a
+    plain device carries (profile name, uuid, cores, total memory and memory
+    health), returned as appendix entries of the physical card rather than
+    standalone devices. Empty when MIG is enabled but no GPU instances exist
+    yet.
+
+    An entry keeps a Device's shape, so the fields the usage query owns are
+    present at a Device's defaults: `_get_mig_usages` fills them.
 
     Each entry's `index` is the driver slot the MIG device was found at:
     index_mig_devices turns it into the device index once every card is
     detected.
     """
     ret: list[dict] = []
-    with contextlib.suppress(pynvml.NVMLError):
-        for mdev_idx in range(dev_mig_slots):
-            mdev = None
-            with contextlib.suppress(pynvml.NVMLError):
-                mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+    for mdev_idx in range(dev_mig_slots):
+        # Suppressed per instance, not per card: one instance refusing a read
+        # used to abort the loop, so every later instance vanished from the
+        # inventory. An empty slot raises here as well, which is how it is
+        # skipped.
+        with contextlib.suppress(pynvml.NVMLError):
+            mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
             if not mdev:
                 continue
 
             mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
 
-            mdev_mem = 0
-            mdev_mem_used = 0
-            mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-            with contextlib.suppress(pynvml.NVMLError):
-                mdev_mem_info = pynvml.nvmlDeviceGetMemoryInfo(mdev)
-                mdev_mem = byte_to_mebibyte(mdev_mem_info.total)
-                mdev_mem_used = byte_to_mebibyte(mdev_mem_info.used)
-                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                    mdev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
-                        mdev,
-                        pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                        pynvml.NVML_AGGREGATE_ECC,
-                        pynvml.NVML_MEMORY_LOCATION_SRAM,
-                    )
-                    if mdev_mem_ecc_errors > 0:
-                        mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+            # A MIG device reports the partition's size, which carries no ECC
+            # reserve to restore: MIG-capable cards are HBM parts.
+            mdev_mem, _ = _get_memory_info(mdev)
+            mdev_mem_status = _get_memory_status(
+                mdev,
+                pynvml.NVML_AGGREGATE_ECC,
+                pynvml.NVML_MEMORY_LOCATION_SRAM,
+            )
 
             mdev_appendix = {
                 "arch_family": _get_arch_family(dev_cc_t),
-                "vgpu": True,
                 "sliced": True,
                 "mig": True,
                 "bdf": dev_bdf,
@@ -662,8 +828,6 @@ def _get_mig_devices(
             mdev_appendix["gpu_instance_id"] = mdev_gi_id
             mdev_ci_id = pynvml.nvmlDeviceGetComputeInstanceId(mdev)
             mdev_appendix["compute_instance_id"] = mdev_ci_id
-
-            mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
 
             mdev_name = ""
             mdev_cores = None
@@ -726,16 +890,80 @@ def _get_mig_devices(
                     "runtime_version_original": sys_runtime_ver_original,
                     "compute_capability": dev_cc,
                     "cores": mdev_cores,
-                    "cores_utilization": mdev_cores_util,
+                    "cores_utilization": 0,
                     "memory": mdev_mem,
-                    "memory_used": mdev_mem_used,
-                    "memory_utilization": get_utilization(mdev_mem_used, mdev_mem),
+                    "memory_used": 0,
+                    "memory_utilization": 0,
                     "memory_status": mdev_mem_status,
-                    "temperature": dev_temp,
+                    "temperature": None,
                     "power": dev_power,
-                    "power_used": dev_power_used,
+                    "power_used": None,
                     "appendix": mdev_appendix,
                 },
+            )
+    return ret
+
+
+def _get_mig_usages(
+    dev,
+    dev_mig_slots: int,
+    dev_temp,
+    dev_power_used,
+) -> Devices:
+    """
+    Fetch the usage of the card's current MIG devices, one UUID-keyed entry per
+    instance, to merge into the card's `appendix["mig_devices"]`.
+
+    Args:
+        dev:
+            The NVML device handle of the card hosting them.
+        dev_mig_slots:
+            The number of MIG devices the card can host.
+        dev_temp:
+            The card's temperature.
+        dev_power_used:
+            The card's used power.
+
+    Returns:
+        The MIG devices' usage, keyed by UUID.
+
+    """
+    ret: Devices = []
+    for mdev_idx in range(dev_mig_slots):
+        # Suppressed per instance, not per card: one instance refusing its UUID
+        # or its GPU instance id used to abort the loop, so every later instance
+        # kept the inventory's defaults -- 0 % and 0 MiB, reported idle while it
+        # may be running a workload. An empty slot raises here as well, which is
+        # how it is skipped.
+        with contextlib.suppress(pynvml.NVMLError):
+            mdev = pynvml.nvmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+            if not mdev:
+                continue
+
+            mdev_uuid = pynvml.nvmlDeviceGetUUID(mdev)
+
+            mdev_mem, mdev_mem_used = _get_memory_info(mdev)
+            mdev_mem_status = _get_memory_status(
+                mdev,
+                pynvml.NVML_AGGREGATE_ECC,
+                pynvml.NVML_MEMORY_LOCATION_SRAM,
+            )
+
+            mdev_gi_id = pynvml.nvmlDeviceGetGpuInstanceId(mdev)
+            mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
+
+            ret.append(
+                Device(
+                    uuid=mdev_uuid,
+                    cores_utilization=mdev_cores_util,
+                    memory_used=mdev_mem_used,
+                    memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
+                    memory_status=mdev_mem_status,
+                    # A MIG device reports neither temperature nor power, so it
+                    # carries the card's.
+                    temperature=dev_temp,
+                    power_used=dev_power_used,
+                ),
             )
     return ret
 
@@ -774,38 +1002,3 @@ def _get_arch_family(dev_cc_t: list[int]) -> str:
         case 10 | 12:
             return "Blackwell"
     return "Unknown"
-
-
-def _is_vgpu(dev_config: bytes) -> bool:
-    """
-    Determine if the device is a vGPU based on its PCI configuration space.
-
-    """
-    status = 0x06
-    cap_supported = 0x10
-    cap_start = 0x34
-    cap_vendor_specific_id = 0x09
-
-    if dev_config[status] & cap_supported == 0:
-        return False
-
-    # Find the capability list
-    dev_cap: bytes | None = None
-    visited = set()
-    pos = dev_config[cap_start]
-    while pos != 0 and pos not in visited and pos < len(dev_config) - 2:
-        visited.add(pos)
-        ptr = dev_config[pos : pos + 3]  # id, next, length
-        if ptr[0] == 0xFF:
-            break
-        if ptr[0] == cap_vendor_specific_id:
-            dev_cap = dev_config[pos : pos + ptr[2]]
-            break
-        pos = ptr[1]
-
-    if not dev_cap or len(dev_cap) < 5:
-        return False
-
-    # Check for vGPU signature,
-    # which is either 0x56 (NVIDIA vGPU) or 0x46 (NVIDIA GRID).
-    return dev_cap[3] == 0x56 or dev_cap[4] == 0x46
