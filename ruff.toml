@@ -123,6 +123,7 @@ parametrize-names-type = "csv"
 "gpustack_runtime/deployer/__patches__.py" = ["ALL"]
 "gpustack_runtime/detector/pyamdsmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyamdgpu/*.py" = ["ALL"]
+"gpustack_runtime/detector/pycndev/*.py" = ["ALL"]
 "gpustack_runtime/detector/pydcmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyhgml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyhsa/*.py" = ["ALL"]
