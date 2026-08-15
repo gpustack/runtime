@@ -16,6 +16,7 @@ from .__types__ import (
     ManufacturerEnum,
     Topology,
     TopologyDistanceEnum,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -90,9 +91,9 @@ class MetaXDetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.METAX)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect MetaX GPUs using pymtml.
+        Detect MetaX GPUs' inventory using pymxsml, without usage metrics.
 
         Returns:
             A list of detected MetaX GPU devices,
@@ -122,61 +123,30 @@ class MetaXDetector(Detector):
                     pymxsml.MXSML_VERSION_DRIVER,
                 )
 
+                # No virtualization-mode filter is applied: whatever the driver
+                # enumerates is reported. This used to skip
+                # MXSML_VIRTUALIZATION_MODE_PF, dropping the physical function,
+                # i.e. the whole card, so a virtualization-enabled host came up
+                # with zero devices. The operator drops VF instead; reporting
+                # every mode is a deliberate divergence from it.
                 dev_info = pymxsml.mxSmlGetDeviceInfo(dev_idx)
                 dev_uuid = dev_info.uuid
                 dev_name = dev_info.deviceName
-                if dev_info.mode == pymxsml.MXSML_VIRTUALIZATION_MODE_PF:
-                    continue
-
-                dev_core_util = pymxsml.mxSmlGetDeviceIpUsage(
-                    dev_idx,
-                    pymxsml.MXSML_USAGE_XCORE,
-                )
-                if dev_core_util is None:
-                    debug_log_warning(
-                        logger,
-                        "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
-                    )
-                    dev_core_util = 0
 
                 dev_mem_info = pymxsml.mxSmlGetMemoryInfo(dev_idx)
                 dev_mem = kibibyte_to_mebibyte(  # KiB to MiB
                     dev_mem_info.vramTotal,
                 )
-                dev_mem_used = kibibyte_to_mebibyte(  # KiB to MiB
-                    dev_mem_info.vramUse,
-                )
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                    with contextlib.suppress(pymxsml.MXSMLError):
-                        dev_ecc_errors = pymxsml.mxSmlGetTotalEccErrors(dev_idx)
-                        if dev_ecc_errors.dramUE > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                dev_mem_status = _get_memory_status(dev_idx)
 
-                dev_temp = (
-                    pymxsml.mxSmlGetTemperatureInfo(
-                        dev_idx,
-                        pymxsml.MXSML_TEMPERATURE_HOTSPOT,
-                    )
-                    // 100  # mC to C
-                )
-
+                # The board power *limit* is inventory, unlike the board power
+                # *usage*, which the usage query reads.
                 dev_power = (
                     pymxsml.mxSmlGetBoardPowerLimit(dev_idx) // 1000  # mW to W
                 )
-                dev_power_used = None
-                dev_power_info = pymxsml.mxSmlGetBoardPowerInfo(dev_idx)
-                if dev_power_info:
-                    dev_power_used = (
-                        sum(i.power if i.power else 0 for i in dev_power_info)
-                        // 1000  # mW to W
-                    )
 
                 dev_bdf = dev_info.bdfId
                 dev_card_id, dev_renderd_id = _get_card_and_renderd_id(dev_bdf)
-
-                dev_is_vgpu = dev_info.mode == pymxsml.MXSML_VIRTUALIZATION_MODE_VF
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
@@ -188,7 +158,6 @@ class MetaXDetector(Detector):
                         dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_appendix = {
-                    "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
                 }
                 if dev_numa:
@@ -207,14 +176,9 @@ class MetaXDetector(Detector):
                         driver_version=dev_driver_ver,
                         runtime_version=sys_runtime_ver,
                         runtime_version_original=sys_runtime_ver_original,
-                        cores_utilization=dev_core_util,
                         memory=dev_mem,
-                        memory_used=dev_mem_used,
-                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         memory_status=dev_mem_status,
-                        temperature=dev_temp,
                         power=dev_power,
-                        power_used=dev_power_used,
                         appendix=dev_appendix,
                     ),
                 )
@@ -227,6 +191,103 @@ class MetaXDetector(Detector):
             raise
 
         return ret
+
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch the usage of MetaX GPUs using pymxsml, merged into the given
+        devices in place.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage,
+            or None if not supported.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+            if devices is None:
+                return None
+
+        usages: Devices = []
+
+        try:
+            pymxsml.mxSmlInit()
+
+            dev_count = pymxsml.mxSmlGetDeviceCount()
+            for dev_idx in range(dev_count):
+                # MXSML enumerates by index and offers no lookup by UUID, so the
+                # whole set is read and merge_devices_usage keeps what the caller
+                # asked for, as the operator's MonitorAccelerator does.
+                dev_info = pymxsml.mxSmlGetDeviceInfo(dev_idx)
+                dev_uuid = dev_info.uuid
+
+                dev_core_util = pymxsml.mxSmlGetDeviceIpUsage(
+                    dev_idx,
+                    pymxsml.MXSML_USAGE_XCORE,
+                )
+                if dev_core_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_idx,
+                    )
+                    dev_core_util = 0
+
+                dev_mem_info = pymxsml.mxSmlGetMemoryInfo(dev_idx)
+                dev_mem = kibibyte_to_mebibyte(  # KiB to MiB
+                    dev_mem_info.vramTotal,
+                )
+                dev_mem_used = kibibyte_to_mebibyte(  # KiB to MiB
+                    dev_mem_info.vramUse,
+                )
+                dev_mem_status = _get_memory_status(dev_idx)
+
+                dev_temp = (
+                    pymxsml.mxSmlGetTemperatureInfo(
+                        dev_idx,
+                        pymxsml.MXSML_TEMPERATURE_HOTSPOT,
+                    )
+                    // 100  # mC to C
+                )
+
+                dev_power_used = None
+                dev_power_info = pymxsml.mxSmlGetBoardPowerInfo(dev_idx)
+                if dev_power_info:
+                    dev_power_used = (
+                        sum(i.power if i.power else 0 for i in dev_power_info)
+                        // 1000  # mW to W
+                    )
+
+                usages.append(
+                    Device(
+                        uuid=dev_uuid,
+                        cores_utilization=dev_core_util,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power_used=dev_power_used,
+                    ),
+                )
+
+        except pymxsml.MXSMLError:
+            debug_log_exception(logger, "Failed to fetch devices usage")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices usage fetching")
+            raise
+
+        return merge_devices_usage(devices, usages)
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
@@ -242,7 +303,7 @@ class MetaXDetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 
@@ -291,6 +352,34 @@ class MetaXDetector(Detector):
             raise
 
         return ret
+
+
+def _get_memory_status(dev_idx: int) -> DeviceMemoryStatusEnum:
+    """
+    Get the memory status of a given device.
+
+    Both the information and the usage query report it, mirroring the operator,
+    which flags a card unhealthy from DetectAccelerator and MonitorAccelerator
+    alike. The usage query cannot skip it: merging usage overwrites the status,
+    so a status it did not read would erase the one the information query found.
+
+    Args:
+        dev_idx:
+            The device index.
+
+    Returns:
+        The memory status of the device.
+
+    """
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    with contextlib.suppress(pymxsml.MXSMLError):
+        dev_ecc_errors = pymxsml.mxSmlGetTotalEccErrors(dev_idx)
+        if dev_ecc_errors.dramUE > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY
 
 
 def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:

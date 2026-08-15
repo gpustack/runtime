@@ -19,6 +19,7 @@ from .__types__ import (
     Topology,
     TopologyDistanceEnum,
     index_mig_devices,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -28,7 +29,6 @@ from .__utils__ import (
     get_numa_node_by_bdf,
     get_numa_nodeset_size,
     get_pci_devices,
-    get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
 )
@@ -81,9 +81,9 @@ class THeadDetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.THEAD)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect T-Head GPUs using pyhgml.
+        Detect T-Head GPUs' inventory using pyhgml, without usage metrics.
 
         Returns:
             A list of detected T-Head GPU devices,
@@ -148,27 +148,30 @@ class THeadDetector(Detector):
                         )
                         dev_numa = bitmask_to_str(list(dev_node_affinity))
 
-                dev_temp = None
-                with contextlib.suppress(pyhgml.HGMLError):
-                    dev_temp = pyhgml.hgmlDeviceGetTemperature(
-                        dev,
-                        pyhgml.HGML_TEMPERATURE_GPU,
-                    )
-
+                # The power limit is inventory; the power actually drawn is
+                # usage, and belongs to detect_usage.
                 dev_power = None
-                dev_power_used = None
                 with contextlib.suppress(pyhgml.HGMLError):
                     dev_power = pyhgml.hgmlDeviceGetPowerManagementDefaultLimit(dev)
                     dev_power = dev_power // 1000  # mW to W
-                    dev_power_used = (
-                        pyhgml.hgmlDeviceGetPowerUsage(dev) // 1000
-                    )  # mW to W
 
                 dev_mig_mode = pyhgml.HGML_DEVICE_MIG_DISABLE
                 with contextlib.suppress(pyhgml.HGMLError):
                     dev_mig_mode, _ = pyhgml.hgmlDeviceGetMigMode(dev)
 
                 dev_index = dev_idx
+
+                # Device.index is the enumeration index, while the driver's
+                # minor number goes to the appendix. Unlike NVIDIA's and
+                # Iluvatar's, the T-Head device node is named after the card
+                # ordinal and not after this number: the operator records it
+                # purely to PROVE a node addresses the card it describes, so it
+                # is left absent when the driver cannot answer rather than
+                # substituted by the enumeration index -- a substituted value
+                # would make a wrong ordinal look proven.
+                dev_minor_number = None
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_minor_number = pyhgml.hgmlDeviceGetMinorNumber(dev)
 
                 # Report the physical card, whether or not MIG is enabled.
                 # MIG instances are partitioned on demand by the operator's
@@ -184,48 +187,19 @@ class THeadDetector(Detector):
                 with contextlib.suppress(pyhgml.HGMLError):
                     dev_cores = pyhgml.hgmlDeviceGetNumGpuCores(dev)
 
-                dev_cores_util = None
-                with contextlib.suppress(pyhgml.HGMLError):
-                    dev_util_rates = pyhgml.hgmlDeviceGetUtilizationRates(dev)
-                    dev_cores_util = dev_util_rates.gpu
-                if dev_cores_util is None:
-                    debug_log_warning(
-                        logger,
-                        "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
-                    )
-                    dev_cores_util = 0
-
-                dev_mem = 0
-                dev_mem_used = 0
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                with contextlib.suppress(pyhgml.HGMLError):
-                    dev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(dev)
-                    dev_mem = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.total,
-                    )
-                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                        dev_mem_info.used,
-                    )
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                        dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
-                            dev,
-                            pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                            pyhgml.HGML_VOLATILE_ECC,
-                            pyhgml.HGML_MEMORY_LOCATION_DRAM,
-                        )
-                        if dev_mem_ecc_errors > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
-
-                dev_is_vgpu = False
-                if dev_bdf:
-                    dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
+                dev_mem, _ = _get_memory_info(dev)
+                dev_mem_status = _get_memory_status(
+                    dev,
+                    pyhgml.HGML_VOLATILE_ECC,
+                    pyhgml.HGML_MEMORY_LOCATION_DRAM,
+                )
 
                 dev_appendix = {
-                    "vgpu": dev_is_vgpu,
                     "mig": dev_mig_mode != pyhgml.HGML_DEVICE_MIG_DISABLE,
                     "bdf": dev_bdf,
                 }
+                if dev_minor_number is not None:
+                    dev_appendix["minor_number"] = dev_minor_number
                 if dev_mig_mode != pyhgml.HGML_DEVICE_MIG_DISABLE:
                     dev_mig_slots = 0
                     with contextlib.suppress(pyhgml.HGMLError):
@@ -238,9 +212,7 @@ class THeadDetector(Detector):
                         sys_runtime_ver,
                         sys_runtime_ver_original,
                         dev_cc,
-                        dev_temp,
                         dev_power,
-                        dev_power_used,
                         dev_bdf,
                         dev_numa,
                     )
@@ -260,14 +232,9 @@ class THeadDetector(Detector):
                         runtime_version_original=sys_runtime_ver_original,
                         compute_capability=dev_cc,
                         cores=dev_cores,
-                        cores_utilization=dev_cores_util,
                         memory=dev_mem,
-                        memory_used=dev_mem_used,
-                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         memory_status=dev_mem_status,
-                        temperature=dev_temp,
                         power=dev_power,
-                        power_used=dev_power_used,
                         appendix=dev_appendix,
                     ),
                 )
@@ -281,6 +248,115 @@ class THeadDetector(Detector):
             raise
 
         return ret
+
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch T-Head GPUs' usage using pyhgml, merged into the given devices.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID, GPU/compute instance
+                entries in ``appendix["mig_devices"]`` included.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage,
+            or None if not supported.
+
+        Raises:
+            If there is an error during fetching.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+        if not devices:
+            return devices
+
+        # The usage query enumerates the driver's devices on its own and returns
+        # them keyed by UUID, mirroring the operator's MonitorAccelerator: a
+        # metrics list is joined by device identity, never by index, as an index
+        # is not stable across a re-detection.
+        usages: Devices = []
+
+        try:
+            pyhgml.hgmlInit()
+
+            dev_count = pyhgml.hgmlDeviceGetCount()
+            for dev_idx in range(dev_count):
+                dev = pyhgml.hgmlDeviceGetHandleByIndex(dev_idx)
+
+                dev_uuid = pyhgml.hgmlDeviceGetUUID(dev)
+
+                dev_cores_util = None
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_util_rates = pyhgml.hgmlDeviceGetUtilizationRates(dev)
+                    dev_cores_util = dev_util_rates.gpu
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_idx,
+                    )
+                    dev_cores_util = 0
+
+                dev_mem, dev_mem_used = _get_memory_info(dev)
+                dev_mem_status = _get_memory_status(
+                    dev,
+                    pyhgml.HGML_VOLATILE_ECC,
+                    pyhgml.HGML_MEMORY_LOCATION_DRAM,
+                )
+
+                dev_temp = None
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_temp = pyhgml.hgmlDeviceGetTemperature(
+                        dev,
+                        pyhgml.HGML_TEMPERATURE_GPU,
+                    )
+
+                dev_power_used = None
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_power_used = (
+                        pyhgml.hgmlDeviceGetPowerUsage(dev) // 1000
+                    )  # mW to W
+
+                usages.append(
+                    Device(
+                        uuid=dev_uuid,
+                        cores_utilization=dev_cores_util,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power_used=dev_power_used,
+                    ),
+                )
+
+                dev_mig_mode = pyhgml.HGML_DEVICE_MIG_DISABLE
+                with contextlib.suppress(pyhgml.HGMLError):
+                    dev_mig_mode, _ = pyhgml.hgmlDeviceGetMigMode(dev)
+                if dev_mig_mode != pyhgml.HGML_DEVICE_MIG_DISABLE:
+                    dev_mig_slots = 0
+                    with contextlib.suppress(pyhgml.HGMLError):
+                        dev_mig_slots = pyhgml.hgmlDeviceGetMaxMigDeviceCount(dev)
+                    usages.extend(
+                        _get_mig_usages(
+                            dev,
+                            dev_mig_slots,
+                            dev_temp,
+                            dev_power_used,
+                        ),
+                    )
+        except pyhgml.HGMLError:
+            debug_log_exception(logger, "Failed to fetch devices usage")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices usage fetching")
+            raise
+
+        return merge_devices_usage(devices, usages)
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
@@ -296,7 +372,7 @@ class THeadDetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 
@@ -378,6 +454,71 @@ class THeadDetector(Detector):
             raise
 
         return ret
+
+
+def _get_memory_info(
+    dev: pyhgml.c_hgmlDevice_t,
+) -> tuple[int, int]:
+    """
+    Get a device's total and used memory.
+
+    Args:
+        dev:
+            The HGML device handle.
+
+    Returns:
+        The total and used memory in MiB, both 0 if unreadable.
+
+    """
+    with contextlib.suppress(pyhgml.HGMLError):
+        dev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(dev)
+        return (
+            byte_to_mebibyte(dev_mem_info.total),
+            byte_to_mebibyte(dev_mem_info.used),
+        )
+
+    return 0, 0
+
+
+def _get_memory_status(
+    dev: pyhgml.c_hgmlDevice_t,
+    ecc_counter_type: int,
+    memory_location: int,
+) -> DeviceMemoryStatusEnum:
+    """
+    Get a device's memory health from its uncorrected ECC error counter.
+
+    Both queries produce it, mirroring the operator, which reports `Unhealthy`
+    from `DetectAccelerator` and `MonitorAccelerator` alike. The usage query
+    cannot skip it: merging usage overwrites the status, so a status it did not
+    read would erase the one the information query found.
+
+    Args:
+        dev:
+            The HGML device handle.
+        ecc_counter_type:
+            The ECC counter type to read, volatile or aggregate.
+        memory_location:
+            The memory location to read the counter of.
+
+    Returns:
+        The memory status.
+
+    """
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    with contextlib.suppress(pyhgml.HGMLError):
+        dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
+            dev,
+            pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
+            ecc_counter_type,
+            memory_location,
+        )
+        if dev_mem_ecc_errors > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY
 
 
 def _get_gpm_metrics(
@@ -559,53 +700,46 @@ def _get_mig_devices(
     sys_runtime_ver,
     sys_runtime_ver_original,
     dev_cc,
-    dev_temp,
     dev_power,
-    dev_power_used,
     dev_bdf: str,
     dev_numa,
 ) -> list[dict]:
     """
-    Enumerate the card's current MIG devices with the same detail a plain
-    device carries (profile name, uuid, compute/memory utilization, memory
-    health, temperature and power), returned as appendix entries of the
-    physical card rather than standalone devices. Empty when MIG is enabled
-    but no GPU instances exist yet.
+    Enumerate the card's current MIG devices with the same inventory detail a
+    plain device carries (profile name, uuid, cores, total memory and memory
+    health), returned as appendix entries of the physical card rather than
+    standalone devices. Empty when MIG is enabled but no GPU instances exist
+    yet. The operator has no T-Head equivalent of this enumeration; keeping it
+    is a deliberate divergence.
+
+    An entry keeps a Device's shape, so the fields the usage query owns are
+    present at a Device's defaults: `_get_mig_usages` fills them.
 
     Each entry's `index` is the driver slot the MIG device was found at:
     index_mig_devices turns it into the device index once every card is
     detected.
     """
     ret: list[dict] = []
-    with contextlib.suppress(pyhgml.HGMLError):
-        for mdev_idx in range(dev_mig_slots):
-            mdev = None
-            with contextlib.suppress(pyhgml.HGMLError):
-                mdev = pyhgml.hgmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+    for mdev_idx in range(dev_mig_slots):
+        # Suppressed per instance, not per card: one instance refusing a read
+        # used to abort the loop, so every later instance vanished from the
+        # inventory. An empty slot raises here as well, which is how it is
+        # skipped.
+        with contextlib.suppress(pyhgml.HGMLError):
+            mdev = pyhgml.hgmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
             if not mdev:
                 continue
 
             mdev_uuid = pyhgml.hgmlDeviceGetUUID(mdev)
 
-            mdev_mem = 0
-            mdev_mem_used = 0
-            mdev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-            with contextlib.suppress(pyhgml.HGMLError):
-                mdev_mem_info = pyhgml.hgmlDeviceGetMemoryInfo(mdev)
-                mdev_mem = byte_to_mebibyte(mdev_mem_info.total)
-                mdev_mem_used = byte_to_mebibyte(mdev_mem_info.used)
-                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                    mdev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
-                        mdev,
-                        pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                        pyhgml.HGML_AGGREGATE_ECC,
-                        pyhgml.HGML_MEMORY_LOCATION_SRAM,
-                    )
-                    if mdev_mem_ecc_errors > 0:
-                        mdev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+            mdev_mem, _ = _get_memory_info(mdev)
+            mdev_mem_status = _get_memory_status(
+                mdev,
+                pyhgml.HGML_AGGREGATE_ECC,
+                pyhgml.HGML_MEMORY_LOCATION_SRAM,
+            )
 
             mdev_appendix = {
-                "vgpu": True,
                 "sliced": True,
                 "mig": True,
                 "bdf": dev_bdf,
@@ -617,8 +751,6 @@ def _get_mig_devices(
             mdev_appendix["gpu_instance_id"] = mdev_gi_id
             mdev_ci_id = pyhgml.hgmlDeviceGetComputeInstanceId(mdev)
             mdev_appendix["compute_instance_id"] = mdev_ci_id
-
-            mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
 
             mdev_name = ""
             mdev_cores = None
@@ -693,16 +825,80 @@ def _get_mig_devices(
                     "runtime_version_original": sys_runtime_ver_original,
                     "compute_capability": dev_cc,
                     "cores": mdev_cores,
-                    "cores_utilization": mdev_cores_util,
+                    "cores_utilization": 0,
                     "memory": mdev_mem,
-                    "memory_used": mdev_mem_used,
-                    "memory_utilization": get_utilization(mdev_mem_used, mdev_mem),
+                    "memory_used": 0,
+                    "memory_utilization": 0,
                     "memory_status": mdev_mem_status,
-                    "temperature": dev_temp,
+                    "temperature": None,
                     "power": dev_power,
-                    "power_used": dev_power_used,
+                    "power_used": None,
                     "appendix": mdev_appendix,
                 },
+            )
+    return ret
+
+
+def _get_mig_usages(
+    dev,
+    dev_mig_slots: int,
+    dev_temp,
+    dev_power_used,
+) -> Devices:
+    """
+    Fetch the usage of the card's current MIG devices, one UUID-keyed entry per
+    instance, to merge into the card's `appendix["mig_devices"]`.
+
+    Args:
+        dev:
+            The HGML device handle of the card hosting them.
+        dev_mig_slots:
+            The number of MIG devices the card can host.
+        dev_temp:
+            The card's temperature.
+        dev_power_used:
+            The card's used power.
+
+    Returns:
+        The MIG devices' usage, keyed by UUID.
+
+    """
+    ret: Devices = []
+    for mdev_idx in range(dev_mig_slots):
+        # Suppressed per instance, not per card: one instance refusing its UUID
+        # or its GPU instance id used to abort the loop, so every later instance
+        # kept the inventory's defaults -- 0 % and 0 MiB, reported idle while it
+        # may be running a workload. An empty slot raises here as well, which is
+        # how it is skipped.
+        with contextlib.suppress(pyhgml.HGMLError):
+            mdev = pyhgml.hgmlDeviceGetMigDeviceHandleByIndex(dev, mdev_idx)
+            if not mdev:
+                continue
+
+            mdev_uuid = pyhgml.hgmlDeviceGetUUID(mdev)
+
+            mdev_mem, mdev_mem_used = _get_memory_info(mdev)
+            mdev_mem_status = _get_memory_status(
+                mdev,
+                pyhgml.HGML_AGGREGATE_ECC,
+                pyhgml.HGML_MEMORY_LOCATION_SRAM,
+            )
+
+            mdev_gi_id = pyhgml.hgmlDeviceGetGpuInstanceId(mdev)
+            mdev_cores_util = _get_sm_util_from_gpm_metrics(dev, mdev_gi_id)
+
+            ret.append(
+                Device(
+                    uuid=mdev_uuid,
+                    cores_utilization=mdev_cores_util,
+                    memory_used=mdev_mem_used,
+                    memory_utilization=get_utilization(mdev_mem_used, mdev_mem),
+                    memory_status=mdev_mem_status,
+                    # A MIG device reports neither temperature nor power, so it
+                    # carries the card's.
+                    temperature=dev_temp,
+                    power_used=dev_power_used,
+                ),
             )
     return ret
 

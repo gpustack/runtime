@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dataclasses_json import dataclass_json
 
@@ -1132,6 +1132,165 @@ class WorkloadStatusOperation:
 
 @dataclass_json
 @dataclass
+class WorkloadStatusExit:
+    """
+    An exit information of a workload's container.
+
+    Attributes:
+        name (str):
+            Name representing the exited target, e.g., human-readable container name.
+        token (WorkloadOperationToken):
+            Token of the exited target, e.g., container ID.
+        exit_code (int | None):
+            Exit code of the container.
+        reason (str):
+            Short reason of the termination or the blocking.
+        message (str):
+            Detailed message of the termination or the blocking.
+        started_at (str):
+            Start time of the container's last execution.
+        finished_at (str):
+            Finish time of the container's last execution.
+        restart_count (int):
+            Restart times of the container.
+
+    """
+
+    name: str
+    """
+    Name representing the exited target, e.g., human-readable container name.
+    """
+    token: WorkloadOperationToken
+    """
+    Token of the exited target, e.g. container ID,
+    which addresses the same container as the logs/exec operations.
+    """
+    exit_code: int | None = None
+    """
+    Exit code of the container,
+    None if the container has not terminated, e.g. blocked from starting.
+    """
+    reason: str = ""
+    """
+    Short reason of the termination or the blocking,
+    e.g. "OOMKilled", "Error", "ImagePullBackOff".
+    """
+    message: str = ""
+    """
+    Detailed message of the termination or the blocking.
+    """
+    started_at: str = ""
+    """
+    Start time of the container's last execution,
+    empty if the container has never started.
+    """
+    finished_at: str = ""
+    """
+    Finish time of the container's last execution,
+    empty if the container has not finished.
+    """
+    restart_count: int = 0
+    """
+    Restart times of the container.
+    """
+
+
+_CONTAINER_EXITED_STATUSES = ("exited", "dead", "restarting")
+"""
+Container statuses carrying an exit code. "restarting" is one of them: a
+crash-looping container sits there between attempts with the last attempt's
+ExitCode already filled in, and that code is the diagnosis being asked for.
+"""
+
+_CONTAINER_UNSET_TIMESTAMP_PREFIX = "0001-01-01"
+"""
+What Docker fills an unset timestamp with -- Go's zero time -- rather than
+omitting the key, which is why a plain `.get(..., "")` never defaults.
+"""
+
+
+def parse_container_exit(
+    c: Any,
+    component_name_label: str,
+) -> WorkloadStatusExit | None:
+    """
+    Build the exit entry of a container that has terminated.
+
+    Docker and Podman report the same State object -- podman-py is Docker-API
+    compatible and both call sites inspect a fully reloaded container -- so both
+    deployers share this. Keeping it in one place is the point: the reason
+    derivation and the timestamp normalization below are exactly the kind of
+    detail that silently drifts when it lives in two files.
+
+    Args:
+        c:
+            A Docker-API-compatible container to inspect.
+        component_name_label:
+            The label the deployer names its components with.
+
+    Returns:
+        A WorkloadStatusExit if the container has terminated, None if it is
+        still running or pending and so contributes nothing.
+
+    """
+    if c.status not in _CONTAINER_EXITED_STATUSES:
+        return None
+
+    # Every read is .get()-able: a container whose State is missing keys (or
+    # missing entirely) must degrade gracefully, never raise.
+    state = c.attrs.get("State", {}) or {}
+
+    exit_code = state.get("ExitCode")
+    if state.get("OOMKilled"):
+        reason = "OOMKilled"
+    elif state.get("Error"):
+        reason = "Error"
+    elif exit_code not in (0, None):
+        # Docker fills State.Error for a container that failed to *start*, not
+        # for one that ran and exited non-zero -- the commonest crash of all.
+        # Without this the caller has an exit code and no reason, so it sets no
+        # state_message, while the Kubernetes deployer reports "Error" for the
+        # same event. Same field, same answer, either backend.
+        reason = "Error"
+    else:
+        reason = ""
+
+    return WorkloadStatusExit(
+        name=c.labels.get(component_name_label, "") or c.name,
+        token=c.attrs.get("Id", "") or c.name,
+        exit_code=exit_code,
+        reason=reason,
+        message=state.get("Error", ""),
+        started_at=_parse_container_timestamp(state.get("StartedAt")),
+        finished_at=_parse_container_timestamp(state.get("FinishedAt")),
+        restart_count=c.attrs.get("RestartCount", 0),
+    )
+
+
+def _parse_container_timestamp(value: str | None) -> str:
+    """
+    Normalize a container's State timestamp to what WorkloadStatusExit promises.
+
+    Args:
+        value:
+            The raw timestamp as the container's State reports it.
+
+    Returns:
+        The timestamp, empty if it never happened.
+
+    """
+    if not value or value.startswith(_CONTAINER_UNSET_TIMESTAMP_PREFIX):
+        # WorkloadStatusExit documents these as empty when they never happened,
+        # and Go's zero time rendered by a UI reads as "January 1, year 1".
+        return ""
+    # Docker reports 9-digit nanoseconds where the Kubernetes deployer formats 6
+    # (_TIMESTAMP_FORMAT), and strptime's %f accepts at most 6, so a consumer
+    # parsing this field would succeed on one backend and raise on the other.
+    return re.sub(r"(\.\d{6})\d+", r"\1", value)
+
+
+@dataclass_json
+@dataclass
 class WorkloadStatus:
     """
     Base status class for all workloads.
@@ -1153,6 +1312,9 @@ class WorkloadStatus:
             The operation for the executable containers of the workload.
         loggable (list[WorkloadStatusOperation]):
             The operation for the loggable containers of the workload.
+        exits (list[WorkloadStatusExit]):
+            The exit information for the terminated or start-blocked containers
+            of the workload.
         state (WorkloadStatusStateEnum):
             Current state of the workload.
 
@@ -1191,6 +1353,12 @@ class WorkloadStatus:
     loggable: list[WorkloadStatusOperation] | None = field(default_factory=list)
     """
     The operation for the loggable containers of the workload.
+    """
+    exits: list[WorkloadStatusExit] | None = field(default_factory=list)
+    """
+    The exit information for the terminated or start-blocked containers
+    of the workload, one entry per container.
+    Containers in neither state are not listed.
     """
     state: WorkloadStatusStateEnum = WorkloadStatusStateEnum.UNKNOWN
     """
@@ -1618,6 +1786,42 @@ class Deployer(ABC):
                     [rm.backend_values[ben].get(v, v) for v in resource_values],
                 )
         return ret
+
+    def map_visible_devices_ordering(
+        self,
+        runtime_envs: list[str],
+    ) -> dict[str, str]:
+        """
+        Return the device ordering environment variables
+        for the given runtime visible devices env names.
+
+        Only meaningful for a container seeing every device of the host:
+        it must number the devices as the detector, the driver and the vendor
+        tooling do, otherwise an index computed from detection addresses
+        another device inside the container.
+        For example, CUDA's default ordering, CUDA_DEVICE_ORDER=FASTEST_FIRST,
+        sorts the visible devices by a performance heuristic, which reshuffles
+        the ordinals on a heterogeneous host,
+        while PCI_BUS_ID sorts by PCI bus id, as NVML and the detector enumerate,
+        see https://github.com/gpustack/gpustack/issues/6041.
+        No other manufacturer documents such an ordering switch,
+        so none of them contributes a variable.
+
+        Args:
+            runtime_envs:
+                The runtime visible devices environment variable names.
+
+        Returns:
+            A dictionary mapping device ordering environment variable names
+            to corresponding values.
+
+        """
+        if any(
+            self.get_manufacturer(runtime_env) == ManufacturerEnum.NVIDIA
+            for runtime_env in runtime_envs
+        ):
+            return {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
+        return {}
 
     def map_visible_devices_affinities(
         self,

@@ -15,6 +15,7 @@ from .__types__ import (
     Devices,
     ManufacturerEnum,
     TopologyDistanceEnum,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -23,11 +24,10 @@ from .__utils__ import (
     get_brief_version,
     get_numa_node_by_bdf,
     get_pci_devices,
-    get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
 )
-from .amd import _get_arch_family
+from .amd import _get_arch_family, _get_pci_device_name_by_bdf
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +77,9 @@ class HygonDetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.HYGON)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect Hygon GPUs using pyrocmsmi.
+        Detect Hygon GPUs' inventory using pyrocmsmi, without usage metrics.
 
         Returns:
             A list of detected Hygon GPU devices,
@@ -128,7 +128,23 @@ class HygonDetector(Detector):
                     hsa_agents.get(dev_bdf) or hsa_agents.get(dev_uuid) or pyhsa.Agent()
                 )
 
-                dev_name = dev_hsa_agent.name
+                # The operator resolves the name from the local PCI ID database
+                # first: pci.ids knows the board -- the subsystem vendor's name
+                # for the card -- where the driver only knows the chip. The
+                # driver-reported names stay as fallbacks.
+                dev_name = _get_pci_device_name_by_bdf(dev_bdf)
+                if not dev_name:
+                    dev_name = dev_hsa_agent.name
+                if not dev_name and dev_card_id is not None:
+                    # The operator asks libdrm for the board's marketing name
+                    # between the HSA and the driver name, so this is that step.
+                    # Reached only when the two above found nothing, which is
+                    # why the device is opened here rather than up front.
+                    with (
+                        contextlib.suppress(pyamdgpu.AMDGPUError),
+                        pyamdgpu.amdgpu_device(dev_card_id) as dev_gpudev,
+                    ):
+                        dev_name = pyamdgpu.amdgpu_get_marketing_name(dev_gpudev)
                 if not dev_name:
                     dev_name = pyrocmsmi.rsmi_dev_name_get(dev_idx)
 
@@ -152,21 +168,8 @@ class HygonDetector(Detector):
                         if not dev_asic_family_id:
                             dev_asic_family_id = dev_gpudev_info.family_id
 
-                dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
-                dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
-                if dev_cores_util is None:
-                    debug_log_warning(
-                        logger,
-                        "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
-                    )
-                    dev_cores_util = 0
-
                 dev_mem = byte_to_mebibyte(  # byte to MiB
                     pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
-                )
-                dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                    pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                 )
                 dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
@@ -177,10 +180,9 @@ class HygonDetector(Detector):
                         if dev_ecc_count.uncorrectable_err > 0:
                             dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
+                # The power limit is inventory, while the used power belongs to
+                # the usage query.
                 dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
-                dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
-
-                dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
                 if not dev_numa:
@@ -191,7 +193,6 @@ class HygonDetector(Detector):
 
                 dev_appendix = {
                     "arch_family": _get_arch_family(dev_asic_family_id),
-                    "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
                 }
                 if dev_numa:
@@ -212,14 +213,9 @@ class HygonDetector(Detector):
                         runtime_version_original=sys_runtime_ver_original,
                         compute_capability=dev_cc,
                         cores=dev_cores,
-                        cores_utilization=dev_cores_util,
                         memory=dev_mem,
-                        memory_used=dev_mem_used,
-                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         memory_status=dev_mem_status,
-                        temperature=dev_temp,
                         power=dev_power,
-                        power_used=dev_power_used,
                         appendix=dev_appendix,
                     ),
                 )
@@ -231,6 +227,89 @@ class HygonDetector(Detector):
             raise
 
         return ret
+
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch Hygon GPUs' usage using pyrocmsmi.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage,
+            or None if not supported.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+        if not devices:
+            return devices
+
+        usages: Devices = []
+
+        try:
+            pyrocmsmi.rsmi_init()
+
+            devs_count = pyrocmsmi.rsmi_num_monitor_devices()
+            for dev_idx in range(devs_count):
+                dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
+
+                dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
+                dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_idx,
+                    )
+                    dev_cores_util = 0
+
+                dev_mem = byte_to_mebibyte(  # byte to MiB
+                    pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
+                )
+                dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                    pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
+                )
+                # Health is reported by both queries, as the operator reports it
+                # from DetectAccelerator and MonitorAccelerator alike.
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                    with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                        dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
+                            dev_idx,
+                        )
+                        if dev_ecc_count.uncorrectable_err > 0:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+
+                dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
+
+                usages.append(
+                    Device(
+                        uuid=dev_uuid,
+                        cores_utilization=dev_cores_util,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power_used=dev_power_used,
+                    ),
+                )
+        except pyrocmsmi.ROCMSMIError:
+            debug_log_exception(logger, "Failed to fetch devices usage")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices usage fetching")
+            raise
+
+        return merge_devices_usage(devices, usages)
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
@@ -246,7 +325,7 @@ class HygonDetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 

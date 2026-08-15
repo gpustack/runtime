@@ -389,6 +389,21 @@ class c_dcmi_chip_info_v2(_PrintableStructure):
     ]
 
 
+class c_dcmi_pcie_info(_PrintableStructure):
+    # The V1 struct, which -- unlike c_dcmi_pcie_info_all -- carries no domain,
+    # and orders the ids differently. Both are as dcmi_interface_api.h declares
+    # them.
+    _fields_: ClassVar = [
+        ("deviceid", c_uint),
+        ("venderid", c_uint),
+        ("subvenderid", c_uint),
+        ("subdeviceid", c_uint),
+        ("bdf_deviceid", c_uint),
+        ("bdf_busid", c_uint),
+        ("bdf_funcid", c_uint),
+    ]
+
+
 class c_dcmi_pcie_info_all(_PrintableStructure):
     _fields_: ClassVar = [
         ("venderid", c_uint),
@@ -430,6 +445,16 @@ class c_dcmi_hbm_info(_PrintableStructure):
         ("memory_usage", c_ulonglong),
         ("temp", c_int),
         ("bandwith_util_rate", c_uint),
+    ]
+
+
+class c_dcmi_memory_info(_PrintableStructure):
+    # The V2 struct, which carries no available memory, only the utilization
+    # percentage, unlike c_dcmi_get_memory_info_stru of V3.
+    _fields_: ClassVar = [
+        ("memory_size", c_ulonglong),
+        ("freq", c_uint),
+        ("utiliza", c_uint),
     ]
 
 
@@ -847,6 +872,14 @@ def dcmi_get_device_type(card_id, device_id):
     return c_device_type.value
 
 
+def dcmi_get_device_pcie_info(card_id, device_id):
+    c_pcie_info = c_dcmi_pcie_info()
+    fn = _dcmiGetFunctionPointer("dcmi_get_device_pcie_info")
+    ret = fn(card_id, device_id, byref(c_pcie_info))
+    _dcmiCheckReturn(ret)
+    return c_pcie_info
+
+
 def dcmi_get_device_pcie_info_v2(card_id, device_id):
     c_pcie_info = c_dcmi_pcie_info_all()
     fn = _dcmiGetFunctionPointer("dcmi_get_device_pcie_info_v2")
@@ -949,6 +982,14 @@ def dcmi_get_device_hbm_info(card_id, device_id):
     ret = fn(card_id, device_id, byref(c_hbm_info))
     _dcmiCheckReturn(ret)
     return c_hbm_info
+
+
+def dcmi_get_device_memory_info_v2(card_id, device_id):
+    c_memory_info = c_dcmi_memory_info()
+    fn = _dcmiGetFunctionPointer("dcmi_get_device_memory_info_v2")
+    ret = fn(card_id, device_id, byref(c_memory_info))
+    _dcmiCheckReturn(ret)
+    return c_memory_info
 
 
 def dcmi_get_device_memory_info_v3(card_id, device_id):
@@ -1117,6 +1158,17 @@ def dcmi_get_npu_work_mode(card_id):
     ret = fn(card_id, byref(c_work_mode))
     _dcmiCheckReturn(ret)
     return c_work_mode.value
+
+
+def dcmi_get_device_die(card_id, device_id):
+    # The V1 call takes no die type: it reports the SoC die only, which is what
+    # dcmi_get_device_die_v2 returns for DCMI_DIE_TYPE_VDIE. The struct is
+    # dcmi_soc_die_stru, laid out exactly as dcmi_die_id.
+    c_die_id = c_dcmi_die_id()
+    fn = _dcmiGetFunctionPointer("dcmi_get_device_die")
+    ret = fn(card_id, device_id, byref(c_die_id))
+    _dcmiCheckReturn(ret)
+    return " ".join([hex(i)[2:] for i in c_die_id.soc_die])
 
 
 def dcmi_get_device_die_v2(card_id, device_id, input_type):

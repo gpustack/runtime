@@ -1,9 +1,14 @@
+import json
 from datetime import datetime, timezone
 
 import kubernetes.client
 
 from gpustack_runtime import envs
-from gpustack_runtime.deployer.__types__ import WorkloadStatus
+from gpustack_runtime.deployer.__types__ import (
+    WorkloadStatus,
+    WorkloadStatusExit,
+    WorkloadStatusStateEnum,
+)
 from gpustack_runtime.deployer.kuberentes import (
     KubernetesWorkloadStatus,
     _pin_pod_for_kueue,
@@ -61,6 +66,76 @@ def test_workload_status_annotations_json_roundtrip():
     )
     restored = WorkloadStatus.from_json(status.to_json())
     assert restored.annotations == status.annotations
+
+
+def test_workload_status_exits_default_empty():
+    # Deployers that report no terminated container leave the list empty,
+    # so consumers can iterate it without a None check.
+    status = WorkloadStatus(name="test", created_at="2026-07-29T08:00:00.000000Z")
+    assert status.exits == []
+
+
+def test_workload_status_no_exits_json_roundtrip():
+    status = WorkloadStatus(name="test", created_at="2026-07-29T08:00:00.000000Z")
+    restored = WorkloadStatus.from_json(status.to_json())
+    assert restored.exits == []
+
+
+def test_workload_status_exits_json_roundtrip():
+    exits = [
+        # A terminated container, as Docker/Podman report it.
+        WorkloadStatusExit(
+            name="run-0",
+            token="a1b2c3",  # noqa: S106
+            exit_code=137,
+            reason="OOMKilled",
+            message="",
+            started_at="2026-07-29T08:00:00.000000Z",
+            finished_at="2026-07-29T08:05:00.000000Z",
+            restart_count=2,
+        ),
+        # A container blocked from starting, as Kubernetes reports it:
+        # a reason, and no exit code at all.
+        WorkloadStatusExit(
+            name="run-1",
+            token="run-1",  # noqa: S106
+            reason="ImagePullBackOff",
+            message='Back-off pulling image "does-not-exist.invalid/x:y"',
+        ),
+    ]
+    status = WorkloadStatus(
+        name="test",
+        created_at="2026-07-29T08:00:00.000000Z",
+        exits=exits,
+    )
+
+    restored = WorkloadStatus.from_json(status.to_json())
+
+    assert restored.exits == exits
+    assert all(isinstance(e, WorkloadStatusExit) for e in restored.exits)
+    assert restored.exits[1].exit_code is None
+
+
+def test_workload_status_exits_absent_in_legacy_payload():
+    # A payload serialized before the exit list existed must keep deserializing.
+    legacy = json.dumps(
+        {
+            "name": "test",
+            "created_at": "2026-07-29T08:00:00.000000Z",
+            "namespace": None,
+            "labels": {},
+            "annotations": {},
+            "state_message": "",
+            "executable": [],
+            "loggable": [],
+            "state": "Unknown",
+        },
+    )
+
+    restored = WorkloadStatus.from_json(legacy)
+
+    assert restored.exits == []
+    assert restored.state == WorkloadStatusStateEnum.UNKNOWN
 
 
 def _pinning_pod(labels=None) -> kubernetes.client.V1Pod:

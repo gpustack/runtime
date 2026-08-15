@@ -1,5 +1,6 @@
 from __future__ import annotations as __future_annotations__
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -7,6 +8,10 @@ from functools import lru_cache
 from typing import Any
 
 from dataclasses_json import dataclass_json
+
+from ..logging import debug_log_exception, debug_log_warning
+
+logger = logging.getLogger(__name__)
 
 
 class ManufacturerEnum(str, Enum):
@@ -157,11 +162,9 @@ class Device:
     """
     index: int = 0
     """
-    Index of the device.
-    If GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY is set to 1,
-    this will be the physical index of the device.
-    Otherwise, it will be the logical index of the device.
-    Physical index is adapted to non-virtualized devices.
+    Index of the device, as the detector enumerates it.
+    Driver-physical numbering, which a device node path or a vendor tool needs,
+    lives in `appendix` instead, e.g. `minor_number` or `card_id`/`physical_id`.
     """
     name: str = ""
     """
@@ -471,11 +474,10 @@ def index_mig_devices(
 
     A MIG device carries no driver-side inventory index, so its index is
     synthetic: every card owns a block of `slots` indexes, and the blocks
-    start above the largest index the physical cards report. The reported
-    index may be the card's minor number
-    (`GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY`), which is not bound by
-    the card count, hence the offset is measured from the reported indexes
-    instead of the count. Sizing a block by the slots a card can host, rather
+    start above the largest index the physical cards report. A detector's
+    reported index is not necessarily zero-based and contiguous — Ascend
+    reports the DCMI logic id — hence the offset is measured from the reported
+    indexes instead of the card count. Sizing a block by the slots a card can host, rather
     than by the MIG devices it currently has, keeps a card's numbering
     independent of its neighbours: partitioning one card never renumbers
     another's MIG devices.
@@ -495,6 +497,113 @@ def index_mig_devices(
     for dev_idx, migs in mig_devices.items():
         for mig in migs:
             mig["index"] += base + dev_idx * slots
+
+
+_DEVICE_USAGE_FIELDS = (
+    "cores_utilization",
+    "memory_used",
+    "memory_utilization",
+    "memory_status",
+    "temperature",
+    "power_used",
+)
+"""
+The fields the usage query owns, i.e. everything a detector must re-read to
+refresh a device it already knows. `memory_status` belongs to both queries,
+mirroring the operator, which reports health from `DetectAccelerator` and
+`MonitorAccelerator` alike.
+"""
+
+
+def merge_devices_usage(
+    devices: Devices | None,
+    usages: Devices | None,
+) -> Devices | None:
+    """
+    Merge the given usage into the given devices in place, matched by UUID.
+
+    The usage query returns devices of its own, keyed by UUID, which this
+    joins into the devices to refresh: the operator does the same, its
+    `MonitorAccelerator` returning a separate metrics list that every consumer
+    joins by device identity and never by index, as an index is not stable
+    across a re-detection.
+
+    MIG devices are refreshed as well: they live in the card's
+    `appendix["mig_devices"]` and carry their own UUID, so a usage entry
+    matching one is merged into that entry.
+
+    Args:
+        devices:
+            The devices to refresh.
+        usages:
+            The devices carrying the usage to merge.
+
+    Returns:
+        The given devices, refreshed.
+
+    """
+    if not devices or not usages:
+        return devices
+
+    # The join is only as good as the identities behind it, and a driver
+    # answering the same id for every card is how that breaks: taking either
+    # entry would write one card's utilization, memory and temperature onto
+    # another. An ambiguous id is therefore dropped rather than guessed at,
+    # leaving those cards with what the information query read.
+    usages_map: dict[str, Device] = {}
+    ambiguous_uuids: set[str] = set()
+    for usage in usages:
+        if not usage.uuid:
+            continue
+        if usage.uuid in usages_map:
+            ambiguous_uuids.add(usage.uuid)
+            continue
+        usages_map[usage.uuid] = usage
+    for uuid in ambiguous_uuids:
+        debug_log_warning(
+            logger,
+            "Skipping usage of uuid %s, reported by more than one device",
+            uuid,
+        )
+        del usages_map[uuid]
+
+    for dev in devices:
+        if usage := usages_map.get(dev.uuid):
+            for field in _usage_fields_to_merge(usage):
+                setattr(dev, field, getattr(usage, field))
+
+        # Keyed by the instance's own UUID, so what lands in a MIG entry is the
+        # usage query's reading for that instance -- the entry is written, never
+        # read from.
+        for mig_dev in (dev.appendix or {}).get("mig_devices") or []:
+            if mig_usage := usages_map.get(mig_dev.get("uuid")):
+                for field in _usage_fields_to_merge(mig_usage):
+                    mig_dev[field] = getattr(mig_usage, field)
+
+    return devices
+
+
+def _usage_fields_to_merge(usage: Device) -> tuple[str, ...]:
+    """
+    Select the fields of the given usage entry that are worth writing over a device.
+
+    Args:
+        usage:
+            The device carrying the usage to merge.
+
+    Returns:
+        The names of the fields to copy.
+
+    """
+    if usage.memory_status != DeviceMemoryStatusEnum.UNKNOWN:
+        return _DEVICE_USAGE_FIELDS
+
+    # No vendor's health helper returns UNKNOWN: they answer HEALTHY or
+    # UNHEALTHY, and HEALTHY when the check is switched off. So an entry carrying
+    # UNKNOWN never read health, and writing it would erase the verdict the
+    # information query found -- which the CLI renders as ERR, exactly as it
+    # renders UNHEALTHY.
+    return tuple(field for field in _DEVICE_USAGE_FIELDS if field != "memory_status")
 
 
 class Detector(ABC):
@@ -537,15 +646,62 @@ class Detector(ABC):
         return str(self.manufacturer)
 
     @abstractmethod
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
+        """
+        Detect devices' inventory, without usage metrics.
+
+        Returns:
+            A list of detected Device objects, or None if not supported.
+
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch the usage of the given devices, merged into them in place.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID, MIG entries in
+                ``appendix["mig_devices"]`` included.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage, or None if not supported.
+
+        """
+        raise NotImplementedError
+
+    def detect(self, usage: bool = True) -> Devices | None:
         """
         Detect devices and return a list of Device objects.
+
+        Args:
+            usage:
+                Whether to fetch the devices' usage as well.
 
         Returns:
             A list of detected Device objects, or None if detection fails.
 
         """
-        raise NotImplementedError
+        devices = self.detect_info()
+        if usage and devices:
+            try:
+                self.detect_usage(devices)
+            except Exception:
+                # The inventory is already in hand, and a card exists whether or
+                # not its metrics could be read. Letting this propagate costs
+                # every device of the vendor -- detect_devices logs and moves on
+                # -- so a host with eight healthy cards reports none because one
+                # metric query failed. The usage fields keep what the
+                # information query read.
+                debug_log_exception(
+                    logger,
+                    "Failed to fetch %s devices usage, reporting information only",
+                    self.manufacturer,
+                )
+        return devices
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """

@@ -18,6 +18,7 @@ from .__types__ import (
     ManufacturerEnum,
     Topology,
     TopologyDistanceEnum,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -92,9 +93,9 @@ class AscendDetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.ASCEND)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect Ascend NPUs using pydcmi.
+        Detect Ascend NPUs' inventory using pydcmi, without usage metrics.
 
         Returns:
             A list of detected Ascend NPU devices,
@@ -121,82 +122,54 @@ class AscendDetector(Detector):
             for dev_card_id in card_list:
                 device_num_in_card = pydcmi.dcmi_get_device_num_in_card(dev_card_id)
                 for dev_device_id in range(device_num_in_card):
-                    dev_is_vgpu = False
-                    dev_virt_info = _get_device_virtual_info(
-                        dev_card_id,
-                        dev_device_id,
-                    )
-                    if (
-                        dev_virt_info
-                        and hasattr(dev_virt_info, "query_info")
-                        and hasattr(dev_virt_info.query_info, "computing")
-                    ):
-                        dev_is_vgpu = True
-                        dev_cores_aicore = dev_virt_info.query_info.computing.aic
-                        dev_name = dev_virt_info.query_info.name
-                        dev_mem = 0
-                        dev_mem_used = 0
-                        dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
-                        if hasattr(dev_virt_info.query_info.computing, "memory_size"):
-                            dev_mem = dev_virt_info.query_info.computing.memory_size
-                        dev_index = dev_virt_info.vdev_id
-                    else:
-                        dev_chip_info = pydcmi.dcmi_get_device_chip_info_v2(
-                            dev_card_id,
-                            dev_device_id,
-                        )
-                        dev_cores_aicore = dev_chip_info.aicore_cnt
-                        dev_name = dev_chip_info.chip_name
-                        dev_mem, dev_mem_used = _get_device_memory_info(
-                            dev_card_id,
-                            dev_device_id,
-                        )
-                        dev_mem_status = _get_device_memory_status(
-                            dev_card_id,
-                            dev_device_id,
-                        )
-                        dev_index = pydcmi.dcmi_get_device_logic_id(
-                            dev_card_id,
-                            dev_device_id,
-                        )
-                        if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                            dev_index = pydcmi.dcmi_get_device_phyid_from_logicid(
-                                dev_index,
-                            )
-                    dev_uuid = pydcmi.dcmi_get_device_die_v2(
-                        dev_card_id,
-                        dev_device_id,
-                        pydcmi.DCMI_DIE_TYPE_VDIE,
-                    )
+                    if not _is_npu_device(dev_card_id, dev_device_id):
+                        continue
 
-                    dev_util_aicore = pydcmi.dcmi_get_device_utilization_rate(
+                    dev_chip_info = _get_device_chip_info(
                         dev_card_id,
                         dev_device_id,
-                        pydcmi.DCMI_INPUT_TYPE_AICORE,
                     )
-                    if dev_util_aicore is None:
-                        debug_log_warning(
-                            logger,
-                            "Failed to get device %d cores utilization, setting to 0",
+                    dev_cores_aicore = dev_chip_info.aicore_cnt
+                    dev_name = dev_chip_info.chip_name
+                    dev_mem, _ = _get_device_memory_info(
+                        dev_card_id,
+                        dev_device_id,
+                    )
+                    dev_mem_status = _get_device_memory_status(
+                        dev_card_id,
+                        dev_device_id,
+                    )
+                    dev_index = pydcmi.dcmi_get_device_logic_id(
+                        dev_card_id,
+                        dev_device_id,
+                    )
+                    # Device.index is the logic id the driver enumerates
+                    # the NPU at, while the physical id is what a device
+                    # node path is made of, so the latter goes to the
+                    # appendix beside the card and device ids. Mirrors the
+                    # operator, which keeps a sequential Index next to
+                    # PhysicalIndexes.
+                    #
+                    # A device whose physical id cannot be read cannot be
+                    # addressed at all: /dev/davinciN is numbered by it, and
+                    # the logic id is a different number, so standing in for
+                    # it would hand a container another NPU's node. The
+                    # operator skips such a device for the same reason.
+                    try:
+                        dev_physical_id = pydcmi.dcmi_get_device_phyid_from_logicid(
                             dev_index,
                         )
-                        dev_util_aicore = 0
-
-                    dev_temp = pydcmi.dcmi_get_device_temperature(
-                        dev_card_id,
-                        dev_device_id,
-                    )
-
-                    dev_power_used = None
-                    with contextlib.suppress(pydcmi.DCMIError):
-                        dev_power_used = pydcmi.dcmi_get_device_power_info(
-                            dev_card_id,
-                            dev_device_id,
+                    except pydcmi.DCMIError:
+                        debug_log_warning(
+                            logger,
+                            "Failed to fetch physical id of device %d, skipping it",
+                            dev_index,
                         )
-                    if dev_power_used:
-                        dev_power_used = dev_power_used / 10  # 0.1W to W
+                        continue
 
-                    dev_bdf = pydcmi.dcmi_get_device_bdf(
+                    dev_uuid = _get_device_die(dev_card_id, dev_device_id)
+
+                    dev_bdf = _get_device_bdf(
                         dev_card_id,
                         dev_device_id,
                     )
@@ -214,11 +187,11 @@ class AscendDetector(Detector):
 
                     dev_appendix = {
                         "arch_family": _guess_soc_name_from_dev_name(dev_name),
-                        "vgpu": dev_is_vgpu,
                         "bdf": dev_bdf,
                         "card_id": dev_card_id,
                         "device_id": dev_device_id,
                         "device_id_max": device_num_in_card - 1,
+                        "physical_id": dev_physical_id,
                     }
                     if dev_numa:
                         dev_appendix["numa"] = dev_numa
@@ -246,13 +219,8 @@ class AscendDetector(Detector):
                             runtime_version=sys_runtime_ver,
                             runtime_version_original=sys_runtime_ver_original,
                             cores=dev_cores_aicore,
-                            cores_utilization=dev_util_aicore,
                             memory=dev_mem,
-                            memory_used=dev_mem_used,
-                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
                             memory_status=dev_mem_status,
-                            temperature=dev_temp,
-                            power_used=dev_power_used,
                             appendix=dev_appendix,
                         ),
                     )
@@ -264,6 +232,110 @@ class AscendDetector(Detector):
             raise
 
         return ret
+
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch Ascend NPUs' usage using pydcmi.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage, or None if not supported.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+        if not devices:
+            return devices
+
+        usages: Devices = []
+
+        try:
+            pydcmi.dcmi_init()
+
+            _, card_list = pydcmi.dcmi_get_card_list()
+            for dev_card_id in card_list:
+                device_num_in_card = pydcmi.dcmi_get_device_num_in_card(dev_card_id)
+                for dev_device_id in range(device_num_in_card):
+                    # The operator filters by device type in MonitorAccelerator
+                    # as well, not only when detecting.
+                    if not _is_npu_device(dev_card_id, dev_device_id):
+                        continue
+
+                    dev_uuid = _get_device_die(dev_card_id, dev_device_id)
+
+                    # The operator's MonitorAccelerator re-reads the memory
+                    # rather than trusting the detection pass.
+                    dev_mem, dev_mem_used = _get_device_memory_info(
+                        dev_card_id,
+                        dev_device_id,
+                    )
+                    dev_mem_status = _get_device_memory_status(
+                        dev_card_id,
+                        dev_device_id,
+                    )
+
+                    dev_util_aicore = None
+                    with contextlib.suppress(pydcmi.DCMIError):
+                        dev_util_aicore = pydcmi.dcmi_get_device_utilization_rate(
+                            dev_card_id,
+                            dev_device_id,
+                            pydcmi.DCMI_INPUT_TYPE_AICORE,
+                        )
+                    if dev_util_aicore is None:
+                        debug_log_warning(
+                            logger,
+                            "Failed to get device %d/%d cores utilization, "
+                            "setting to 0",
+                            dev_card_id,
+                            dev_device_id,
+                        )
+                        dev_util_aicore = 0
+
+                    dev_temp = None
+                    with contextlib.suppress(pydcmi.DCMIError):
+                        dev_temp = pydcmi.dcmi_get_device_temperature(
+                            dev_card_id,
+                            dev_device_id,
+                        )
+
+                    dev_power_used = None
+                    with contextlib.suppress(pydcmi.DCMIError):
+                        dev_power_used = pydcmi.dcmi_get_device_power_info(
+                            dev_card_id,
+                            dev_device_id,
+                        )
+                    if dev_power_used:
+                        dev_power_used = dev_power_used / 10  # 0.1W to W
+
+                    usages.append(
+                        Device(
+                            uuid=dev_uuid.upper(),
+                            cores_utilization=dev_util_aicore,
+                            memory_used=dev_mem_used,
+                            memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                            memory_status=dev_mem_status,
+                            temperature=dev_temp,
+                            power_used=dev_power_used,
+                        ),
+                    )
+        except pydcmi.DCMIError:
+            debug_log_exception(logger, "Failed to fetch devices usage")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices usage fetching")
+            raise
+
+        return merge_devices_usage(devices, usages)
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
@@ -279,7 +351,7 @@ class AscendDetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 
@@ -340,6 +412,118 @@ class AscendDetector(Detector):
         return ret
 
 
+def _is_npu_device(dev_card_id, dev_device_id) -> bool:
+    """
+    Report whether the given device of the card is an NPU.
+
+    A card also carries non-NPU units, like its MCU, which are not
+    accelerators. Mirrors the operator, which skips a device only when the
+    type call *succeeds* and reports something other than an NPU: a device
+    whose type cannot be read is kept.
+
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
+    Returns:
+        True if the device is an NPU, or its type is unreadable.
+
+    """
+    dev_type = None
+    with contextlib.suppress(pydcmi.DCMIError):
+        dev_type = pydcmi.dcmi_get_device_type(dev_card_id, dev_device_id)
+
+    if dev_type is not None and dev_type != pydcmi.DCMI_UNIT_TYPE_NPU:
+        slogger.debug(
+            "Skipping non-NPU device %d of card %d, type %d",
+            dev_device_id,
+            dev_card_id,
+            dev_type,
+        )
+        return False
+
+    return True
+
+
+def _get_device_die(dev_card_id, dev_device_id) -> str:
+    """
+    Get the device's SoC die, which identifies it.
+
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
+    Returns:
+        The die as a string.
+
+    """
+    try:
+        return pydcmi.dcmi_get_device_die_v2(
+            dev_card_id,
+            dev_device_id,
+            pydcmi.DCMI_DIE_TYPE_VDIE,
+        )
+    except pydcmi.DCMIError:
+        # An older driver exposes the V1 call only, which takes no die type
+        # and reports the SoC die directly. Mirrors the operator's
+        # VDieHandler, which tries V2 then V1.
+        return pydcmi.dcmi_get_device_die(dev_card_id, dev_device_id)
+
+
+def _get_device_bdf(dev_card_id, dev_device_id) -> str:
+    """
+    Get the device's PCI bus address.
+
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
+    Returns:
+        The BDF as a string.
+
+    """
+    try:
+        return pydcmi.dcmi_get_device_bdf(dev_card_id, dev_device_id)
+    except pydcmi.DCMIError:
+        # An older driver exposes the V1 PCIe call only, whose struct carries
+        # no PCI domain, so the domain reads as 0 -- as the operator's
+        # PcieInfoHandler.V1 leaves it when widening to the V2 struct.
+        dev_pcie_info = pydcmi.dcmi_get_device_pcie_info(dev_card_id, dev_device_id)
+        return (
+            f"0000:{dev_pcie_info.bdf_busid:02x}:"
+            f"{dev_pcie_info.bdf_deviceid:02x}.{dev_pcie_info.bdf_funcid:x}"
+        )
+
+
+def _get_device_chip_info(dev_card_id, dev_device_id):
+    """
+    Get the device's chip information.
+
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
+    Returns:
+        The chip information, carrying at least chip_name and aicore_cnt.
+
+    """
+    try:
+        return pydcmi.dcmi_get_device_chip_info_v2(dev_card_id, dev_device_id)
+    except pydcmi.DCMIError:
+        # The binding's V2 wrapper already falls back when the symbol is
+        # missing; the operator's ChipInfoHandler falls back on any failure,
+        # which an older driver rejecting the V2 struct produces.
+        return pydcmi.dcmi_get_device_chip_info(dev_card_id, dev_device_id)
+
+
 def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
     """
     Get device memory information.
@@ -357,35 +541,57 @@ def _get_device_memory_info(dev_card_id, dev_device_id) -> tuple[int, int]:
     try:
         dev_hbm_info = pydcmi.dcmi_get_device_hbm_info(dev_card_id, dev_device_id)
         if dev_hbm_info.memory_size > 0:
-            dev_mem = dev_hbm_info.memory_size
-            dev_mem_used = dev_hbm_info.memory_usage
-        else:
-            dev_memory_info = pydcmi.dcmi_get_device_memory_info_v3(
-                dev_card_id,
-                dev_device_id,
-            )
-            dev_mem = dev_memory_info.memory_size
-            dev_mem_used = (
-                dev_memory_info.memory_size - dev_memory_info.memory_available
-            )
+            return dev_hbm_info.memory_size, dev_hbm_info.memory_usage
     except pydcmi.DCMIError as e:
-        if e.value in [
+        if e.value not in [
             pydcmi.DCMI_ERROR_FUNCTION_NOT_FOUND,
             pydcmi.DCMI_ERROR_NOT_SUPPORT,
             pydcmi.DCMI_ERROR_NOT_SUPPORT_IN_CONTAINER,
         ]:
-            dev_memory_info = pydcmi.dcmi_get_device_memory_info_v3(
-                dev_card_id,
-                dev_device_id,
-            )
-            dev_mem = dev_memory_info.memory_size
-            dev_mem_used = (
-                dev_memory_info.memory_size - dev_memory_info.memory_available
-            )
-        else:
             raise
 
-    return dev_mem, dev_mem_used
+    return _get_device_memory_info_without_hbm(dev_card_id, dev_device_id)
+
+
+def _get_device_memory_info_without_hbm(dev_card_id, dev_device_id) -> tuple[int, int]:
+    """
+    Get device memory information from the non-HBM calls.
+
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
+    Returns:
+        A tuple containing total memory and used memory in MiB.
+
+    """
+    try:
+        dev_memory_info = pydcmi.dcmi_get_device_memory_info_v3(
+            dev_card_id,
+            dev_device_id,
+        )
+    except pydcmi.DCMIError:
+        # An older driver exposes the V2 call only, as the operator's
+        # MemoryHandler.V2 uses.
+        dev_memory_info_v2 = pydcmi.dcmi_get_device_memory_info_v2(
+            dev_card_id,
+            dev_device_id,
+        )
+        dev_mem = dev_memory_info_v2.memory_size
+        # Divergence from the operator, deliberate: it computes
+        # `memory_size - memory_available` here too, but the V2 struct has no
+        # available figure at all and its conversion leaves that field zero,
+        # so it reports every card as fully used -- indistinguishable from a
+        # real out-of-memory condition. The utilization percentage the struct
+        # does carry is the only used-memory signal on this path.
+        return dev_mem, dev_mem * dev_memory_info_v2.utiliza // 100
+
+    return (
+        dev_memory_info.memory_size,
+        dev_memory_info.memory_size - dev_memory_info.memory_available,
+    )
 
 
 def _get_device_memory_status(dev_card_id, dev_device_id) -> DeviceMemoryStatusEnum:
@@ -448,34 +654,6 @@ def _get_device_roce_network_info(
         debug_log_exception(logger, "Failed to get device RoCE network info")
 
     return ip, mask, gateway
-
-
-def _get_device_virtual_info(
-    dev_card_id,
-    dev_device_id,
-) -> pydcmi.c_dcmi_vdev_query_stru | None:
-    """
-    Get device virtual information.
-
-    Returns:
-        A c_dcmi_vdev_query_stru object if successful, None otherwise.
-
-    """
-    try:
-        c_vdev_query_stru = pydcmi.c_dcmi_vdev_query_stru()
-        pydcmi.dcmi_get_device_info(
-            dev_card_id,
-            dev_device_id,
-            pydcmi.DCMI_MAIN_CMD_VDEV_MNG,
-            pydcmi.DCMI_VMNG_SUB_CMD_GET_VDEV_RESOURCE,
-            c_vdev_query_stru,
-        )
-    except pydcmi.DCMIError:
-        debug_log_exception(logger, "Failed to get device virtual info")
-    else:
-        return c_vdev_query_stru
-
-    return None
 
 
 def _get_toolkit_home() -> Path:

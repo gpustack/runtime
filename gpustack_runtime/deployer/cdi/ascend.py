@@ -112,9 +112,17 @@ class AscendGenerator(Generator):
 
             container_device_nodes = []
 
-            cdn_path = f"/dev/davinci{dev.index}"
-            if dev.appendix.get("vgpu", False):
-                cdn_path = f"/dev/vdavinci{dev.index}"
+            # The device node is numbered by the driver's physical id, which
+            # Device.index no longer carries: it is the detector's enumeration
+            # index, i.e. the DCMI logic id here. The two are different
+            # numbers, so a device without a physical id is skipped instead of
+            # addressed by the index, which would resolve to another NPU's
+            # node. The detector already drops such a device; this guards the
+            # devices a caller passes in.
+            cdn_number = dev.appendix.get("physical_id")
+            if cdn_number is None:
+                continue
+            cdn_path = f"/dev/davinci{cdn_number}"
             cdn = device_to_cdi_device_node(
                 path=cdn_path,
             )

@@ -48,6 +48,7 @@ from .__types__ import (
     WorkloadStatus,
     WorkloadStatusOperation,
     WorkloadStatusStateEnum,
+    parse_container_exit,
 )
 from .__utils__ import (
     _MiB,
@@ -281,6 +282,12 @@ class PodmanWorkloadStatus(WorkloadStatus):
                 case "run":
                     self.executable.append(op)
                     self.loggable.append(op)
+
+            exit_ = parse_container_exit(c, _LABEL_COMPONENT_NAME)
+            if exit_ is not None:
+                self.exits.append(exit_)
+                if exit_.reason and not self.state_message:
+                    self.state_message = exit_.message or exit_.reason
 
         self.state = self.parse_state(d_containers)
 
@@ -1089,6 +1096,19 @@ class PodmanDeployer(EndoscopicDeployer):
                             resource_values,
                         )
                         create_options["environment"].update(b_vs)
+
+                    # If requesting all devices or privileged,
+                    # the container sees every device of the host,
+                    # so pin the device ordering to keep its numbering
+                    # aligned with the detection.
+                    if r_v == "all" or privileged:
+                        o_vs = self.map_visible_devices_ordering(runtime_envs)
+                        # Take the ordering as default,
+                        # never overwrite the one declared by the container.
+                        create_options["environment"] = {
+                            **o_vs,
+                            **create_options["environment"],
+                        }
 
                     # Configure affinity if applicable.
                     create_options.update(

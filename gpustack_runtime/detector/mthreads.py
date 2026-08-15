@@ -14,6 +14,7 @@ from .__types__ import (
     ManufacturerEnum,
     Topology,
     TopologyDistanceEnum,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -86,9 +87,9 @@ class MThreadsDetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.MTHREADS)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect MThreads GPUs using pymtml.
+        Detect MThreads GPUs' inventory using pymtml, without usage metrics.
 
         Returns:
             A list of detected MThreads GPU devices,
@@ -115,62 +116,34 @@ class MThreadsDetector(Detector):
                 dev_uuid = ""
                 dev_name = ""
                 dev_cores = 0
-                dev_power_used = None
                 dev_pci_info = None
-                dev_is_vgpu = False
                 dev = pymtml.mtmlLibraryInitDeviceByIndex(dev_idx)
                 try:
-                    dev_props = pymtml.mtmlDeviceGetProperty(dev)
-                    dev_is_vgpu = (
-                        dev_props.virtRole == pymtml.MTML_VIRT_ROLE_HOST_VIRTDEVICE
-                    )
-                    if (
-                        dev_is_vgpu
-                        and dev_props.mpcCap != pymtml.MTML_MPC_TYPE_INSTANCE
-                    ):
-                        continue
-
+                    # No virtRole filter is applied: whatever the driver
+                    # enumerates is reported. This used to read the device
+                    # property and skip a MTML_VIRT_ROLE_HOST_VIRTDEVICE card
+                    # whose `mpcCap` was not MTML_MPC_TYPE_INSTANCE -- a field
+                    # c_mtmlDeviceProperty_t does not have, so the read raised
+                    # AttributeError and failed the whole detect pass instead.
+                    # The operator skips GUEST_VIRTDEVICE instead; reporting
+                    # every role is a deliberate divergence from it.
                     dev_uuid = pymtml.mtmlDeviceGetUUID(dev)
                     dev_name = pymtml.mtmlDeviceGetName(dev)
                     dev_cores = pymtml.mtmlDeviceCountGpuCores(dev)
-                    dev_power_used = pymtml.mtmlDeviceGetPowerUsage(dev)
                     dev_pci_info = pymtml.mtmlDeviceGetPciInfo(dev)
                 finally:
                     pymtml.mtmlLibraryFreeDevice(dev)
 
+                # MTML binds no power *limit* call, only the power *usage* the
+                # usage query reads, so the device carries no power limit.
+
                 dev_mem = 0
-                dev_mem_used = 0
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+                dev_mem_status = DeviceMemoryStatusEnum.UNKNOWN
                 with pymtml.mtmlMemoryContext(dev) as devmem:
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pymtml.mtmlMemoryGetTotal(devmem),
                     )
-                    dev_mem_used = byte_to_mebibyte(  # byte to MiB
-                        pymtml.mtmlMemoryGetUsed(devmem),
-                    )
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                        dev_mem_ecc_errors = pymtml.mtmlMemoryGetEccErrorCounter(
-                            devmem,
-                            pymtml.MTML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                            pymtml.MTML_VOLATILE_ECC,
-                            pymtml.MTML_MEMORY_LOCATION_DRAM,
-                        )
-                        if dev_mem_ecc_errors > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
-
-                dev_cores_util = None
-                dev_temp = None
-                with pymtml.mtmlGpuContext(dev) as devgpu:
-                    dev_cores_util = pymtml.mtmlGpuGetUtilization(devgpu)
-                    dev_temp = pymtml.mtmlGpuGetTemperature(devgpu)
-
-                if dev_cores_util is None:
-                    debug_log_warning(
-                        logger,
-                        "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
-                    )
-                    dev_cores_util = 0
+                    dev_mem_status = _get_memory_status(devmem)
 
                 dev_bdf = f"{dev_pci_info.segment:04x}:{dev_pci_info.bus:02x}:{dev_pci_info.device:02x}.0"
 
@@ -186,7 +159,6 @@ class MThreadsDetector(Detector):
                         dev_numa = bitmask_to_str(list(dev_node_affinity))
 
                 dev_appendix = {
-                    "vgpu": dev_is_vgpu,
                     "bdf": dev_bdf,
                 }
                 if dev_numa:
@@ -200,13 +172,8 @@ class MThreadsDetector(Detector):
                         name=dev_name,
                         driver_version=sys_driver_ver,
                         cores=dev_cores,
-                        cores_utilization=dev_cores_util,
                         memory=dev_mem,
-                        memory_used=dev_mem_used,
-                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         memory_status=dev_mem_status,
-                        temperature=dev_temp,
-                        power_used=dev_power_used,
                         appendix=dev_appendix,
                     ),
                 )
@@ -223,6 +190,91 @@ class MThreadsDetector(Detector):
 
         return ret
 
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch the usage of MThreads GPUs using pymtml, merged into the given
+        devices in place.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage,
+            or None if not supported.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+            if devices is None:
+                return None
+
+        usages: Devices = []
+
+        try:
+            pymtml.mtmlLibraryInit()
+
+            dev_count = pymtml.mtmlLibraryCountDevice()
+            for dev_idx in range(dev_count):
+                # MTML enumerates by index, so the whole set is read and
+                # merge_devices_usage keeps what the caller asked for,
+                # as the operator's MonitorAccelerator does.
+                dev = pymtml.mtmlLibraryInitDeviceByIndex(dev_idx)
+                try:
+                    dev_uuid = pymtml.mtmlDeviceGetUUID(dev)
+                    dev_power_used = pymtml.mtmlDeviceGetPowerUsage(dev)
+
+                    with pymtml.mtmlMemoryContext(dev) as devmem:
+                        dev_mem = byte_to_mebibyte(  # byte to MiB
+                            pymtml.mtmlMemoryGetTotal(devmem),
+                        )
+                        dev_mem_used = byte_to_mebibyte(  # byte to MiB
+                            pymtml.mtmlMemoryGetUsed(devmem),
+                        )
+                        dev_mem_status = _get_memory_status(devmem)
+
+                    with pymtml.mtmlGpuContext(dev) as devgpu:
+                        dev_cores_util = pymtml.mtmlGpuGetUtilization(devgpu)
+                        dev_temp = pymtml.mtmlGpuGetTemperature(devgpu)
+                finally:
+                    pymtml.mtmlLibraryFreeDevice(dev)
+
+                if dev_cores_util is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_idx,
+                    )
+                    dev_cores_util = 0
+
+                usages.append(
+                    Device(
+                        uuid=dev_uuid,
+                        cores_utilization=dev_cores_util,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power_used=dev_power_used,
+                    ),
+                )
+
+        except pymtml.MTMLError:
+            debug_log_exception(logger, "Failed to fetch devices usage")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices usage fetching")
+            raise
+
+        return merge_devices_usage(devices, usages)
+
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
         Get the Topology object between MThreads GPUs.
@@ -237,7 +289,7 @@ class MThreadsDetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 
@@ -313,6 +365,41 @@ class MThreadsDetector(Detector):
             raise
 
         return ret
+
+
+def _get_memory_status(
+    devmem: pymtml.c_mtmlMemory_t,
+) -> DeviceMemoryStatusEnum:
+    """
+    Get the memory status of a given device.
+
+    Both the information and the usage query report it, mirroring the operator,
+    which flags a card unhealthy from DetectAccelerator and MonitorAccelerator
+    alike. The usage query cannot skip it: merging usage overwrites the status,
+    so a status it did not read would erase the one the information query found.
+
+    Args:
+        devmem:
+            The device memory handle.
+
+    Returns:
+        The memory status of the device.
+
+    """
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    with contextlib.suppress(pymtml.MTMLError):
+        dev_mem_ecc_errors = pymtml.mtmlMemoryGetEccErrorCounter(
+            devmem,
+            pymtml.MTML_MEMORY_ERROR_TYPE_UNCORRECTED,
+            pymtml.MTML_VOLATILE_ECC,
+            pymtml.MTML_MEMORY_LOCATION_DRAM,
+        )
+        if dev_mem_ecc_errors > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY
 
 
 def _get_links_state(

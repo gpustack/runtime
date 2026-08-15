@@ -19,7 +19,7 @@
     "power_used": 685,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:18:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -46,7 +46,7 @@
     "power_used": 701,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:29:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -73,7 +73,7 @@
     "power_used": 699,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:3a:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -100,7 +100,7 @@
     "power_used": 689,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:4b:00.0",
       "numa": "0",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -127,7 +127,7 @@
     "power_used": 683,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:9a:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -154,7 +154,7 @@
     "power_used": 698,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:aa:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -181,7 +181,7 @@
     "power_used": 693,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:ba:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
@@ -208,7 +208,7 @@
     "power_used": 692,
     "appendix": {
       "arch_family": "Hopper",
-      "vgpu": false,
+      "mig": false,
       "bdf": "0000:ca:00.0",
       "numa": "1",
       "fabric_cluster_uuid": "00000000-0000-0000-0000-000000000000",
