@@ -29,7 +29,7 @@ def _mig(slot: int, uuid: str) -> dict:
         "name": "1g.5gb",
         "uuid": uuid,
         "memory": 4864,
-        "appendix": {"vgpu": True, "sliced": True, "mig": True},
+        "appendix": {"sliced": True, "mig": True},
     }
 
 
@@ -59,10 +59,10 @@ def test_index_mig_devices_keeps_the_blocks_apart():
     assert len(indexes) == len(set(indexes))
 
 
-def test_index_mig_devices_clears_physical_indexes():
-    # Physical indexes are minor numbers when physical index priority is on,
-    # so they are not bound by the card count: numbering from the count would
-    # collide with the cards themselves.
+def test_index_mig_devices_offsets_from_the_reported_indexes():
+    # A detector's reported index is not necessarily zero-based and contiguous
+    # -- Ascend reports the DCMI logic id -- so it is not bound by the card
+    # count: numbering from the count would collide with the cards themselves.
     cards = [_card(2, "GPU-2"), _card(3, "GPU-3")]
     mig_devices = {
         0: [_mig(0, "MIG-2-0"), _mig(1, "MIG-2-1")],

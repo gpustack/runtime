@@ -55,10 +55,6 @@ if TYPE_CHECKING:
     e.g `{"cuda": "nvidia.com/devices", "rocm": "amd.com/devices"}`.
     Used to map the gpustack-runner's backend name to the corresponding resource key.
     """
-    GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY: bool = True
-    """
-    Use physical index priority at detecting devices.
-    """
     ## Deployer
     GPUSTACK_RUNTIME_DEPLOY: str | None = None
     """
@@ -409,12 +405,6 @@ variables: dict[str, Callable[[], Any]] = {
             "musa=mthreads.com/devices;"
             "cuda=nvidia.com/devices;"
             "hggc=alibabacloud.com/devices;",
-        ),
-    ),
-    "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(
-        getenv(
-            "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY",
-            "1",
         ),
     ),
     ## Deployer

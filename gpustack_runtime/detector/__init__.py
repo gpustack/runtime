@@ -141,6 +141,7 @@ def detect_backend(
 def detect_devices(
     fast: bool = True,
     manufacturer: ManufacturerEnum = None,
+    usage: bool = True,
 ) -> Devices:
     """
     Detect all available devices.
@@ -152,6 +153,8 @@ def detect_devices(
         manufacturer:
             Manufacturer to filter the detection, implies `fast=True`.
             If None, detect all available manufacturers.
+        usage:
+            If True, fetch the devices' usage as well.
 
     Returns:
         A list of detected devices.
@@ -165,7 +168,7 @@ def detect_devices(
         det = _DETECTORS_MAP.get(manufacturer)
         if det and det.is_supported():
             try:
-                return det.detect()
+                return det.detect(usage=usage)
             except Exception:
                 detect_target = envs.GPUSTACK_RUNTIME_DETECT.lower()
                 if detect_target == det.name:
@@ -180,7 +183,7 @@ def detect_devices(
             continue
 
         try:
-            if devs := det.detect():
+            if devs := det.detect(usage=usage):
                 devices.extend(devs)
             if fast and devices:
                 return devices
@@ -219,7 +222,9 @@ def get_devices_topologies(
     """
     group = False
     if not devices:
-        devices = detect_devices(fast=fast, manufacturer=manufacturer)
+        # Topology keys off identity and the appendix only, so the usage query
+        # is not worth its cost here.
+        devices = detect_devices(fast=fast, manufacturer=manufacturer, usage=False)
         if not devices:
             return []
         group = not fast

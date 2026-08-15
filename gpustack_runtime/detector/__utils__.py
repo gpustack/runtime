@@ -1013,24 +1013,149 @@ def bitmask_to_str(bitmask_list: list) -> str:
     return list_to_str_range(sorted(bits_lists))
 
 
-def get_physical_function_by_bdf(bdf: str) -> str:
+_PCI_IDS_PATHS: tuple[str, ...] = (
+    "/usr/share/hwdata/pci.ids",
+    "/usr/share/pci.ids",
+    "/usr/share/misc/pci.ids",
+)
+"""
+Candidate locations of the PCI ID database,
+in the order the operator's GetPCIDeviceNames probes them.
+"""
+
+
+def _normalize_pci_id(value: int | str | None) -> str:
     """
-    Get the physical function BDF for a given PCI device BDF address.
+    Normalize a PCI ID to the lowercase hexadecimal form the PCI ID database uses.
 
     Args:
-        bdf:
-            The PCI device BDF address (e.g., "0000:00:1f.0").
+        value:
+            The PCI ID, e.g. 0x1002, "0x1002" or "1002".
+            sysfs reports it prefixed, the vendor SMI libraries report an integer.
 
     Returns:
-        The physical function BDF if found, otherwise returns the original BDF.
+        The normalized PCI ID, or an empty string if there is none.
 
     """
-    if bdf:
-        with contextlib.suppress(Exception):
-            dev_path = Path(f"/sys/bus/pci/devices/{bdf}")
-            if dev_path.exists():
-                physfn_path = dev_path / "physfn"
-                if physfn_path.exists():
-                    physfn_realpath = physfn_path.resolve()
-                    return physfn_realpath.name
-    return bdf
+    if value is None:
+        return ""
+    if isinstance(value, int):
+        return f"{value:04x}"
+    return value.strip().lower().removeprefix("0x")
+
+
+@lru_cache
+def _load_pci_device_names(
+    vendor: str,
+) -> dict[str, tuple[str, dict[tuple[str, str], str]]]:
+    """
+    Parse the PCI ID database for one vendor.
+
+    Mirrors the parsing of the operator's GetPCIDeviceNames: a vendor line
+    starts at column 0, a device line behind one tab, a subsystem line behind
+    two. The database also holds a device class table ("C 03  Display
+    controller") and comments, which are read as vendor lines and never match
+    a real vendor, so they gate off the same way an unrequested vendor does.
+
+    Args:
+        vendor:
+            The normalized PCI vendor ID to parse for.
+
+    Returns:
+        A mapping of PCI device ID to the device's name and its subsystem
+        names, keyed by (subsystem vendor ID, subsystem device ID).
+        Empty if the database or the vendor is not found.
+
+    """
+    names: dict[str, tuple[str, dict[tuple[str, str], str]]] = {}
+    if not vendor:
+        return names
+
+    path = next((p for p in map(Path, _PCI_IDS_PATHS) if p.exists()), None)
+    if not path:
+        return names
+
+    in_vendor = False
+    device = ""
+    with (
+        contextlib.suppress(OSError),
+        path.open("r", encoding="utf-8", errors="ignore") as f,
+    ):
+        for raw_line in f:
+            line = raw_line.rstrip("\n")
+            if not line:
+                continue
+
+            fields = line.split()
+
+            # A vendor line, which switches the section being parsed. A line
+            # holding a single field leaves the section as it is, as the
+            # operator does.
+            if not line.startswith("\t"):
+                if len(fields) > 1:
+                    in_vendor = fields[0].lower() == vendor
+                    device = ""
+                continue
+
+            if not in_vendor:
+                continue
+
+            # A device line.
+            if not line.startswith("\t\t"):
+                if len(fields) > 1:
+                    device = fields[0].lower()
+                    names[device] = (" ".join(fields[1:]), {})
+                continue
+
+            # A subsystem line, belonging to the device line above it.
+            if device and len(fields) > 2:
+                names[device][1][(fields[0].lower(), fields[1].lower())] = " ".join(
+                    fields[2:],
+                )
+
+    return names
+
+
+def get_pci_device_name(
+    vendor: int | str,
+    device: int | str,
+    subvendor: int | str = "",
+    subdevice: int | str = "",
+) -> str:
+    """
+    Get the name of a PCI device from the local PCI ID database.
+
+    Mirrors the operator's GetPCIDeviceNames/GetName, which prefers the
+    subsystem name over the device name: a board vendor's name for the card is
+    more precise than the chip's.
+
+    Args:
+        vendor:
+            The PCI vendor ID, e.g. 0x1002, "0x1002" or "1002".
+        device:
+            The PCI device ID.
+        subvendor:
+            The PCI subsystem vendor ID, if any.
+        subdevice:
+            The PCI subsystem device ID, if any.
+
+    Returns:
+        The name of the device,
+        or an empty string if the database or the device is not found.
+
+    """
+    vendor = _normalize_pci_id(vendor)
+    device = _normalize_pci_id(device)
+    if not vendor or not device:
+        return ""
+
+    entry = _load_pci_device_names(vendor).get(device)
+    if not entry:
+        return ""
+
+    name, subnames = entry
+    subvendor = _normalize_pci_id(subvendor)
+    subdevice = _normalize_pci_id(subdevice)
+    if subvendor and subdevice:
+        return subnames.get((subvendor, subdevice), name)
+    return name

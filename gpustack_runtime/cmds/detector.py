@@ -26,6 +26,7 @@ class DetectDevicesSubCommand(SubCommand):
 
     format: str = "table"
     watch: int = 0
+    no_usage: bool = False
 
     @staticmethod
     def register(parser: _SubParsersAction):
@@ -49,19 +50,26 @@ class DetectDevicesSubCommand(SubCommand):
             help="Continuously watch for GPU in intervals of N seconds",
         )
 
+        detect_parser.add_argument(
+            "--no-usage",
+            action="store_true",
+            help="Report inventory only, without querying utilization, temperature or power",
+        )
+
         detect_parser.set_defaults(func=DetectDevicesSubCommand)
 
     def __init__(self, args: Namespace):
         self.format = args.format
         self.watch = args.watch
+        self.no_usage = args.no_usage
 
     def run(self):
         while True:
-            devs: Devices = detect_devices(fast=False)
+            devs: Devices = detect_devices(fast=False, usage=not self.no_usage)
             print("\033[2J\033[H", end="")
             match self.format.lower():
                 case "json":
-                    print(format_devices_json(devs))
+                    print(format_devices_json(devs, usage=not self.no_usage))
                 case _:
                     # Group devices by manufacturer.
                     group_devs = group_devices_by_manufacturer(devs)
@@ -70,7 +78,9 @@ class DetectDevicesSubCommand(SubCommand):
                     else:
                         # Print each group separately.
                         for devs in group_devs.values():
-                            print(format_devices_table(devs))
+                            print(
+                                format_devices_table(devs, usage=not self.no_usage),
+                            )
             if not self.watch:
                 break
             time.sleep(self.watch)
@@ -134,11 +144,37 @@ class GetDevicesTopologySubCommand(SubCommand):
                 print(os.linesep.join(legend_lines))
 
 
-def format_devices_json(devs: Devices) -> str:
-    return json.dumps([dev.to_dict() for dev in devs], indent=2)
+_USAGE_ONLY_KEYS = (
+    "cores_utilization",
+    "memory_used",
+    "memory_utilization",
+    "temperature",
+    "power_used",
+)
+"""
+The keys only the usage query fills. `memory_status` is deliberately absent:
+the information query reports it too, which is why the table keeps Status.
+"""
 
 
-def format_devices_table(devs: Devices) -> str:
+def format_devices_json(devs: Devices, usage: bool = True) -> str:
+    devs_dict = [dev.to_dict() for dev in devs]
+
+    if not usage:
+        # Without the usage query these fields hold their defaults, and a
+        # serialized 0 reads as a real idle measurement. The table drops them
+        # for that reason, and a machine-readable consumer is the more likely of
+        # the two to act on it -- so absent, meaning unmeasured.
+        for dev_dict in devs_dict:
+            mig_devs_dict = (dev_dict.get("appendix") or {}).get("mig_devices") or []
+            for d in [dev_dict, *mig_devs_dict]:
+                for key in _USAGE_ONLY_KEYS:
+                    d.pop(key, None)
+
+    return json.dumps(devs_dict, indent=2)
+
+
+def format_devices_table(devs: Devices, usage: bool = True) -> str:
     if not devs:
         return "No GPUs detected."
 
@@ -150,9 +186,14 @@ def format_devices_table(devs: Devices) -> str:
         row = [
             str(dev.index),
             dev.name if dev.name else "N/A",
-            f"{dev.memory_used}MiB / {dev.memory}MiB",
-            f"{dev.cores_utilization}%",
-            f"{dev.temperature}C" if dev.temperature is not None else "N/A",
+            # Without the usage query these fields hold their defaults, and a
+            # rendered 0 would read as a real idle measurement. Total memory
+            # and the status stay, being reported by the information query.
+            f"{dev.memory_used}MiB / {dev.memory}MiB"
+            if usage
+            else f"N/A / {dev.memory}MiB",
+            f"{dev.cores_utilization}%" if usage else "N/A",
+            f"{dev.temperature}C" if usage and dev.temperature is not None else "N/A",
             dev.compute_capability if dev.compute_capability else "N/A",
             "OK" if dev.memory_status == DeviceMemoryStatusEnum.HEALTHY else "ERR",
         ]
