@@ -81,8 +81,12 @@ class IluvatarGenerator(Generator):
 
             container_device_nodes = []
 
+            # The device node is numbered by the driver's minor number, which
+            # Device.index no longer carries: it is the detector's enumeration
+            # index. Fall back to it for a device whose minor number could not
+            # be read.
             cdn = device_to_cdi_device_node(
-                path=f"/dev/iluvatar{dev.index}",
+                path=f"/dev/iluvatar{dev.appendix.get('minor_number', dev.index)}",
             )
             if not cdn:
                 continue

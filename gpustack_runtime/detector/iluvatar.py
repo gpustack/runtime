@@ -15,6 +15,7 @@ from .__types__ import (
     ManufacturerEnum,
     Topology,
     TopologyDistanceEnum,
+    merge_devices_usage,
 )
 from .__utils__ import (
     PCIDevice,
@@ -24,7 +25,6 @@ from .__utils__ import (
     get_numa_node_by_bdf,
     get_numa_nodeset_size,
     get_pci_devices,
-    get_physical_function_by_bdf,
     get_utilization,
     map_numa_node_to_cpu_affinity,
 )
@@ -77,9 +77,9 @@ class IluvatarDetector(Detector):
     def __init__(self):
         super().__init__(ManufacturerEnum.ILUVATAR)
 
-    def detect(self) -> Devices | None:
+    def detect_info(self) -> Devices | None:
         """
-        Detect Iluvatar GPUs using pyixml.
+        Detect Iluvatar GPUs' inventory using pyixml, without usage metrics.
 
         Returns:
             A list of detected Iluvatar GPU devices,
@@ -122,9 +122,15 @@ class IluvatarDetector(Detector):
                 dev = pyixml.nvmlDeviceGetHandleByIndex(dev_idx)
 
                 dev_index = dev_idx
-                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                    with contextlib.suppress(pyixml.NVMLError):
-                        dev_index = pyixml.nvmlDeviceGetMinorNumber(dev)
+
+                # Device.index is the enumeration index, while the driver's
+                # minor number is what /dev/iluvatar{N} is made of, so the
+                # latter goes to the appendix. Mirrors the operator, which
+                # keeps a sequential Index next to PhysicalIndexes, and omits
+                # the physical one when the driver cannot answer.
+                dev_minor_number = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_minor_number = pyixml.nvmlDeviceGetMinorNumber(dev)
 
                 dev_name = pyixml.nvmlDeviceGetName(dev)
 
@@ -135,10 +141,122 @@ class IluvatarDetector(Detector):
                     dev_cores = pyixml.nvmlDeviceGetNumGpuCores(dev)
 
                 dev_mem = 0
+                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
+                with contextlib.suppress(pyixml.NVMLError):
+                    # Prefer the v2 memory structure, falling back to v1 --
+                    # mirrors the operator's GetMemoryInfoV, which drops the
+                    # device only when neither call succeeds.
+                    dev_mem_info = _get_memory_info(dev)
+                    dev_mem = byte_to_mebibyte(  # byte to MiB
+                        dev_mem_info.total,
+                    )
+                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+                    with contextlib.suppress(pyixml.NVMLError):
+                        dev_health = pyixml.ixmlDeviceGetHealth(dev)
+                        if dev_health != pyixml.IXML_HEALTH_OK:
+                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+
+                dev_power = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_power = pyixml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
+                    dev_power = dev_power // 1000  # mW to W
+
+                dev_cc = None
+                with contextlib.suppress(pyixml.NVMLError):
+                    dev_cc_t = pyixml.nvmlDeviceGetCudaComputeCapability(dev)
+                    if dev_cc_t:
+                        dev_cc = ".".join(map(str, dev_cc_t))
+
+                dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
+                dev_bdf = str(dev_pci_info.busIdLegacy).lower()
+
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    with contextlib.suppress(pyixml.NVMLError):
+                        dev_node_affinity = pyixml.nvmlDeviceGetMemoryAffinity(
+                            dev,
+                            get_numa_nodeset_size(),
+                            pyixml.NVML_AFFINITY_SCOPE_NODE,
+                        )
+                        dev_numa = bitmask_to_str(list(dev_node_affinity))
+
+                dev_appendix = {
+                    "bdf": dev_bdf,
+                }
+                if dev_minor_number is not None:
+                    dev_appendix["minor_number"] = dev_minor_number
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
+
+                ret.append(
+                    Device(
+                        manufacturer=self.manufacturer,
+                        index=dev_index,
+                        name=dev_name,
+                        uuid=dev_uuid,
+                        driver_version=sys_driver_ver,
+                        runtime_version=sys_runtime_ver,
+                        runtime_version_original=sys_runtime_ver_original,
+                        compute_capability=dev_cc,
+                        cores=dev_cores,
+                        memory=dev_mem,
+                        memory_status=dev_mem_status,
+                        power=dev_power,
+                        appendix=dev_appendix,
+                    ),
+                )
+        except pyixml.NVMLError:
+            debug_log_exception(logger, "Failed to fetch devices")
+            raise
+        except Exception:
+            debug_log_exception(logger, "Failed to process devices fetching")
+            raise
+
+        return ret
+
+    def detect_usage(self, devices: Devices | None = None) -> Devices | None:
+        """
+        Fetch Iluvatar GPUs' usage using pyixml.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID.
+                If None, detects the devices' information first.
+
+        Returns:
+            The devices carrying usage, or None if not supported.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        if not self.is_supported():
+            return None
+
+        if devices is None:
+            devices = self.detect_info()
+        if not devices:
+            return devices
+
+        usages: Devices = []
+
+        try:
+            pyixml.nvmlInit()
+
+            dev_count = pyixml.nvmlDeviceGetCount()
+            for dev_idx in range(dev_count):
+                dev = pyixml.nvmlDeviceGetHandleByIndex(dev_idx)
+
+                dev_uuid = pyixml.nvmlDeviceGetUUID(dev)
+
+                dev_mem = 0
                 dev_mem_used = 0
                 dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 with contextlib.suppress(pyixml.NVMLError):
-                    dev_mem_info = pyixml.nvmlDeviceGetMemoryInfo(dev)
+                    # Same v2-then-v1 fallback as detect_info: the operator's
+                    # MonitorAccelerator re-reads the memory info rather than
+                    # trusting a previous pass.
+                    dev_mem_info = _get_memory_info(dev)
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         dev_mem_info.total,
                     )
@@ -159,7 +277,7 @@ class IluvatarDetector(Detector):
                     debug_log_warning(
                         logger,
                         "Failed to get device %d cores utilization, setting to 0",
-                        dev_index,
+                        dev_idx,
                     )
                     dev_cores_util = 0
 
@@ -170,73 +288,31 @@ class IluvatarDetector(Detector):
                         pyixml.NVML_TEMPERATURE_GPU,
                     )
 
-                dev_power = None
                 dev_power_used = None
                 with contextlib.suppress(pyixml.NVMLError):
-                    dev_power = pyixml.nvmlDeviceGetPowerManagementDefaultLimit(dev)
-                    dev_power = dev_power // 1000  # mW to W
                     dev_power_used = (
                         pyixml.nvmlDeviceGetPowerUsage(dev) // 1000
                     )  # mW to W
 
-                dev_cc = None
-                with contextlib.suppress(pyixml.NVMLError):
-                    dev_cc_t = pyixml.nvmlDeviceGetCudaComputeCapability(dev)
-                    if dev_cc_t:
-                        dev_cc = ".".join(map(str, dev_cc_t))
-
-                dev_pci_info = pyixml.nvmlDeviceGetPciInfo(dev)
-                dev_bdf = str(dev_pci_info.busIdLegacy).lower()
-
-                dev_is_vgpu = get_physical_function_by_bdf(dev_bdf) != dev_bdf
-
-                dev_numa = get_numa_node_by_bdf(dev_bdf)
-                if not dev_numa:
-                    with contextlib.suppress(pyixml.NVMLError):
-                        dev_node_affinity = pyixml.nvmlDeviceGetMemoryAffinity(
-                            dev,
-                            get_numa_nodeset_size(),
-                            pyixml.NVML_AFFINITY_SCOPE_NODE,
-                        )
-                        dev_numa = bitmask_to_str(list(dev_node_affinity))
-
-                dev_appendix = {
-                    "vgpu": dev_is_vgpu,
-                    "bdf": dev_bdf,
-                }
-                if dev_numa:
-                    dev_appendix["numa"] = dev_numa
-
-                ret.append(
+                usages.append(
                     Device(
-                        manufacturer=self.manufacturer,
-                        index=dev_index,
-                        name=dev_name,
                         uuid=dev_uuid,
-                        driver_version=sys_driver_ver,
-                        runtime_version=sys_runtime_ver,
-                        runtime_version_original=sys_runtime_ver_original,
-                        compute_capability=dev_cc,
-                        cores=dev_cores,
                         cores_utilization=dev_cores_util,
-                        memory=dev_mem,
                         memory_used=dev_mem_used,
                         memory_utilization=get_utilization(dev_mem_used, dev_mem),
                         memory_status=dev_mem_status,
                         temperature=dev_temp,
-                        power=dev_power,
                         power_used=dev_power_used,
-                        appendix=dev_appendix,
                     ),
                 )
         except pyixml.NVMLError:
-            debug_log_exception(logger, "Failed to fetch devices")
+            debug_log_exception(logger, "Failed to fetch devices usage")
             raise
         except Exception:
-            debug_log_exception(logger, "Failed to process devices fetching")
+            debug_log_exception(logger, "Failed to process devices usage fetching")
             raise
 
-        return ret
+        return merge_devices_usage(devices, usages)
 
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
@@ -252,7 +328,7 @@ class IluvatarDetector(Detector):
 
         """
         if devices is None:
-            devices = self.detect()
+            devices = self.detect_info()
             if devices is None:
                 return None
 
@@ -302,3 +378,30 @@ class IluvatarDetector(Detector):
             raise
 
         return ret
+
+
+def _get_memory_info(dev):
+    """
+    Read a device's memory info, preferring the v2 structure with a v1
+    fallback.
+
+    Mirrors the operator's GetMemoryInfoV, which tries
+    ``nvmlDeviceGetMemoryInfo_v2`` before falling back to the v1 call: the
+    runtime previously read the v1 accessor only, so a driver exposing just
+    v2 failed here where the operator succeeded.
+
+    Args:
+        dev:
+            The device handle.
+
+    Returns:
+        The memory info structure, from whichever accessor answered.
+
+    Raises:
+        pyixml.NVMLError: If neither accessor succeeds.
+
+    """
+    try:
+        return pyixml.nvmlDeviceGetMemoryInfo(dev, version=pyixml.nvmlMemory_v2)
+    except pyixml.NVMLError:
+        return pyixml.nvmlDeviceGetMemoryInfo(dev)
