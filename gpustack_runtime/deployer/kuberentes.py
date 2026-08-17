@@ -656,7 +656,7 @@ def _resolve_runtime_class_name(
     pod.spec.runtime_class_name = runtime_class_name
 
 
-def _resolve_privileged(container: Container) -> bool:
+def _resolve_privileged(container: Container, kdp: bool) -> bool:
     """
     Resolve whether a container runs privileged.
 
@@ -670,13 +670,20 @@ def _resolve_privileged(container: Container) -> bool:
     slicing: a workload holding a single MIG device or a single memory slice
     still sees the untouched cards next to it, and a soft-slicing limit
     lands on whichever device comes first instead of the allocated one.
+
+    Args:
+        container:
+            The container to resolve.
+        kdp:
+            Whether the KDP injection policy is in effect, resolved once per
+            Pod so a workload's containers cannot disagree on it.
+
     """
     if not container.execution or not container.execution.privileged:
         return False
     if not container.resources:
         return True
 
-    kdp = get_resource_injection_policy() == "kdp"
     for r_k in container.resources:
         if r_k in ("cpu", "memory"):
             continue
@@ -1074,6 +1081,58 @@ class KubernetesDeployer(EndoscopicDeployer):
 
         return probe
 
+    def _probe_node_allocatable(self) -> dict[str, str] | None:
+        """
+        Read the allocatable resources of the node this deployer targets,
+        so the injection policy can tell whether a device plugin runs there.
+
+        Reads through ``list_node`` rather than ``read_node`` so it needs no
+        permission beyond the list the deployer already requires to resolve a
+        default node name. With no node configured it reads the same first node
+        ``_get_default_node_name`` would, and remembers it, so resolving the
+        default costs one call rather than two.
+
+        Returns:
+            The node's allocatable resources, or None when the node cannot be
+            read -- no permission, API error, or no node at all -- so the
+            caller can tell "advertises nothing" from "could not look".
+
+        """
+        core_api = kubernetes.client.CoreV1Api(self._client)
+        try:
+            nodes = core_api.list_node(
+                field_selector=(
+                    f"metadata.name={self._node_name}" if self._node_name else None
+                ),
+                limit=1,
+            )
+        except kubernetes.client.exceptions.ApiException as e:
+            clogger.warning(
+                "Failed to read node allocatable resources"
+                "%s, assuming a device plugin is present",
+                _detail_api_call_error(e),
+            )
+            return None
+
+        if not nodes.items:
+            return None
+
+        node = nodes.items[0]
+        if not self._node_name:
+            self._node_name = node.metadata.name
+        return node.status.allocatable or {}
+
+    def _resolve_resource_injection_policy(self) -> str:
+        """
+        Resolve the resource injection policy for this deployer, probing the
+        target node when the configured policy is "auto".
+
+        Returns:
+            The resource injection policy.
+
+        """
+        return get_resource_injection_policy(self._probe_node_allocatable)
+
     def _get_default_node_name(self) -> str:
         """
         Get the default node name of the cluster.
@@ -1386,6 +1445,10 @@ class KubernetesDeployer(EndoscopicDeployer):
             ephemeral_filename_mapping,
         )
 
+        # Resolve the injection policy once per Pod: under "auto" it probes the
+        # target node, and every container of the Pod lands on that same node.
+        kdp = self._resolve_resource_injection_policy() == "kdp"
+
         cnt_init, cnt_run = -1, -1
         for ci, c in enumerate(workload.containers):
             # Annotate container info.
@@ -1421,7 +1484,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                     run_as_user=c.execution.run_as_user,
                     run_as_group=c.execution.run_as_group,
                     read_only_root_filesystem=c.execution.readonly_rootfs,
-                    privileged=_resolve_privileged(c),
+                    privileged=_resolve_privileged(c, kdp),
                     capabilities=(
                         kubernetes.client.V1Capabilities(
                             add=c.execution.capabilities.add,
@@ -1441,7 +1504,6 @@ class KubernetesDeployer(EndoscopicDeployer):
 
             # Parameterize resources
             if c.resources:
-                kdp = get_resource_injection_policy() == "kdp"
                 fmt = "kdp" if kdp else "plain"
 
                 resources: dict[str, str] = {}
@@ -1546,15 +1608,26 @@ class KubernetesDeployer(EndoscopicDeployer):
                             ],
                         )
 
-                    # If requesting all devices or privileged,
-                    # the container sees every device of the host,
-                    # so pin the device ordering to keep its numbering
+                    # Pin the device ordering whenever the container ends up
+                    # seeing more than one device, so its numbering stays
                     # aligned with the detection.
-                    # This includes requesting all devices under KDP:
-                    # the device plugin allocates every device of the node,
-                    # hence the container still enumerates all of them.
+                    # That covers every multi-device request, not only "all":
+                    # any container holding several devices numbers them
+                    # itself, and a performance-sorted default reshuffles those
+                    # ordinals on a heterogeneous host.
+                    # Requesting all devices is measured rather than
+                    # special-cased -- including under KDP, where the device
+                    # plugin allocates every device of the node and the
+                    # container still enumerates all of them -- because a
+                    # single-device host has nothing to reorder.
+                    # A privileged container sees every device of the host
+                    # whatever it requested, so it pins regardless.
                     # Never overwrite the ordering declared by the container.
-                    if r_v == "all" or privileged:
+                    if (
+                        privileged
+                        or self.count_requested_devices(runtime_envs, resource_values)
+                        > 1
+                    ):
                         declared_envs = {e.name for e in container.env}
                         container.env.extend(
                             [
@@ -1700,10 +1773,20 @@ class KubernetesDeployer(EndoscopicDeployer):
         super().__init__(_NAME)
         self._client = self._get_client()
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
+        self._runtime_uuid_values_allowed: bool | None = None
 
     @property
     def allowed_runtime_uuid_values(self) -> bool:
-        return get_resource_injection_policy() != "kdp"
+        # Resolved once per deployer, unlike the per-Pod resolution the
+        # creation path wants: this gates how `_prepare` builds the device
+        # materials, which are themselves built once, and it is read there once
+        # per manufacturer -- so probing on every read would spend one API call
+        # per manufacturer to answer a question already settled.
+        if self._runtime_uuid_values_allowed is None:
+            self._runtime_uuid_values_allowed = (
+                self._resolve_resource_injection_policy() != "kdp"
+            )
+        return self._runtime_uuid_values_allowed
 
     @property
     def allowed_mig_devices(self) -> bool:

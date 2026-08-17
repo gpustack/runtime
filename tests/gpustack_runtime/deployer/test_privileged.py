@@ -128,10 +128,6 @@ def _container(privileged: bool | None, resources: dict | None = None) -> Contai
         ),
     ],
 )
-def test_resolve_privileged(name, privileged, resources, policy, expected, monkeypatch):
-    monkeypatch.setattr(
-        "gpustack_runtime.deployer.kuberentes.get_resource_injection_policy",
-        lambda: policy,
-    )
-    actual = _resolve_privileged(_container(privileged, resources))
+def test_resolve_privileged(name, privileged, resources, policy, expected):
+    actual = _resolve_privileged(_container(privileged, resources), policy == "kdp")
     assert actual == expected, f"case {name} expected {expected}, but got {actual}"
