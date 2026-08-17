@@ -1118,11 +1118,17 @@ class DockerDeployer(EndoscopicDeployer):
                         )
                         create_options["environment"].update(b_vs)
 
-                    # If requesting all devices or privileged,
-                    # the container sees every device of the host,
-                    # so pin the device ordering to keep its numbering
-                    # aligned with the detection.
-                    if r_v == "all" or privileged:
+                    # Pin the device ordering whenever the container ends up
+                    # seeing more than one device, so its numbering stays
+                    # aligned with the detection. Requesting all devices is
+                    # measured rather than special-cased: a single-device host
+                    # has nothing to reorder. A privileged container sees every
+                    # device of the host whatever it requested.
+                    if (
+                        privileged
+                        or self.count_requested_devices(runtime_envs, resource_values)
+                        > 1
+                    ):
                         o_vs = self.map_visible_devices_ordering(runtime_envs)
                         # Take the ordering as default,
                         # never overwrite the one declared by the container.

@@ -1787,6 +1787,35 @@ class Deployer(ABC):
                 )
         return ret
 
+    def count_requested_devices(
+        self,
+        runtime_envs: list[str],
+        resource_values: list[str],
+    ) -> int:
+        """
+        Count the devices a resource request resolves to.
+
+        "all" is a stand-in for every device the host has, so it is measured
+        rather than counted as the single literal token it is written as.
+
+        Args:
+            runtime_envs:
+                The runtime visible devices environment variable names.
+            resource_values:
+                The resource values requested, as split from the resource
+                value, e.g. ``["0", "1"]`` or ``["all"]``.
+
+        Returns:
+            The number of devices the request resolves to.
+
+        """
+        if resource_values == ["all"]:
+            return sum(
+                len(self.get_runtime_visible_devices(runtime_env, "plain"))
+                for runtime_env in runtime_envs
+            )
+        return len(resource_values)
+
     def map_visible_devices_ordering(
         self,
         runtime_envs: list[str],
@@ -1795,7 +1824,7 @@ class Deployer(ABC):
         Return the device ordering environment variables
         for the given runtime visible devices env names.
 
-        Only meaningful for a container seeing every device of the host:
+        Only meaningful for a container seeing more than one device:
         it must number the devices as the detector, the driver and the vendor
         tooling do, otherwise an index computed from detection addresses
         another device inside the container.

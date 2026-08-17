@@ -39,6 +39,16 @@ _NVIDIA_MATERIALS = {
         backend_values={"CUDA_VISIBLE_DEVICES": {"0": "0", "1": "1"}},
     ),
 }
+_SINGLE_NVIDIA_MATERIALS = {
+    "NVIDIA_VISIBLE_DEVICES": DevicesMaterial(
+        manufacturer=ManufacturerEnum.NVIDIA,
+        runtime_env="NVIDIA_VISIBLE_DEVICES",
+        backend_env=["CUDA_VISIBLE_DEVICES"],
+        cdi="nvidia.com/gpu",
+        runtime_values={"0": "0"},
+        backend_values={"CUDA_VISIBLE_DEVICES": {"0": "0"}},
+    ),
+}
 _AMD_MATERIALS = {
     "AMD_VISIBLE_DEVICES": DevicesMaterial(
         manufacturer=ManufacturerEnum.AMD,
@@ -155,7 +165,7 @@ def _kubernetes_container_envs(
 ) -> list[tuple[str, str]]:
     monkeypatch.setattr(
         "gpustack_runtime.deployer.kuberentes.get_resource_injection_policy",
-        lambda: policy,
+        lambda *_args: policy,
     )
     # Resolving the RuntimeClass reads the cluster.
     monkeypatch.setattr(
@@ -265,6 +275,27 @@ def test_map_visible_devices_ordering(name, materials, runtime_envs, expected):
             "specific devices, unprivileged",
             _NVIDIA_MATERIALS,
             {"nvidia.com/devices": "0"},
+            False,
+            None,
+            [],
+        ),
+        (
+            # Several devices number themselves inside the container just as
+            # "all" does, so the ordering is pinned without privilege and
+            # without asking for every device of the host.
+            "several specific devices, unprivileged",
+            _NVIDIA_MATERIALS,
+            {"nvidia.com/devices": "0,1"},
+            False,
+            None,
+            ["PCI_BUS_ID"],
+        ),
+        (
+            # "all" on a single-device host resolves to one device, which has
+            # no ordering to pin -- the request is measured, not special-cased.
+            "all devices on a single-device host",
+            _SINGLE_NVIDIA_MATERIALS,
+            {"nvidia.com/devices": "all"},
             False,
             None,
             [],
