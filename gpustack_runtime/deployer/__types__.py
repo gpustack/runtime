@@ -832,9 +832,10 @@ WorkloadName = str
 Name for a workload.
 """
 
-DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS = 15
+DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS = 30
 """
-Default duration in seconds a workload needs to terminate gracefully.
+Default duration in seconds a workload needs to terminate gracefully,
+which aligns with the Kubernetes API server default.
 """
 
 
@@ -911,16 +912,16 @@ class WorkloadPlan(WorkloadSecurity):
     """
     Configure shared memory size for the workload.
     """
+    containers: list[Container] | None = None
+    """
+    Containers in the workload.
+    It must contain at least one "RUN" profile container.
+    """
     termination_grace_period_seconds: int = DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS
     """
     Duration in seconds the containers of the workload need to terminate gracefully.
     Containers are signaled to stop, and killed once the duration elapses.
     Zero means killing immediately.
-    """
-    containers: list[Container] | None = None
-    """
-    Containers in the workload.
-    It must contain at least one "RUN" profile container.
     """
 
     ##
@@ -2154,10 +2155,16 @@ class Deployer(ABC):
         Raises:
             UnsupportedError:
                 If the deployer is not supported in the current environment.
+            ValueError:
+                If the grace period is negative.
             OperationError:
                 If the workload fails to delete.
 
         """
+        if grace_period_seconds is not None and grace_period_seconds < 0:
+            msg = "Workload termination grace period must not be negative."
+            raise ValueError(msg)
+
         if async_mode:
             try:
                 future = self.pool.submit(

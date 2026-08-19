@@ -168,6 +168,8 @@ def delete_workload(
         The status if found, None otherwise.
 
     Raises:
+        ValueError:
+            If the grace period is negative.
         UnsupportedError:
             If no deployer supports the given workload.
         OperationError:

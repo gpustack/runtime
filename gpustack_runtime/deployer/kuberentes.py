@@ -21,6 +21,7 @@ from .. import envs
 from ..logging import debug_log_exception
 from . import ContainerCheck, ContainerMountModeEnum, OperationError
 from .__types__ import (
+    DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
     Container,
     ContainerPort,
     ContainerProfileEnum,
@@ -135,6 +136,8 @@ class KubernetesWorkloadPlan(WorkloadPlan):
             The group ID to own the filesystem of the workload.
         sysctls (dict[str, str] | None):
             Sysctls to set for the workload.
+        termination_grace_period_seconds (int):
+            Duration in seconds the containers of the workload need to terminate gracefully.
         containers (list[tuple[int, Container]] | None):
             List of containers in the workload.
             It must contain at least one "RUN" profile container.
@@ -2850,6 +2853,20 @@ def equal_services(
     return (aspec.ports or []) == (bspec.ports or [])
 
 
+def _container_resources(
+    container: kubernetes.client.V1Container,
+) -> dict:
+    """
+    Return the resources the given Container spec requests,
+    dropping the empty entries the API server fills in,
+    which an unset resources declaration does not carry.
+
+    """
+    if container.resources is None:
+        return {}
+    return {k: v for k, v in container.resources.to_dict().items() if v}
+
+
 def equal_containers(
     a: kubernetes.client.V1Container,
     b: kubernetes.client.V1Container,
@@ -2881,7 +2898,7 @@ def equal_containers(
         return False
     if (a.ports or []) != (b.ports or []):
         return False
-    if (a.resources or {}) != (b.resources or {}):
+    if _container_resources(a) != _container_resources(b):
         return False
     if (a.volume_mounts or []) != (b.volume_mounts or []):
         return False
@@ -2898,6 +2915,19 @@ def equal_containers(
     aenv = {e.name: e.value for e in a.env or []}
     benv = {e.name: e.value for e in b.env or []}
     return all(not (k not in benv or benv[k] != v) for k, v in aenv.items())
+
+
+def _pod_termination_grace_period_seconds(
+    spec: kubernetes.client.V1PodSpec,
+) -> int:
+    """
+    Return the termination grace period the given Pod spec settles on,
+    which is the API server default when the spec leaves it unset.
+
+    """
+    if spec.termination_grace_period_seconds is None:
+        return DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS
+    return spec.termination_grace_period_seconds
 
 
 def equal_pods(
@@ -2930,13 +2960,19 @@ def equal_pods(
             return False
     if aspec.runtime_class_name != bspec.runtime_class_name:
         return False
-    if aspec.host_network != bspec.host_network:
+    # NB(thxCode): The API server drops the disabled toggles instead of
+    # echoing them back, so compare what they settle on, not what they carry.
+    if bool(aspec.host_network) != bool(bspec.host_network):
         return False
-    if aspec.host_ipc != bspec.host_ipc:
+    if bool(aspec.host_ipc) != bool(bspec.host_ipc):
         return False
-    if aspec.share_process_namespace != bspec.share_process_namespace:
+    if bool(aspec.share_process_namespace) != bool(bspec.share_process_namespace):
         return False
     if (aspec.restart_policy or "Always") != (bspec.restart_policy or "Always"):
+        return False
+    if _pod_termination_grace_period_seconds(
+        aspec,
+    ) != _pod_termination_grace_period_seconds(bspec):
         return False
     if aspec.node_name and bspec.node_name and aspec.node_name != bspec.node_name:
         return False

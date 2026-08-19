@@ -5,6 +5,7 @@
 
 from types import SimpleNamespace
 
+import docker.errors
 import kubernetes.client
 import kubernetes.client.exceptions
 import pytest
@@ -29,6 +30,7 @@ from gpustack_runtime.deployer.docker import (
 from gpustack_runtime.deployer.kuberentes import (
     KubernetesDeployer,
     KubernetesWorkloadPlan,
+    equal_pods,
 )
 from gpustack_runtime.deployer.podman import (
     _LABEL_COMPONENT as _PODMAN_LABEL_COMPONENT,
@@ -70,8 +72,8 @@ def test_workload_plan_defaults_the_termination_grace_period():
     plan = _plan()
     plan.validate_and_default()
 
-    assert DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS == 15
-    assert plan.termination_grace_period_seconds == 15
+    assert DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS == 30
+    assert plan.termination_grace_period_seconds == 30
 
 
 def test_workload_plan_keeps_a_zero_termination_grace_period():
@@ -87,7 +89,7 @@ def test_workload_plan_defaults_a_none_termination_grace_period():
     plan = _plan(termination_grace_period_seconds=None)
     plan.validate_and_default()
 
-    assert plan.termination_grace_period_seconds == 15
+    assert plan.termination_grace_period_seconds == 30
 
 
 def test_workload_plan_rejects_a_negative_termination_grace_period():
@@ -131,9 +133,12 @@ class _FakeContainer:
         self.name = name
         self.labels = {**(labels or {}), component_label: component}
         self.journal = journal
+        self.stop_error = None
 
     def stop(self, **kwargs):
         self.journal.append(("stop", self.name, kwargs))
+        if self.stop_error:
+            raise self.stop_error
 
     def remove(self, **kwargs):
         self.journal.append(("remove", self.name, kwargs))
@@ -177,6 +182,25 @@ def _deployer(containers: list) -> SimpleNamespace:
     )
 
 
+_DRAINED = ("test-init-0", "test-run-1")
+
+
+def _stops(journal: list) -> list:
+    # The drainable containers are stopped concurrently,
+    # so only the arguments are pinned, never the order between them.
+    return sorted(c for c in journal if c[0] == "stop")
+
+
+def _assert_drained_before_removed(journal: list):
+    # Every drainable container must be signaled before any of them is removed,
+    # otherwise a slow container eats the grace period of the ones behind it.
+    last_stop = max(i for i, c in enumerate(journal) if c[0] == "stop")
+    first_remove = min(
+        i for i, c in enumerate(journal) if c[0] == "remove" and c[1] in _DRAINED
+    )
+    assert last_stop < first_remove
+
+
 def test_docker_delete_drains_the_workload_before_removing_it():
     # The unhealthy restart container goes first, otherwise it restarts the
     # containers being drained; the pause container goes last, as it holds the
@@ -186,14 +210,24 @@ def test_docker_delete_drains_the_workload_before_removing_it():
 
     DockerDeployer._delete(dep, name="test", grace_period_seconds=20)
 
-    assert journal == [
-        ("remove", "test-unhealthy-restart", {"force": True}),
+    assert journal[0] == ("remove", "test-unhealthy-restart", {"force": True})
+    assert journal[-1] == ("remove", "test-pause", {"force": True})
+    _assert_drained_before_removed(journal)
+    assert _stops(journal) == [
         ("stop", "test-init-0", {"timeout": 20}),
-        ("remove", "test-init-0", {"force": True}),
         ("stop", "test-run-1", {"timeout": 20}),
-        ("remove", "test-run-1", {"force": True}),
-        ("remove", "test-pause", {"force": True}),
     ]
+
+
+def test_docker_delete_gives_every_container_the_whole_grace_period():
+    # Mirrors Kubernetes: the grace period is not a budget shared between the
+    # containers, each of them gets all of it.
+    journal = []
+    dep = _deployer(_docker_containers(journal))
+
+    DockerDeployer._delete(dep, name="test", grace_period_seconds=20)
+
+    assert [c[2]["timeout"] for c in _stops(journal)] == [20, 20]
 
 
 def test_docker_delete_reads_the_grace_period_from_the_container_label():
@@ -201,14 +235,14 @@ def test_docker_delete_reads_the_grace_period_from_the_container_label():
     # plan is read back from the container label.
     journal = []
     dep = _deployer(
-        _docker_containers(journal, labels={_DOCKER_LABEL_GRACE_PERIOD: "30"}),
+        _docker_containers(journal, labels={_DOCKER_LABEL_GRACE_PERIOD: "45"}),
     )
 
     DockerDeployer._delete(dep, name="test")
 
-    assert [c for c in journal if c[0] == "stop"] == [
-        ("stop", "test-init-0", {"timeout": 30}),
-        ("stop", "test-run-1", {"timeout": 30}),
+    assert _stops(journal) == [
+        ("stop", "test-init-0", {"timeout": 45}),
+        ("stop", "test-run-1", {"timeout": 45}),
     ]
 
 
@@ -219,24 +253,38 @@ def test_docker_delete_falls_back_to_the_default_grace_period():
 
     DockerDeployer._delete(dep, name="test")
 
-    assert [c for c in journal if c[0] == "stop"] == [
-        ("stop", "test-init-0", {"timeout": 15}),
-        ("stop", "test-run-1", {"timeout": 15}),
+    assert _stops(journal) == [
+        ("stop", "test-init-0", {"timeout": 30}),
+        ("stop", "test-run-1", {"timeout": 30}),
     ]
 
 
 def test_docker_delete_kills_immediately_on_a_zero_grace_period():
     journal = []
     dep = _deployer(
-        _docker_containers(journal, labels={_DOCKER_LABEL_GRACE_PERIOD: "30"}),
+        _docker_containers(journal, labels={_DOCKER_LABEL_GRACE_PERIOD: "45"}),
     )
 
     DockerDeployer._delete(dep, name="test", grace_period_seconds=0)
 
-    assert [c for c in journal if c[0] == "stop"] == [
+    assert _stops(journal) == [
         ("stop", "test-init-0", {"timeout": 0}),
         ("stop", "test-run-1", {"timeout": 0}),
     ]
+
+
+def test_docker_delete_survives_a_container_failing_to_stop():
+    # The forceful removal is the authoritative teardown, a container refusing
+    # to drain must not strand the pause container and the volumes.
+    journal = []
+    containers = _docker_containers(journal)
+    containers[2].stop_error = docker.errors.APIError("boom")
+    dep = _deployer(containers)
+
+    DockerDeployer._delete(dep, name="test", grace_period_seconds=20)
+
+    assert journal[-1] == ("remove", "test-pause", {"force": True})
+    assert ("remove", "test-run-1", {"force": True}) in journal
 
 
 def test_docker_workload_plan_stamps_the_grace_period_label():
@@ -272,7 +320,7 @@ def test_docker_workload_plan_stamps_the_defaulted_grace_period_label():
     )
     plan.validate_and_default()
 
-    assert plan.labels[_DOCKER_LABEL_GRACE_PERIOD] == "15"
+    assert plan.labels[_DOCKER_LABEL_GRACE_PERIOD] == "30"
 
 
 def test_podman_delete_drains_the_workload_before_removing_it():
@@ -283,27 +331,26 @@ def test_podman_delete_drains_the_workload_before_removing_it():
 
     PodmanDeployer._delete(dep, name="test", grace_period_seconds=20)
 
-    assert journal == [
-        ("remove", "test-unhealthy-restart", {"force": True}),
+    assert journal[0] == ("remove", "test-unhealthy-restart", {"force": True})
+    assert journal[-1] == ("remove", "test-pause", {"force": True})
+    _assert_drained_before_removed(journal)
+    assert _stops(journal) == [
         ("stop", "test-init-0", {"timeout": 20, "ignore": True}),
-        ("remove", "test-init-0", {"force": True}),
         ("stop", "test-run-1", {"timeout": 20, "ignore": True}),
-        ("remove", "test-run-1", {"force": True}),
-        ("remove", "test-pause", {"force": True}),
     ]
 
 
 def test_podman_delete_reads_the_grace_period_from_the_container_label():
     journal = []
     dep = _deployer(
-        _podman_containers(journal, labels={_PODMAN_LABEL_GRACE_PERIOD: "30"}),
+        _podman_containers(journal, labels={_PODMAN_LABEL_GRACE_PERIOD: "45"}),
     )
 
     PodmanDeployer._delete(dep, name="test")
 
-    assert [c for c in journal if c[0] == "stop"] == [
-        ("stop", "test-init-0", {"timeout": 30, "ignore": True}),
-        ("stop", "test-run-1", {"timeout": 30, "ignore": True}),
+    assert _stops(journal) == [
+        ("stop", "test-init-0", {"timeout": 45, "ignore": True}),
+        ("stop", "test-run-1", {"timeout": 45, "ignore": True}),
     ]
 
 
@@ -313,21 +360,21 @@ def test_podman_delete_falls_back_to_the_default_grace_period():
 
     PodmanDeployer._delete(dep, name="test")
 
-    assert [c for c in journal if c[0] == "stop"] == [
-        ("stop", "test-init-0", {"timeout": 15, "ignore": True}),
-        ("stop", "test-run-1", {"timeout": 15, "ignore": True}),
+    assert _stops(journal) == [
+        ("stop", "test-init-0", {"timeout": 30, "ignore": True}),
+        ("stop", "test-run-1", {"timeout": 30, "ignore": True}),
     ]
 
 
 def test_podman_delete_kills_immediately_on_a_zero_grace_period():
     journal = []
     dep = _deployer(
-        _podman_containers(journal, labels={_PODMAN_LABEL_GRACE_PERIOD: "30"}),
+        _podman_containers(journal, labels={_PODMAN_LABEL_GRACE_PERIOD: "45"}),
     )
 
     PodmanDeployer._delete(dep, name="test", grace_period_seconds=0)
 
-    assert [c for c in journal if c[0] == "stop"] == [
+    assert _stops(journal) == [
         ("stop", "test-init-0", {"timeout": 0, "ignore": True}),
         ("stop", "test-run-1", {"timeout": 0, "ignore": True}),
     ]
@@ -492,3 +539,57 @@ def test_kubernetes_delete_forwards_the_grace_period_on_the_fallback_path(monkey
     assert len(fallback_calls) == 1
     assert fallback_calls[0][1]["name"] == "test"
     assert fallback_calls[0][1]["grace_period_seconds"] == 5
+
+
+def _pod(
+    termination_grace_period_seconds=None,
+    host_network=None,
+    resources=None,
+) -> kubernetes.client.V1Pod:
+    return kubernetes.client.V1Pod(
+        metadata=kubernetes.client.V1ObjectMeta(name="test"),
+        spec=kubernetes.client.V1PodSpec(
+            host_network=host_network,
+            termination_grace_period_seconds=termination_grace_period_seconds,
+            containers=[
+                kubernetes.client.V1Container(
+                    name="run",
+                    image="busybox:1.37",
+                    resources=resources,
+                ),
+            ],
+        ),
+    )
+
+
+def test_kubernetes_equal_pods_ignores_the_api_server_defaults():
+    # The API server drops a disabled toggle and fills an empty resources
+    # declaration back in, neither of which is a change worth recreating for.
+    actual = _pod(
+        termination_grace_period_seconds=30,
+        host_network=None,
+        resources=kubernetes.client.V1ResourceRequirements(),
+    )
+    desired = _pod(
+        termination_grace_period_seconds=30,
+        host_network=False,
+        resources=None,
+    )
+
+    assert equal_pods(actual, desired)
+
+
+def test_kubernetes_equal_pods_treats_an_unset_grace_period_as_the_default():
+    # A Pod created before the grace period existed carries the API server
+    # default, which is what the plan default settles on too.
+    actual = _pod(termination_grace_period_seconds=None)
+    desired = _pod(termination_grace_period_seconds=30)
+
+    assert equal_pods(actual, desired)
+
+
+def test_kubernetes_equal_pods_detects_a_changed_grace_period():
+    actual = _pod(termination_grace_period_seconds=30)
+    desired = _pod(termination_grace_period_seconds=10)
+
+    assert not equal_pods(actual, desired)

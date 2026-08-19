@@ -8,7 +8,7 @@ import os
 import socket
 import sys
 import tarfile
-import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from math import ceil
 from pathlib import Path
@@ -112,6 +112,8 @@ class PodmanWorkloadPlan(WorkloadPlan):
             The group ID to own the filesystem of the workload.
         sysctls (dict[str, str] | None):
             Sysctls to set for the workload.
+        termination_grace_period_seconds (int):
+            Duration in seconds the containers of the workload need to terminate gracefully.
         containers (list[tuple[int, Container]] | None):
             List of containers in the workload.
             It must contain at least one "RUN" profile container.
@@ -1643,21 +1645,19 @@ class PodmanDeployer(EndoscopicDeployer):
                     c.remove(
                         force=True,
                     )
-            # Then drain the non-pause containers within the grace period,
-            # which is shared by all of them, and remove them.
-            deadline = time.monotonic() + _termination_grace_period_seconds(
-                d_containers,
-                grace_period_seconds,
+            # Then drain the non-pause containers concurrently,
+            # so each of them gets the whole grace period,
+            # and remove them.
+            d_drain_containers = [
+                c
+                for c in d_containers
+                if c.labels.get(_LABEL_COMPONENT) not in ("pause", "unhealthy-restart")
+            ]
+            _stop_containers(
+                d_drain_containers,
+                _termination_grace_period_seconds(d_containers, grace_period_seconds),
             )
-            for c in d_containers:
-                if c.labels.get(_LABEL_COMPONENT) in ("pause", "unhealthy-restart"):
-                    continue
-                c.stop(
-                    timeout=max(0, ceil(deadline - time.monotonic())),
-                    # Tolerate the "already stopped" answer,
-                    # which podman-py cannot decode on its own.
-                    ignore=True,
-                )
+            for c in d_drain_containers:
                 c.remove(
                     force=True,
                 )
@@ -1668,7 +1668,10 @@ class PodmanDeployer(EndoscopicDeployer):
                     c.remove(
                         force=True,
                     )
-        except podman.errors.APIError as e:
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # as neither the Podman SDK errors nor the transport ones underneath them
+        # share a base class narrow enough to catch on its own.
+        except Exception as e:
             msg = f"Failed to delete containers for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
@@ -1689,7 +1692,7 @@ class PodmanDeployer(EndoscopicDeployer):
                 v.remove(
                     force=True,
                 )
-        except podman.errors.APIError as e:
+        except Exception as e:
             msg = f"Failed to delete volumes for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
@@ -2147,6 +2150,43 @@ class PodmanDeployer(EndoscopicDeployer):
         return safe_json(c_attrs, indent=2)
 
 
+def _stop_containers(
+    containers: list[podman.domain.containers.Container],
+    grace_period_seconds: int,
+):
+    """
+    Stop the given containers concurrently,
+    so each of them gets the whole grace period,
+    which mirrors how Kubernetes terminates the containers of a Pod.
+
+    A container failing to stop is left to the forceful removal following this,
+    as the removal is the authoritative teardown.
+
+    Args:
+        containers:
+            List of Podman containers to stop.
+        grace_period_seconds:
+            Duration in seconds the containers need to terminate gracefully.
+
+    """
+    if not containers:
+        return
+
+    def stop(container: podman.domain.containers.Container):
+        try:
+            container.stop(
+                timeout=grace_period_seconds,
+                # Tolerate the "already stopped" answer,
+                # which podman-py cannot decode on its own.
+                ignore=True,
+            )
+        except Exception:
+            debug_log_exception(logger, f"Failed to stop container {container.name}")
+
+    with ThreadPoolExecutor(max_workers=len(containers)) as pool:
+        list(pool.map(stop, containers))
+
+
 def _termination_grace_period_seconds(
     containers: list[podman.domain.containers.Container],
     override: int | None = None,
@@ -2167,7 +2207,7 @@ def _termination_grace_period_seconds(
 
     """
     if override is not None:
-        return max(0, override)
+        return override
 
     for c in containers:
         declared = c.labels.get(_LABEL_TERMINATION_GRACE_PERIOD_SECONDS)
@@ -2220,14 +2260,14 @@ class PodmanWorkloadExecStream(WorkloadExecStream):
         self._sock.close()
 
 
-def _detail_api_call_error(err: podman.errors.APIError) -> str:
+def _detail_api_call_error(err: Exception) -> str:
     """
     Explain a Podman API error in a concise way,
     if the envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL is enabled.
 
     Args:
         err:
-            The Podman API error.
+            The Podman API error, or the transport error underneath it.
 
     Returns:
         A concise explanation of the error.
@@ -2235,6 +2275,9 @@ def _detail_api_call_error(err: podman.errors.APIError) -> str:
     """
     if not envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL:
         return ""
+
+    if not isinstance(err, podman.errors.APIError):
+        return f": {err}"
 
     msg = f": Podman {'Client' if err.is_client_error() else 'Server'} Error"
     if err.explanation:

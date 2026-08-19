@@ -362,7 +362,7 @@ class DeleteWorkloadSubCommand(SubCommand):
 
     namespace: str
     name: str
-    grace_period_seconds: int
+    grace_period_seconds: int | None
 
     @staticmethod
     def register(parser: _SubParsersAction):
@@ -442,7 +442,9 @@ class DeleteWorkloadsSubCommand(SubCommand):
             "--grace-period-seconds",
             type=int,
             help="Duration in seconds the workloads need to terminate gracefully, "
-            "which overrides the one declared by the workload plans",
+            "which overrides the one declared by the workload plans. "
+            "The workloads are deleted one after another, "
+            "so the whole deletion may take this duration per workload",
         )
 
         delete_parser.set_defaults(func=DeleteWorkloadsSubCommand)
