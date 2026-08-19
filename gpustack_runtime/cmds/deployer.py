@@ -362,6 +362,7 @@ class DeleteWorkloadSubCommand(SubCommand):
 
     namespace: str
     name: str
+    grace_period_seconds: int | None
 
     @staticmethod
     def register(parser: _SubParsersAction):
@@ -377,6 +378,13 @@ class DeleteWorkloadSubCommand(SubCommand):
         )
 
         delete_parser.add_argument(
+            "--grace-period-seconds",
+            type=int,
+            help="Duration in seconds the workload needs to terminate gracefully, "
+            "which overrides the one declared by the workload plan",
+        )
+
+        delete_parser.add_argument(
             "name",
             type=str,
             help="Name of the workload",
@@ -387,6 +395,7 @@ class DeleteWorkloadSubCommand(SubCommand):
     def __init__(self, args: Namespace):
         self.namespace = args.namespace
         self.name = args.name
+        self.grace_period_seconds = args.grace_period_seconds
 
         if not self.name:
             msg = "The name argument is required."
@@ -396,6 +405,7 @@ class DeleteWorkloadSubCommand(SubCommand):
         st = delete_workload(
             name=self.name,
             namespace=self.namespace,
+            grace_period_seconds=self.grace_period_seconds,
         )
         if st:
             print(f"Deleted workload '{self.name}'.")
@@ -428,11 +438,21 @@ class DeleteWorkloadsSubCommand(SubCommand):
             help="Filter workloads by labels (key=value pairs separated by commas)",
         )
 
+        delete_parser.add_argument(
+            "--grace-period-seconds",
+            type=int,
+            help="Duration in seconds the workloads need to terminate gracefully, "
+            "which overrides the one declared by the workload plans. "
+            "The workloads are deleted one after another, "
+            "so the whole deletion may take this duration per workload",
+        )
+
         delete_parser.set_defaults(func=DeleteWorkloadsSubCommand)
 
     def __init__(self, args: Namespace):
         self.namespace = args.namespace
         self.labels = args.labels
+        self.grace_period_seconds = args.grace_period_seconds
 
     def run(self):
         sts: list[WorkloadStatus] = list_workloads(
@@ -443,6 +463,7 @@ class DeleteWorkloadsSubCommand(SubCommand):
             delete_workload(
                 name=st.name,
                 namespace=st.namespace,
+                grace_period_seconds=self.grace_period_seconds,
             )
             print(f"Deleted workload '{st.name}'.")
         if not sts:

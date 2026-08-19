@@ -8,6 +8,7 @@ import os
 import socket
 import sys
 import tarfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from math import ceil
 from pathlib import Path
@@ -30,6 +31,7 @@ from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 from .__patches__ import patch_render_payload
 from .__types__ import (
+    DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
     Container,
     ContainerCheck,
     ContainerEnv,
@@ -71,6 +73,9 @@ _LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
 _LABEL_COMPONENT_NAME = f"{_LABEL_COMPONENT}-name"
 _LABEL_COMPONENT_INDEX = f"{_LABEL_COMPONENT}-index"
 _LABEL_COMPONENT_HEAL_PREFIX = f"{_LABEL_COMPONENT}-heal"
+_LABEL_TERMINATION_GRACE_PERIOD_SECONDS = (
+    f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/termination-grace-period-seconds"
+)
 
 
 @dataclass_json
@@ -107,6 +112,8 @@ class PodmanWorkloadPlan(WorkloadPlan):
             The group ID to own the filesystem of the workload.
         sysctls (dict[str, str] | None):
             Sysctls to set for the workload.
+        termination_grace_period_seconds (int):
+            Duration in seconds the containers of the workload need to terminate gracefully.
         containers (list[tuple[int, Container]] | None):
             List of containers in the workload.
             It must contain at least one "RUN" profile container.
@@ -140,6 +147,12 @@ class PodmanWorkloadPlan(WorkloadPlan):
 
         # Default and validate in the base class.
         super().validate_and_default()
+
+        # Carry the termination grace period on the containers,
+        # as the Podman models layer cannot express a create time stop timeout.
+        self.labels[_LABEL_TERMINATION_GRACE_PERIOD_SECONDS] = str(
+            self.termination_grace_period_seconds,
+        )
 
         # Adjust images.
         self.pause_image = adjust_image_with_envs(self.pause_image)
@@ -1593,6 +1606,7 @@ class PodmanDeployer(EndoscopicDeployer):
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
+        grace_period_seconds: int | None = None,
     ) -> WorkloadStatus | None:
         """
         Delete a Podman workload.
@@ -1602,6 +1616,9 @@ class PodmanDeployer(EndoscopicDeployer):
                 The name of the workload.
             namespace:
                 The namespace of the workload.
+            grace_period_seconds:
+                Duration in seconds the workload needs to terminate gracefully,
+                which overrides the one declared by the workload plan.
 
         Return:
             The status if found, None otherwise.
@@ -1621,19 +1638,40 @@ class PodmanDeployer(EndoscopicDeployer):
         # Remove all containers with the workload label.
         try:
             d_containers = getattr(workload, "_d_containers", [])
-            # Remove non-pause containers first.
+            # Remove the unhealthy restart container first,
+            # otherwise it restarts the containers draining below.
             for c in d_containers:
-                if "-pause" not in c.name:
+                if c.labels.get(_LABEL_COMPONENT) == "unhealthy-restart":
                     c.remove(
                         force=True,
                     )
-            # Then remove pause containers.
+            # Then drain the non-pause containers concurrently,
+            # so each of them gets the whole grace period,
+            # and remove them.
+            d_drain_containers = [
+                c
+                for c in d_containers
+                if c.labels.get(_LABEL_COMPONENT) not in ("pause", "unhealthy-restart")
+            ]
+            _stop_containers(
+                d_drain_containers,
+                _termination_grace_period_seconds(d_containers, grace_period_seconds),
+            )
+            for c in d_drain_containers:
+                c.remove(
+                    force=True,
+                )
+            # Finally remove the pause containers,
+            # which hold the namespaces shared by the above containers.
             for c in d_containers:
-                if "-pause" in c.name:
+                if c.labels.get(_LABEL_COMPONENT) == "pause":
                     c.remove(
                         force=True,
                     )
-        except podman.errors.APIError as e:
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # as neither the Podman SDK errors nor the transport ones underneath them
+        # share a base class narrow enough to catch on its own.
+        except Exception as e:
             msg = f"Failed to delete containers for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
@@ -1654,7 +1692,7 @@ class PodmanDeployer(EndoscopicDeployer):
                 v.remove(
                     force=True,
                 )
-        except podman.errors.APIError as e:
+        except Exception as e:
             msg = f"Failed to delete volumes for workload {name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
@@ -2112,6 +2150,74 @@ class PodmanDeployer(EndoscopicDeployer):
         return safe_json(c_attrs, indent=2)
 
 
+def _stop_containers(
+    containers: list[podman.domain.containers.Container],
+    grace_period_seconds: int,
+):
+    """
+    Stop the given containers concurrently,
+    so each of them gets the whole grace period,
+    which mirrors how Kubernetes terminates the containers of a Pod.
+
+    A container failing to stop is left to the forceful removal following this,
+    as the removal is the authoritative teardown.
+
+    Args:
+        containers:
+            List of Podman containers to stop.
+        grace_period_seconds:
+            Duration in seconds the containers need to terminate gracefully.
+
+    """
+    if not containers:
+        return
+
+    def stop(container: podman.domain.containers.Container):
+        try:
+            container.stop(
+                timeout=grace_period_seconds,
+                # Tolerate the "already stopped" answer,
+                # which podman-py cannot decode on its own.
+                ignore=True,
+            )
+        except Exception:
+            debug_log_exception(logger, f"Failed to stop container {container.name}")
+
+    with ThreadPoolExecutor(max_workers=min(len(containers), 16)) as pool:
+        list(pool.map(stop, containers))
+
+
+def _termination_grace_period_seconds(
+    containers: list[podman.domain.containers.Container],
+    override: int | None = None,
+) -> int:
+    """
+    Resolve how long the given containers may take to terminate gracefully,
+    which prefers the given override, then the one declared by the workload plan,
+    and finally the default.
+
+    Args:
+        containers:
+            List of Podman containers in the workload.
+        override:
+            Duration in seconds overriding the one declared by the workload plan.
+
+    Returns:
+        The duration in seconds.
+
+    """
+    if override is not None:
+        return override
+
+    for c in containers:
+        declared = c.labels.get(_LABEL_TERMINATION_GRACE_PERIOD_SECONDS)
+        if declared:
+            with contextlib.suppress(ValueError):
+                return max(0, int(declared))
+
+    return DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS
+
+
 def _has_restart_policy(
     container: podman.domain.containers.Container,
 ) -> bool:
@@ -2154,14 +2260,14 @@ class PodmanWorkloadExecStream(WorkloadExecStream):
         self._sock.close()
 
 
-def _detail_api_call_error(err: podman.errors.APIError) -> str:
+def _detail_api_call_error(err: Exception) -> str:
     """
     Explain a Podman API error in a concise way,
     if the envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL is enabled.
 
     Args:
         err:
-            The Podman API error.
+            The Podman API error, or the transport error underneath it.
 
     Returns:
         A concise explanation of the error.
@@ -2169,6 +2275,9 @@ def _detail_api_call_error(err: podman.errors.APIError) -> str:
     """
     if not envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL:
         return ""
+
+    if not isinstance(err, podman.errors.APIError):
+        return f": {err}"
 
     msg = f": Podman {'Client' if err.is_client_error() else 'Server'} Error"
     if err.explanation:

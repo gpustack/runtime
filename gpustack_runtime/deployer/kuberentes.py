@@ -4,8 +4,10 @@ import contextlib
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,6 +23,7 @@ from .. import envs
 from ..logging import debug_log_exception
 from . import ContainerCheck, ContainerMountModeEnum, OperationError
 from .__types__ import (
+    DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
     Container,
     ContainerPort,
     ContainerProfileEnum,
@@ -135,6 +138,8 @@ class KubernetesWorkloadPlan(WorkloadPlan):
             The group ID to own the filesystem of the workload.
         sysctls (dict[str, str] | None):
             Sysctls to set for the workload.
+        termination_grace_period_seconds (int):
+            Duration in seconds the containers of the workload need to terminate gracefully.
         containers (list[tuple[int, Container]] | None):
             List of containers in the workload.
             It must contain at least one "RUN" profile container.
@@ -1374,6 +1379,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                 ),
                 host_ipc=workload.host_ipc,
                 share_process_namespace=workload.pid_shared,
+                termination_grace_period_seconds=workload.termination_grace_period_seconds,
                 node_name=self._node_name,
                 automount_service_account_token=False,
                 volumes=(
@@ -2202,6 +2208,7 @@ class KubernetesDeployer(EndoscopicDeployer):
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
+        grace_period_seconds: int | None = None,
     ) -> WorkloadStatus | None:
         """
         Delete a Kubernetes workload.
@@ -2211,6 +2218,9 @@ class KubernetesDeployer(EndoscopicDeployer):
                 The name of the workload.
             namespace:
                 The namespace of the workload.
+            grace_period_seconds:
+                Duration in seconds the workload needs to terminate gracefully,
+                which overrides the one declared by the workload plan.
 
         Returns:
             The status if found, None otherwise.
@@ -2241,6 +2251,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                 namespace=namespace,
                 label_selector=label_selector,
                 propagation_policy=propagation_policy,
+                grace_period_seconds=grace_period_seconds,
             )
         except kubernetes.client.exceptions.ApiException as e:
             if e.status != 405:
@@ -2257,10 +2268,16 @@ class KubernetesDeployer(EndoscopicDeployer):
                         name=pod.metadata.name,
                         namespace=namespace,
                         propagation_policy=propagation_policy,
+                        grace_period_seconds=grace_period_seconds,
                     )
-            except kubernetes.client.exceptions.ApiException as e2:
+            except Exception as e2:
                 msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e2)}"
                 raise OperationError(msg) from e2
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # so the transport errors underneath the API errors do not escape either.
+        except Exception as e:
+            msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
 
         # Remove all Services with the workload label.
         try:
@@ -2287,9 +2304,14 @@ class KubernetesDeployer(EndoscopicDeployer):
                         namespace=namespace,
                         propagation_policy=propagation_policy,
                     )
-            except kubernetes.client.exceptions.ApiException as e2:
+            except Exception as e2:
                 msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e2)}"
                 raise OperationError(msg) from e2
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # so the transport errors underneath the API errors do not escape either.
+        except Exception as e:
+            msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
 
         # Remove all ConfigMaps with the workload label.
         try:
@@ -2314,9 +2336,14 @@ class KubernetesDeployer(EndoscopicDeployer):
                         namespace=namespace,
                         propagation_policy=propagation_policy,
                     )
-            except kubernetes.client.exceptions.ApiException as e2:
+            except Exception as e2:
                 msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e2)}"
                 raise OperationError(msg) from e2
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # so the transport errors underneath the API errors do not escape either.
+        except Exception as e:
+            msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
 
         return workload
 
@@ -2843,6 +2870,91 @@ def equal_services(
     return (aspec.ports or []) == (bspec.ports or [])
 
 
+_RE_QUANTITY_NUMBER = re.compile(
+    r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$",
+)
+"""
+Regex for the number a Kubernetes resource quantity carries,
+which accepts ASCII digits only.
+"""
+
+_QUANTITY_SUFFIXES: dict[str, Decimal] = {
+    "Ki": Decimal(2) ** 10,
+    "Mi": Decimal(2) ** 20,
+    "Gi": Decimal(2) ** 30,
+    "Ti": Decimal(2) ** 40,
+    "Pi": Decimal(2) ** 50,
+    "Ei": Decimal(2) ** 60,
+    "n": Decimal(10) ** -9,
+    "u": Decimal(10) ** -6,
+    "m": Decimal(10) ** -3,
+    "k": Decimal(10) ** 3,
+    "M": Decimal(10) ** 6,
+    "G": Decimal(10) ** 9,
+    "T": Decimal(10) ** 12,
+    "P": Decimal(10) ** 15,
+    "E": Decimal(10) ** 18,
+}
+"""
+Multipliers of the suffixes a Kubernetes resource quantity may carry.
+"""
+
+
+def _parse_quantity(value: float | str) -> Decimal | str:
+    """
+    Parse a Kubernetes resource quantity into the number it denotes,
+    so the spellings the API server rewrites, e.g. "1.5Gi" into "1536Mi"
+    or 0.5 into "500m", still compare equal to what was requested.
+
+    Args:
+        value:
+            The resource quantity to parse.
+
+    Returns:
+        The number the quantity denotes,
+        or the value itself if it does not spell one.
+
+    """
+    text = str(value)
+
+    number, multiplier = text, Decimal(1)
+    for suffix, suffix_multiplier in _QUANTITY_SUFFIXES.items():
+        if text.endswith(suffix):
+            number, multiplier = text[: -len(suffix)], suffix_multiplier
+            break
+
+    # NB(thxCode): Decimal is more permissive than Kubernetes, which accepts
+    # ASCII digits only, so an underscore separated or full-width spelling
+    # would otherwise read as the plain one
+    # and let an invalid declaration pass as an unchanged one.
+    if not _RE_QUANTITY_NUMBER.match(number):
+        return text
+
+    return Decimal(number) * multiplier
+
+
+def _container_resources(
+    container: kubernetes.client.V1Container,
+) -> dict:
+    """
+    Return the resources the given Container spec requests as numbers,
+    dropping the empty entries the API server fills in,
+    which an unset resources declaration does not carry.
+
+    """
+    if container.resources is None:
+        return {}
+    return {
+        kind: (
+            {k: _parse_quantity(v) for k, v in values.items()}
+            if isinstance(values, dict)
+            else values
+        )
+        for kind, values in container.resources.to_dict().items()
+        if values
+    }
+
+
 def equal_containers(
     a: kubernetes.client.V1Container,
     b: kubernetes.client.V1Container,
@@ -2874,7 +2986,7 @@ def equal_containers(
         return False
     if (a.ports or []) != (b.ports or []):
         return False
-    if (a.resources or {}) != (b.resources or {}):
+    if _container_resources(a) != _container_resources(b):
         return False
     if (a.volume_mounts or []) != (b.volume_mounts or []):
         return False
@@ -2891,6 +3003,19 @@ def equal_containers(
     aenv = {e.name: e.value for e in a.env or []}
     benv = {e.name: e.value for e in b.env or []}
     return all(not (k not in benv or benv[k] != v) for k, v in aenv.items())
+
+
+def _pod_termination_grace_period_seconds(
+    spec: kubernetes.client.V1PodSpec,
+) -> int:
+    """
+    Return the termination grace period the given Pod spec settles on,
+    which is the API server default when the spec leaves it unset.
+
+    """
+    if spec.termination_grace_period_seconds is None:
+        return DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS
+    return spec.termination_grace_period_seconds
 
 
 def equal_pods(
@@ -2923,13 +3048,19 @@ def equal_pods(
             return False
     if aspec.runtime_class_name != bspec.runtime_class_name:
         return False
-    if aspec.host_network != bspec.host_network:
+    # NB(thxCode): The API server drops the disabled toggles instead of
+    # echoing them back, so compare what they settle on, not what they carry.
+    if bool(aspec.host_network) != bool(bspec.host_network):
         return False
-    if aspec.host_ipc != bspec.host_ipc:
+    if bool(aspec.host_ipc) != bool(bspec.host_ipc):
         return False
-    if aspec.share_process_namespace != bspec.share_process_namespace:
+    if bool(aspec.share_process_namespace) != bool(bspec.share_process_namespace):
         return False
     if (aspec.restart_policy or "Always") != (bspec.restart_policy or "Always"):
+        return False
+    if _pod_termination_grace_period_seconds(
+        aspec,
+    ) != _pod_termination_grace_period_seconds(bspec):
         return False
     if aspec.node_name and bspec.node_name and aspec.node_name != bspec.node_name:
         return False
@@ -3006,14 +3137,14 @@ class KubernetesWorkloadExecStream(WorkloadExecStream):
         self._ws.close()
 
 
-def _detail_api_call_error(err: kubernetes.client.exceptions.ApiException) -> str:
+def _detail_api_call_error(err: Exception) -> str:
     """
     Explain a Kubernetes API error in a concise way,
     if the envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL is enabled.
 
     Args:
         err:
-            The Kubernetes API error.
+            The Kubernetes API error, or the transport error underneath it.
 
     Returns:
         A concise explanation of the error.
@@ -3021,6 +3152,9 @@ def _detail_api_call_error(err: kubernetes.client.exceptions.ApiException) -> st
     """
     if not envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL:
         return ""
+
+    if not isinstance(err, kubernetes.client.exceptions.ApiException):
+        return f": {err}"
 
     msg = ": Kubernetes Error"
     if err.reason:

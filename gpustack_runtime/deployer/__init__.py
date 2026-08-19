@@ -150,6 +150,7 @@ def get_workload(
 def delete_workload(
     name: WorkloadName,
     namespace: WorkloadNamespace | None = None,
+    grace_period_seconds: int | None = None,
 ) -> WorkloadStatus | None:
     """
     Delete the given workload.
@@ -159,11 +160,16 @@ def delete_workload(
             The name of the workload to delete.
         namespace:
             The namespace of the workload.
+        grace_period_seconds:
+            Duration in seconds the workload needs to terminate gracefully,
+            which overrides the one declared by the workload plan.
 
     Return:
         The status if found, None otherwise.
 
     Raises:
+        ValueError:
+            If the grace period is negative.
         UnsupportedError:
             If no deployer supports the given workload.
         OperationError:
@@ -174,7 +180,11 @@ def delete_workload(
         if not dep.is_supported():
             continue
 
-        return dep.delete(name=name, namespace=namespace)
+        return dep.delete(
+            name=name,
+            namespace=namespace,
+            grace_period_seconds=grace_period_seconds,
+        )
 
     raise UnsupportedError(_NO_AVAILABLE_DEPLOYER_MSG)
 
