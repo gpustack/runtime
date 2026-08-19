@@ -4,8 +4,10 @@ import contextlib
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -2268,9 +2270,14 @@ class KubernetesDeployer(EndoscopicDeployer):
                         propagation_policy=propagation_policy,
                         grace_period_seconds=grace_period_seconds,
                     )
-            except kubernetes.client.exceptions.ApiException as e2:
+            except Exception as e2:
                 msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e2)}"
                 raise OperationError(msg) from e2
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # so the transport errors underneath the API errors do not escape either.
+        except Exception as e:
+            msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
 
         # Remove all Services with the workload label.
         try:
@@ -2297,9 +2304,14 @@ class KubernetesDeployer(EndoscopicDeployer):
                         namespace=namespace,
                         propagation_policy=propagation_policy,
                     )
-            except kubernetes.client.exceptions.ApiException as e2:
+            except Exception as e2:
                 msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e2)}"
                 raise OperationError(msg) from e2
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # so the transport errors underneath the API errors do not escape either.
+        except Exception as e:
+            msg = f"Failed to delete service of workload {name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
 
         # Remove all ConfigMaps with the workload label.
         try:
@@ -2324,9 +2336,14 @@ class KubernetesDeployer(EndoscopicDeployer):
                         namespace=namespace,
                         propagation_policy=propagation_policy,
                     )
-            except kubernetes.client.exceptions.ApiException as e2:
+            except Exception as e2:
                 msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e2)}"
                 raise OperationError(msg) from e2
+        # NB(thxCode): Deleting a workload always fails with an OperationError,
+        # so the transport errors underneath the API errors do not escape either.
+        except Exception as e:
+            msg = f"Failed to delete configmap of workload {name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
 
         return workload
 
@@ -2853,18 +2870,89 @@ def equal_services(
     return (aspec.ports or []) == (bspec.ports or [])
 
 
+_RE_QUANTITY_NUMBER = re.compile(
+    r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$",
+)
+"""
+Regex for the number a Kubernetes resource quantity carries,
+which accepts ASCII digits only.
+"""
+
+_QUANTITY_SUFFIXES: dict[str, Decimal] = {
+    "Ki": Decimal(2) ** 10,
+    "Mi": Decimal(2) ** 20,
+    "Gi": Decimal(2) ** 30,
+    "Ti": Decimal(2) ** 40,
+    "Pi": Decimal(2) ** 50,
+    "Ei": Decimal(2) ** 60,
+    "n": Decimal(10) ** -9,
+    "u": Decimal(10) ** -6,
+    "m": Decimal(10) ** -3,
+    "k": Decimal(10) ** 3,
+    "M": Decimal(10) ** 6,
+    "G": Decimal(10) ** 9,
+    "T": Decimal(10) ** 12,
+    "P": Decimal(10) ** 15,
+    "E": Decimal(10) ** 18,
+}
+"""
+Multipliers of the suffixes a Kubernetes resource quantity may carry.
+"""
+
+
+def _parse_quantity(value: float | str) -> Decimal | str:
+    """
+    Parse a Kubernetes resource quantity into the number it denotes,
+    so the spellings the API server rewrites, e.g. "1.5Gi" into "1536Mi"
+    or 0.5 into "500m", still compare equal to what was requested.
+
+    Args:
+        value:
+            The resource quantity to parse.
+
+    Returns:
+        The number the quantity denotes,
+        or the value itself if it does not spell one.
+
+    """
+    text = str(value)
+
+    number, multiplier = text, Decimal(1)
+    for suffix, suffix_multiplier in _QUANTITY_SUFFIXES.items():
+        if text.endswith(suffix):
+            number, multiplier = text[: -len(suffix)], suffix_multiplier
+            break
+
+    # NB(thxCode): Decimal is more permissive than Kubernetes, which accepts
+    # ASCII digits only, so an underscore separated or full-width spelling
+    # would otherwise read as the plain one
+    # and let an invalid declaration pass as an unchanged one.
+    if not _RE_QUANTITY_NUMBER.match(number):
+        return text
+
+    return Decimal(number) * multiplier
+
+
 def _container_resources(
     container: kubernetes.client.V1Container,
 ) -> dict:
     """
-    Return the resources the given Container spec requests,
+    Return the resources the given Container spec requests as numbers,
     dropping the empty entries the API server fills in,
     which an unset resources declaration does not carry.
 
     """
     if container.resources is None:
         return {}
-    return {k: v for k, v in container.resources.to_dict().items() if v}
+    return {
+        kind: (
+            {k: _parse_quantity(v) for k, v in values.items()}
+            if isinstance(values, dict)
+            else values
+        )
+        for kind, values in container.resources.to_dict().items()
+        if values
+    }
 
 
 def equal_containers(
@@ -3049,14 +3137,14 @@ class KubernetesWorkloadExecStream(WorkloadExecStream):
         self._ws.close()
 
 
-def _detail_api_call_error(err: kubernetes.client.exceptions.ApiException) -> str:
+def _detail_api_call_error(err: Exception) -> str:
     """
     Explain a Kubernetes API error in a concise way,
     if the envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL is enabled.
 
     Args:
         err:
-            The Kubernetes API error.
+            The Kubernetes API error, or the transport error underneath it.
 
     Returns:
         A concise explanation of the error.
@@ -3064,6 +3152,9 @@ def _detail_api_call_error(err: kubernetes.client.exceptions.ApiException) -> st
     """
     if not envs.GPUSTACK_RUNTIME_DEPLOY_API_CALL_ERROR_DETAIL:
         return ""
+
+    if not isinstance(err, kubernetes.client.exceptions.ApiException):
+        return f": {err}"
 
     msg = ": Kubernetes Error"
     if err.reason:

@@ -2132,6 +2132,7 @@ class Deployer(ABC):
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
+        *,
         grace_period_seconds: int | None = None,
         async_mode: bool | None = None,
     ) -> WorkloadStatus | None:

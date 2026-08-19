@@ -3,11 +3,13 @@
 # socket or Kubernetes cluster.
 # ruff: noqa: SLF001
 
+import threading
 from types import SimpleNamespace
 
 import docker.errors
 import kubernetes.client
 import kubernetes.client.exceptions
+import podman.errors
 import pytest
 
 from gpustack_runtime.deployer.__types__ import (
@@ -15,6 +17,7 @@ from gpustack_runtime.deployer.__types__ import (
     Container,
     ContainerProfileEnum,
     Deployer,
+    OperationError,
     WorkloadPlan,
 )
 from gpustack_runtime.deployer.docker import (
@@ -30,6 +33,7 @@ from gpustack_runtime.deployer.docker import (
 from gpustack_runtime.deployer.kuberentes import (
     KubernetesDeployer,
     KubernetesWorkloadPlan,
+    equal_containers,
     equal_pods,
 )
 from gpustack_runtime.deployer.podman import (
@@ -134,8 +138,13 @@ class _FakeContainer:
         self.labels = {**(labels or {}), component_label: component}
         self.journal = journal
         self.stop_error = None
+        self.stop_barrier = None
 
     def stop(self, **kwargs):
+        if self.stop_barrier:
+            # Only a container signalled while the others are still draining
+            # reaches the barrier, a serial drain times out on it instead.
+            self.stop_barrier.wait(timeout=5)
         self.journal.append(("stop", self.name, kwargs))
         if self.stop_error:
             raise self.stop_error
@@ -273,6 +282,42 @@ def test_docker_delete_kills_immediately_on_a_zero_grace_period():
     ]
 
 
+@pytest.mark.parametrize(
+    "deployer, make_containers",
+    [
+        (DockerDeployer, _docker_containers),
+        (PodmanDeployer, _podman_containers),
+    ],
+)
+def test_delete_signals_the_containers_at_the_same_time(deployer, make_containers):
+    # Draining serially would leave the containers behind the first one with
+    # less than the grace period, which is the bug this branch exists to fix.
+    # Both deployers carry their own copy of the drain, so both are guarded.
+    journal = []
+    containers = make_containers(journal)
+    barrier = threading.Barrier(len(_DRAINED))
+    for c in containers:
+        if c.name in _DRAINED:
+            c.stop_barrier = barrier
+    dep = _deployer(containers)
+
+    deployer._delete(dep, name="test", grace_period_seconds=20)
+
+    assert len(_stops(journal)) == len(_DRAINED)
+
+
+def test_podman_delete_survives_a_container_failing_to_stop():
+    journal = []
+    containers = _podman_containers(journal)
+    containers[2].stop_error = podman.errors.APIError("boom")
+    dep = _deployer(containers)
+
+    PodmanDeployer._delete(dep, name="test", grace_period_seconds=20)
+
+    assert journal[-1] == ("remove", "test-pause", {"force": True})
+    assert ("remove", "test-run-1", {"force": True}) in journal
+
+
 def test_docker_delete_survives_a_container_failing_to_stop():
     # The forceful removal is the authoritative teardown, a container refusing
     # to drain must not strand the pause container and the volumes.
@@ -395,6 +440,47 @@ def test_podman_workload_plan_stamps_the_grace_period_label():
     plan.validate_and_default()
 
     assert plan.labels[_PODMAN_LABEL_GRACE_PERIOD] == "30"
+
+
+def test_podman_workload_plan_stamps_the_defaulted_grace_period_label():
+    plan = PodmanWorkloadPlan(
+        name="test",
+        termination_grace_period_seconds=None,
+        containers=[
+            Container(
+                name="run",
+                image="busybox:1.37",
+                profile=ContainerProfileEnum.RUN,
+            ),
+        ],
+    )
+    plan.validate_and_default()
+
+    assert plan.labels[_PODMAN_LABEL_GRACE_PERIOD] == "30"
+
+
+def test_kubernetes_delete_reports_a_transport_failure_as_an_operation_error(
+    monkeypatch,
+):
+    # A transport failure carries no HTTP status, so it must not escape the
+    # deletion as something other than an OperationError.
+    class _FailingCoreV1Api:
+        def __init__(self, client=None):
+            pass
+
+        def delete_collection_namespaced_pod(self, **_kwargs):
+            msg = "connection reset"
+            raise OSError(msg)
+
+    monkeypatch.setattr(kubernetes.client, "CoreV1Api", _FailingCoreV1Api)
+    dep = SimpleNamespace(
+        is_supported=lambda: True,
+        get=lambda **_kwargs: SimpleNamespace(name="test"),
+        _client=None,
+    )
+
+    with pytest.raises(OperationError):
+        KubernetesDeployer._delete(dep, name="test", namespace="default")
 
 
 def test_kubernetes_pod_declares_the_termination_grace_period(monkeypatch):
@@ -593,3 +679,50 @@ def test_kubernetes_equal_pods_detects_a_changed_grace_period():
     desired = _pod(termination_grace_period_seconds=10)
 
     assert not equal_pods(actual, desired)
+
+
+def _container(cpu, memory) -> kubernetes.client.V1Container:
+    return kubernetes.client.V1Container(
+        name="run",
+        image="busybox:1.37",
+        resources=kubernetes.client.V1ResourceRequirements(
+            limits={"cpu": cpu, "memory": memory},
+            requests={"cpu": cpu, "memory": memory},
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "declared, stored",
+    [
+        # The API server rewrites a fractional quantity into its milli form.
+        ("0.5", "500m"),
+        # And a suffixed quantity into the largest suffix dividing it exactly.
+        ("1.5Gi", "1536Mi"),
+        # While an already canonical quantity is kept verbatim.
+        ("1Gi", "1Gi"),
+        ("1073741824", "1073741824"),
+    ],
+)
+def test_kubernetes_equal_containers_reads_a_rewritten_quantity(declared, stored):
+    # The API server stores a quantity in its own spelling, which must not read
+    # as a change, or the Pod is recreated on every deployment.
+    assert equal_containers(_container(stored, stored), _container(declared, declared))
+
+
+def test_kubernetes_equal_containers_detects_a_changed_quantity():
+    assert not equal_containers(_container("1", "1Gi"), _container("2", "1Gi"))
+    assert not equal_containers(_container("1", "1Gi"), _container("1", "2Gi"))
+
+
+def test_kubernetes_equal_containers_keeps_a_non_quantity_verbatim():
+    # Device resources carry values that do not spell a quantity.
+    assert equal_containers(_container("1", "all"), _container("1", "all"))
+    assert not equal_containers(_container("1", "all"), _container("1", "0,1"))
+
+
+@pytest.mark.parametrize("declared", ["1_0m", "\uff11\uff10m", "0x10", " 10m"])
+def test_kubernetes_equal_containers_refuses_a_non_ascii_quantity(declared):
+    # Kubernetes accepts ASCII digits only, so a declaration Python would read
+    # as a number must not pass as an unchanged one.
+    assert not equal_containers(_container("1", "10m"), _container("1", declared))

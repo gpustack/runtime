@@ -2236,7 +2236,7 @@ def _stop_containers(
         except Exception:
             debug_log_exception(logger, f"Failed to stop container {container.name}")
 
-    with ThreadPoolExecutor(max_workers=len(containers)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(containers), 16)) as pool:
         list(pool.map(stop, containers))
 
 
