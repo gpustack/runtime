@@ -832,6 +832,11 @@ WorkloadName = str
 Name for a workload.
 """
 
+DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS = 15
+"""
+Default duration in seconds a workload needs to terminate gracefully.
+"""
+
 
 @dataclass_json
 @dataclass
@@ -862,6 +867,8 @@ class WorkloadPlan(WorkloadSecurity):
             The group ID to own the filesystem of the workload.
         sysctls (dict[str, str] | None):
             Sysctls to set for the workload.
+        termination_grace_period_seconds (int):
+            Duration in seconds the containers of the workload need to terminate gracefully.
         containers (list[Container] | None):
             Containers in the workload.
             It must contain at least one "RUN" profile container.
@@ -903,6 +910,12 @@ class WorkloadPlan(WorkloadSecurity):
     shm_size: int | str | None = None
     """
     Configure shared memory size for the workload.
+    """
+    termination_grace_period_seconds: int = DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS
+    """
+    Duration in seconds the containers of the workload need to terminate gracefully.
+    Containers are signaled to stop, and killed once the duration elapses.
+    Zero means killing immediately.
     """
     containers: list[Container] | None = None
     """
@@ -955,6 +968,15 @@ class WorkloadPlan(WorkloadSecurity):
             c.profile == ContainerProfileEnum.RUN for c in self.containers
         ):
             msg = 'Workload must contain at least one "RUN" profile container.'
+            raise ValueError(msg)
+
+        # Default and validate termination grace period.
+        if self.termination_grace_period_seconds is None:
+            self.termination_grace_period_seconds = (
+                DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS
+            )
+        elif self.termination_grace_period_seconds < 0:
+            msg = "Workload termination grace period must not be negative."
             raise ValueError(msg)
 
         # Validate workload labels, including label names and values.
@@ -2109,6 +2131,7 @@ class Deployer(ABC):
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
+        grace_period_seconds: int | None = None,
         async_mode: bool | None = None,
     ) -> WorkloadStatus | None:
         """
@@ -2119,6 +2142,9 @@ class Deployer(ABC):
                 The name of the workload.
             namespace:
                 The namespace of the workload.
+            grace_period_seconds:
+                Duration in seconds the workload needs to terminate gracefully,
+                which overrides the one declared by the workload plan.
             async_mode:
                 Whether to execute in a separate thread.
 
@@ -2138,6 +2164,7 @@ class Deployer(ABC):
                     self._delete,
                     name,
                     namespace,
+                    grace_period_seconds,
                 )
                 return future.result()
             except OperationError:
@@ -2146,13 +2173,14 @@ class Deployer(ABC):
                 msg = "Asynchronous workload delete failed."
                 raise OperationError(msg) from e
         else:
-            return self._delete(name, namespace)
+            return self._delete(name, namespace, grace_period_seconds)
 
     @abstractmethod
     def _delete(
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
+        grace_period_seconds: int | None = None,
     ) -> WorkloadStatus | None:
         """
         Delete a workload.
@@ -2162,6 +2190,9 @@ class Deployer(ABC):
                 The name of the workload.
             namespace:
                 The namespace of the workload.
+            grace_period_seconds:
+                Duration in seconds the workload needs to terminate gracefully,
+                which overrides the one declared by the workload plan.
 
         Return:
             The status if found, None otherwise.

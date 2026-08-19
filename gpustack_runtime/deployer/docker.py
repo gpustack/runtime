@@ -1650,6 +1650,7 @@ class DockerDeployer(EndoscopicDeployer):
         self,
         name: WorkloadName,
         namespace: WorkloadNamespace | None = None,
+        grace_period_seconds: int | None = None,
     ) -> WorkloadStatus | None:
         """
         Delete a Docker workload.
@@ -1659,6 +1660,9 @@ class DockerDeployer(EndoscopicDeployer):
                 The name of the workload.
             namespace:
                 The namespace of the workload.
+            grace_period_seconds:
+                Duration in seconds the workload needs to terminate gracefully,
+                which overrides the one declared by the workload plan.
 
         Return:
             The status if found, None otherwise.
