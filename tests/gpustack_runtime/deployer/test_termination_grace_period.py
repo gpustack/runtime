@@ -24,6 +24,16 @@ from gpustack_runtime.deployer.docker import (
     DockerDeployer,
     DockerWorkloadPlan,
 )
+from gpustack_runtime.deployer.podman import (
+    _LABEL_COMPONENT as _PODMAN_LABEL_COMPONENT,
+)
+from gpustack_runtime.deployer.podman import (
+    _LABEL_TERMINATION_GRACE_PERIOD_SECONDS as _PODMAN_LABEL_GRACE_PERIOD,
+)
+from gpustack_runtime.deployer.podman import (
+    PodmanDeployer,
+    PodmanWorkloadPlan,
+)
 
 
 def _plan(**kwargs) -> WorkloadPlan:
@@ -109,10 +119,11 @@ class _FakeContainer:
         journal: list,
         name: str,
         component: str,
+        component_label: str,
         labels: dict[str, str] | None = None,
     ):
         self.name = name
-        self.labels = {**(labels or {}), _DOCKER_LABEL_COMPONENT: component}
+        self.labels = {**(labels or {}), component_label: component}
         self.journal = journal
 
     def stop(self, **kwargs):
@@ -122,16 +133,34 @@ class _FakeContainer:
         self.journal.append(("remove", self.name, kwargs))
 
 
-def _docker_containers(journal: list, labels: dict[str, str] | None = None) -> list:
+def _containers(
+    journal: list,
+    component_label: str,
+    labels: dict[str, str] | None = None,
+) -> list:
     return [
-        _FakeContainer(journal, "test-pause", "pause", labels),
-        _FakeContainer(journal, "test-init-0", "init", labels),
-        _FakeContainer(journal, "test-run-1", "run", labels),
-        _FakeContainer(journal, "test-unhealthy-restart", "unhealthy-restart", labels),
+        _FakeContainer(journal, "test-pause", "pause", component_label, labels),
+        _FakeContainer(journal, "test-init-0", "init", component_label, labels),
+        _FakeContainer(journal, "test-run-1", "run", component_label, labels),
+        _FakeContainer(
+            journal,
+            "test-unhealthy-restart",
+            "unhealthy-restart",
+            component_label,
+            labels,
+        ),
     ]
 
 
-def _docker_deployer(containers: list) -> SimpleNamespace:
+def _docker_containers(journal: list, labels: dict[str, str] | None = None) -> list:
+    return _containers(journal, _DOCKER_LABEL_COMPONENT, labels)
+
+
+def _podman_containers(journal: list, labels: dict[str, str] | None = None) -> list:
+    return _containers(journal, _PODMAN_LABEL_COMPONENT, labels)
+
+
+def _deployer(containers: list) -> SimpleNamespace:
     workload = SimpleNamespace(_d_containers=containers)
     return SimpleNamespace(
         is_supported=lambda: True,
@@ -147,7 +176,7 @@ def test_docker_delete_drains_the_workload_before_removing_it():
     # containers being drained; the pause container goes last, as it holds the
     # namespaces the others share.
     journal = []
-    dep = _docker_deployer(_docker_containers(journal))
+    dep = _deployer(_docker_containers(journal))
 
     DockerDeployer._delete(dep, name="test", grace_period_seconds=20)
 
@@ -165,7 +194,7 @@ def test_docker_delete_reads_the_grace_period_from_the_container_label():
     # Without an explicit override, the grace period declared by the workload
     # plan is read back from the container label.
     journal = []
-    dep = _docker_deployer(
+    dep = _deployer(
         _docker_containers(journal, labels={_DOCKER_LABEL_GRACE_PERIOD: "30"}),
     )
 
@@ -180,7 +209,7 @@ def test_docker_delete_reads_the_grace_period_from_the_container_label():
 def test_docker_delete_falls_back_to_the_default_grace_period():
     # A workload created before the grace period existed carries no label.
     journal = []
-    dep = _docker_deployer(_docker_containers(journal))
+    dep = _deployer(_docker_containers(journal))
 
     DockerDeployer._delete(dep, name="test")
 
@@ -192,7 +221,7 @@ def test_docker_delete_falls_back_to_the_default_grace_period():
 
 def test_docker_delete_kills_immediately_on_a_zero_grace_period():
     journal = []
-    dep = _docker_deployer(
+    dep = _deployer(
         _docker_containers(journal, labels={_DOCKER_LABEL_GRACE_PERIOD: "30"}),
     )
 
@@ -238,3 +267,78 @@ def test_docker_workload_plan_stamps_the_defaulted_grace_period_label():
     plan.validate_and_default()
 
     assert plan.labels[_DOCKER_LABEL_GRACE_PERIOD] == "15"
+
+
+def test_podman_delete_drains_the_workload_before_removing_it():
+    # Mirrors the Docker deletion path, but tolerates the "already stopped"
+    # answer, which podman-py cannot decode on its own.
+    journal = []
+    dep = _deployer(_podman_containers(journal))
+
+    PodmanDeployer._delete(dep, name="test", grace_period_seconds=20)
+
+    assert journal == [
+        ("remove", "test-unhealthy-restart", {"force": True}),
+        ("stop", "test-init-0", {"timeout": 20, "ignore": True}),
+        ("remove", "test-init-0", {"force": True}),
+        ("stop", "test-run-1", {"timeout": 20, "ignore": True}),
+        ("remove", "test-run-1", {"force": True}),
+        ("remove", "test-pause", {"force": True}),
+    ]
+
+
+def test_podman_delete_reads_the_grace_period_from_the_container_label():
+    journal = []
+    dep = _deployer(
+        _podman_containers(journal, labels={_PODMAN_LABEL_GRACE_PERIOD: "30"}),
+    )
+
+    PodmanDeployer._delete(dep, name="test")
+
+    assert [c for c in journal if c[0] == "stop"] == [
+        ("stop", "test-init-0", {"timeout": 30, "ignore": True}),
+        ("stop", "test-run-1", {"timeout": 30, "ignore": True}),
+    ]
+
+
+def test_podman_delete_falls_back_to_the_default_grace_period():
+    journal = []
+    dep = _deployer(_podman_containers(journal))
+
+    PodmanDeployer._delete(dep, name="test")
+
+    assert [c for c in journal if c[0] == "stop"] == [
+        ("stop", "test-init-0", {"timeout": 15, "ignore": True}),
+        ("stop", "test-run-1", {"timeout": 15, "ignore": True}),
+    ]
+
+
+def test_podman_delete_kills_immediately_on_a_zero_grace_period():
+    journal = []
+    dep = _deployer(
+        _podman_containers(journal, labels={_PODMAN_LABEL_GRACE_PERIOD: "30"}),
+    )
+
+    PodmanDeployer._delete(dep, name="test", grace_period_seconds=0)
+
+    assert [c for c in journal if c[0] == "stop"] == [
+        ("stop", "test-init-0", {"timeout": 0, "ignore": True}),
+        ("stop", "test-run-1", {"timeout": 0, "ignore": True}),
+    ]
+
+
+def test_podman_workload_plan_stamps_the_grace_period_label():
+    plan = PodmanWorkloadPlan(
+        name="test",
+        termination_grace_period_seconds=30,
+        containers=[
+            Container(
+                name="run",
+                image="busybox:1.37",
+                profile=ContainerProfileEnum.RUN,
+            ),
+        ],
+    )
+    plan.validate_and_default()
+
+    assert plan.labels[_PODMAN_LABEL_GRACE_PERIOD] == "30"
