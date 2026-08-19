@@ -8,6 +8,7 @@ import os
 import socket
 import sys
 import tarfile
+import time
 from dataclasses import dataclass, field
 from math import ceil
 from pathlib import Path
@@ -27,6 +28,7 @@ from tqdm import tqdm
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 from .__types__ import (
+    DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
     Container,
     ContainerCheck,
     ContainerEnv,
@@ -68,6 +70,9 @@ _LABEL_COMPONENT = f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/component"
 _LABEL_COMPONENT_NAME = f"{_LABEL_COMPONENT}-name"
 _LABEL_COMPONENT_INDEX = f"{_LABEL_COMPONENT}-index"
 _LABEL_COMPONENT_HEAL_PREFIX = f"{_LABEL_COMPONENT}-heal"
+_LABEL_TERMINATION_GRACE_PERIOD_SECONDS = (
+    f"{envs.GPUSTACK_RUNTIME_DEPLOY_LABEL_PREFIX}/termination-grace-period-seconds"
+)
 
 
 @dataclass_json
@@ -137,6 +142,12 @@ class DockerWorkloadPlan(WorkloadPlan):
 
         # Default and validate in the base class.
         super().validate_and_default()
+
+        # Carry the termination grace period on the containers,
+        # as the Docker models layer cannot express a create time stop timeout.
+        self.labels[_LABEL_TERMINATION_GRACE_PERIOD_SECONDS] = str(
+            self.termination_grace_period_seconds,
+        )
 
         # Adjust images.
         self.pause_image = adjust_image_with_envs(self.pause_image)
@@ -1682,15 +1693,32 @@ class DockerDeployer(EndoscopicDeployer):
         # Remove all containers with the workload label.
         try:
             d_containers = getattr(workload, "_d_containers", [])
-            # Remove non-pause containers first.
+            # Remove the unhealthy restart container first,
+            # otherwise it restarts the containers draining below.
             for c in d_containers:
-                if "-pause" not in c.name:
+                if c.labels.get(_LABEL_COMPONENT) == "unhealthy-restart":
                     c.remove(
                         force=True,
                     )
-            # Then remove pause containers.
+            # Then drain the non-pause containers within the grace period,
+            # which is shared by all of them, and remove them.
+            deadline = time.monotonic() + _termination_grace_period_seconds(
+                d_containers,
+                grace_period_seconds,
+            )
             for c in d_containers:
-                if "-pause" in c.name:
+                if c.labels.get(_LABEL_COMPONENT) in ("pause", "unhealthy-restart"):
+                    continue
+                c.stop(
+                    timeout=max(0, ceil(deadline - time.monotonic())),
+                )
+                c.remove(
+                    force=True,
+                )
+            # Finally remove the pause containers,
+            # which hold the namespaces shared by the above containers.
+            for c in d_containers:
+                if c.labels.get(_LABEL_COMPONENT) == "pause":
                     c.remove(
                         force=True,
                     )
@@ -2170,6 +2198,37 @@ def _has_restart_policy(
     return (
         container.attrs["HostConfig"].get("RestartPolicy", {}).get("Name", "no") != "no"
     )
+
+
+def _termination_grace_period_seconds(
+    containers: list[docker.models.containers.Container],
+    override: int | None = None,
+) -> int:
+    """
+    Resolve how long the given containers may take to terminate gracefully,
+    which prefers the given override, then the one declared by the workload plan,
+    and finally the default.
+
+    Args:
+        containers:
+            List of Docker containers in the workload.
+        override:
+            Duration in seconds overriding the one declared by the workload plan.
+
+    Returns:
+        The duration in seconds.
+
+    """
+    if override is not None:
+        return max(0, override)
+
+    for c in containers:
+        declared = c.labels.get(_LABEL_TERMINATION_GRACE_PERIOD_SECONDS)
+        if declared:
+            with contextlib.suppress(ValueError):
+                return max(0, int(declared))
+
+    return DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS
 
 
 class DockerWorkloadExecStream(WorkloadExecStream):
