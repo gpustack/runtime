@@ -1374,6 +1374,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                 ),
                 host_ipc=workload.host_ipc,
                 share_process_namespace=workload.pid_shared,
+                termination_grace_period_seconds=workload.termination_grace_period_seconds,
                 node_name=self._node_name,
                 automount_service_account_token=False,
                 volumes=(
@@ -2245,6 +2246,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                 namespace=namespace,
                 label_selector=label_selector,
                 propagation_policy=propagation_policy,
+                grace_period_seconds=grace_period_seconds,
             )
         except kubernetes.client.exceptions.ApiException as e:
             if e.status != 405:
@@ -2261,6 +2263,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                         name=pod.metadata.name,
                         namespace=namespace,
                         propagation_policy=propagation_policy,
+                        grace_period_seconds=grace_period_seconds,
                     )
             except kubernetes.client.exceptions.ApiException as e2:
                 msg = f"Failed to delete pod of workload {name}{_detail_api_call_error(e2)}"

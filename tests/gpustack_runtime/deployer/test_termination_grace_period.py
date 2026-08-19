@@ -5,6 +5,8 @@
 
 from types import SimpleNamespace
 
+import kubernetes.client
+import kubernetes.client.exceptions
 import pytest
 
 from gpustack_runtime.deployer.__types__ import (
@@ -23,6 +25,10 @@ from gpustack_runtime.deployer.docker import (
 from gpustack_runtime.deployer.docker import (
     DockerDeployer,
     DockerWorkloadPlan,
+)
+from gpustack_runtime.deployer.kuberentes import (
+    KubernetesDeployer,
+    KubernetesWorkloadPlan,
 )
 from gpustack_runtime.deployer.podman import (
     _LABEL_COMPONENT as _PODMAN_LABEL_COMPONENT,
@@ -342,3 +348,147 @@ def test_podman_workload_plan_stamps_the_grace_period_label():
     plan.validate_and_default()
 
     assert plan.labels[_PODMAN_LABEL_GRACE_PERIOD] == "30"
+
+
+def test_kubernetes_pod_declares_the_termination_grace_period(monkeypatch):
+    # The Pod spec is the declarative source of truth on Kubernetes, replacing
+    # the API server default of 30 seconds.
+    monkeypatch.setattr(
+        "gpustack_runtime.deployer.kuberentes.get_resource_injection_policy",
+        lambda *_args: "env",
+    )
+    monkeypatch.setattr(
+        "gpustack_runtime.deployer.kuberentes._resolve_runtime_class_name",
+        lambda *_args: None,
+    )
+
+    class _FakeCoreV1Api:
+        def __init__(self, client=None):
+            pass
+
+        def read_namespaced_pod(self, name, namespace):
+            raise kubernetes.client.exceptions.ApiException(status=404)
+
+        def create_namespaced_pod(self, namespace, body):
+            return body
+
+    monkeypatch.setattr(kubernetes.client, "CoreV1Api", _FakeCoreV1Api)
+
+    deployer = object.__new__(KubernetesDeployer)
+    Deployer.__init__(deployer, "test")
+    deployer._materials = {}
+    deployer._client = None
+    deployer._node_name = None
+    deployer._image_pull_secret = None
+    deployer._mutate_create_pod = lambda pod: pod
+
+    workload = KubernetesWorkloadPlan(
+        name="test",
+        namespace="default",
+        termination_grace_period_seconds=30,
+        containers=[
+            Container(
+                name="run",
+                image="busybox:1.37",
+                profile=ContainerProfileEnum.RUN,
+            ),
+        ],
+    )
+    workload.validate_and_default()
+    pod = deployer._create_pod(workload, {})
+
+    assert pod.spec.termination_grace_period_seconds == 30
+
+
+class _FakeCoreV1DeleteApi:
+    """
+    Stand-in for the Kubernetes core API, recording the deletion calls it receives.
+    """
+
+    def __init__(self, journal: list, collection_status: int | None = None):
+        self.journal = journal
+        self.collection_status = collection_status
+
+    def __call__(self, client=None):
+        return self
+
+    def delete_collection_namespaced_pod(self, **kwargs):
+        self.journal.append(("delete_collection_namespaced_pod", kwargs))
+        if self.collection_status:
+            raise kubernetes.client.exceptions.ApiException(
+                status=self.collection_status,
+            )
+
+    def list_namespaced_pod(self, **_kwargs):
+        return SimpleNamespace(
+            items=[SimpleNamespace(metadata=SimpleNamespace(name="test"))],
+        )
+
+    def delete_namespaced_pod(self, **kwargs):
+        self.journal.append(("delete_namespaced_pod", kwargs))
+
+    def delete_collection_namespaced_service(self, **kwargs):
+        self.journal.append(("delete_collection_namespaced_service", kwargs))
+
+    def delete_collection_namespaced_config_map(self, **kwargs):
+        self.journal.append(("delete_collection_namespaced_config_map", kwargs))
+
+
+def _kubernetes_deployer(monkeypatch, journal: list, collection_status=None):
+    monkeypatch.setattr(
+        kubernetes.client,
+        "CoreV1Api",
+        _FakeCoreV1DeleteApi(journal, collection_status),
+    )
+    return SimpleNamespace(
+        is_supported=lambda: True,
+        get=lambda **_kwargs: SimpleNamespace(name="test"),
+        _client=None,
+    )
+
+
+def test_kubernetes_delete_forwards_the_grace_period(monkeypatch):
+    journal = []
+    dep = _kubernetes_deployer(monkeypatch, journal)
+
+    KubernetesDeployer._delete(
+        dep,
+        name="test",
+        namespace="default",
+        grace_period_seconds=5,
+    )
+
+    pod_calls = [c for c in journal if "pod" in c[0]]
+    assert len(pod_calls) == 1
+    assert pod_calls[0][1]["grace_period_seconds"] == 5
+    # The grace period is meaningless for the other resources.
+    assert all("grace_period_seconds" not in c[1] for c in journal if "pod" not in c[0])
+
+
+def test_kubernetes_delete_omits_an_unset_grace_period(monkeypatch):
+    # Without an override, the Pod spec's own declaration applies.
+    journal = []
+    dep = _kubernetes_deployer(monkeypatch, journal)
+
+    KubernetesDeployer._delete(dep, name="test", namespace="default")
+
+    pod_calls = [c for c in journal if "pod" in c[0]]
+    assert pod_calls[0][1]["grace_period_seconds"] is None
+
+
+def test_kubernetes_delete_forwards_the_grace_period_on_the_fallback_path(monkeypatch):
+    # A cluster refusing collection deletion falls back to deleting Pod by Pod.
+    journal = []
+    dep = _kubernetes_deployer(monkeypatch, journal, collection_status=405)
+
+    KubernetesDeployer._delete(
+        dep,
+        name="test",
+        namespace="default",
+        grace_period_seconds=5,
+    )
+
+    fallback_calls = [c for c in journal if c[0] == "delete_namespaced_pod"]
+    assert len(fallback_calls) == 1
+    assert fallback_calls[0][1]["name"] == "test"
+    assert fallback_calls[0][1]["grace_period_seconds"] == 5
