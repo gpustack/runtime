@@ -76,8 +76,29 @@ class AscendDetector(Detector):
         try:
             pydcmi.dcmi_init()
             supported = True
-        except Exception:
-            debug_log_exception(logger, "Failed to initialize DCMI")
+        except Exception as v1_error:
+            # A V2-only driver refuses the V1 entry point, so this is a probe
+            # result, not a verdict on the hardware -- as the operator's
+            # DetectDcmiApiVersion treats it, see
+            # https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/devmanager/devmanager_common.go.
+            # Logged only if V2 fails too: on an A5 host a traceback here would
+            # sit right above the V2 success line.
+            try:
+                pydcmi.dcmiv2_init()
+                supported = True
+                logger.info(
+                    "Initialized DCMI through the V2 API, the V1 API being unavailable",
+                )
+            except Exception:
+                # A card on the PCI bus but both APIs refused: the library was
+                # found and rejected, not missing -- so name it.
+                debug_log_exception(
+                    logger,
+                    "Failed to initialize DCMI through either API,"
+                    " loaded from %s, the V1 API having reported: %s",
+                    pydcmi.dcmi_library_path() or "nothing",
+                    v1_error,
+                )
 
         return supported
 
@@ -107,6 +128,9 @@ class AscendDetector(Detector):
         """
         if not self.is_supported():
             return None
+
+        if pydcmi.dcmi_api_version() == 2:
+            return self._detect_info_v2()
 
         ret: Devices = []
 
@@ -233,6 +257,128 @@ class AscendDetector(Detector):
 
         return ret
 
+    def _detect_info_v2(self) -> Devices:
+        """
+        Detect Ascend NPUs' inventory through the DCMI V2 API.
+
+        V2 enumerates devices flat, indexed by the logic id that V1 reports
+        through a separate call, so there is no card to walk here.
+
+        Returns:
+            A list of detected Ascend NPU devices.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        ret: Devices = []
+
+        try:
+            sys_runtime_ver_original = _get_toolkit_version()
+            sys_runtime_ver = get_brief_version(sys_runtime_ver_original)
+
+            # V2 declares no driver version call, only the DCMI library's own
+            # -- a different number, so it goes to the appendix under its own
+            # name instead of standing in for driver_version.
+            sys_dcmi_ver = None
+            with contextlib.suppress(pydcmi.DCMIError):
+                sys_dcmi_ver = pydcmi.dcmiv2_get_dcmi_version()
+
+            for dev_index in pydcmi.dcmiv2_get_device_list():
+                if not _is_npu_device_v2(dev_index):
+                    continue
+
+                dev_chip_info = pydcmi.dcmiv2_get_device_chip_info(dev_index)
+                dev_cores_aicore = dev_chip_info.aicore_cnt
+                dev_name = dev_chip_info.chip_name
+
+                # V2 has no non-HBM call to fall back to, so a refusal is final
+                # for this device -- dropped like an unreadable physical id
+                # below, rather than hiding every other device.
+                try:
+                    dev_mem, _ = _get_device_memory_info_v2(dev_index)
+                except pydcmi.DCMIError:
+                    debug_log_warning(
+                        logger,
+                        "Failed to fetch memory of device %d, skipping it",
+                        dev_index,
+                    )
+                    continue
+                dev_mem_status = _get_device_memory_status_v2(dev_index)
+
+                # As on the V1 path, a device whose physical id cannot be read
+                # cannot be addressed: /dev/davinciN is numbered by it.
+                try:
+                    dev_physical_id = pydcmi.dcmiv2_get_chip_phy_id_by_dev_id(
+                        dev_index,
+                    )
+                except pydcmi.DCMIError:
+                    debug_log_warning(
+                        logger,
+                        "Failed to fetch physical id of device %d, skipping it",
+                        dev_index,
+                    )
+                    continue
+
+                dev_bdf = pydcmi.dcmiv2_get_device_bdf(dev_index)
+
+                dev_uuid = _get_device_die_v2(dev_index, dev_bdf)
+
+                dev_numa = get_numa_node_by_bdf(dev_bdf)
+                if not dev_numa:
+                    with contextlib.suppress(pydcmi.DCMIError):
+                        dev_cpu_affinity = (
+                            pydcmi.dcmiv2_get_affinity_cpu_info_by_dev_id(
+                                dev_index,
+                            )
+                        )
+                        dev_numa = map_cpu_affinity_to_numa_node(dev_cpu_affinity)
+
+                # No card_id/device_id here: V2 has no card level to report,
+                # and the consumers that matter -- CDI's device node, the
+                # deployer's CANN variant -- read the physical id and the
+                # arch family instead.
+                #
+                # No roce_* either, by design: V2 declares no IP call, this
+                # generation addressing devices by URMA EID over UnifiedBus
+                # instead. A consumer grouping by IP needs a UB-aware path.
+                dev_appendix = {
+                    "arch_family": _guess_soc_name_from_dev_name(dev_name),
+                    "bdf": dev_bdf,
+                    "physical_id": dev_physical_id,
+                }
+                if dev_numa:
+                    dev_appendix["numa"] = dev_numa
+                if sys_dcmi_ver:
+                    dev_appendix["dcmi_version"] = sys_dcmi_ver
+
+                ret.append(
+                    Device(
+                        manufacturer=self.manufacturer,
+                        index=dev_index,
+                        name=dev_name,
+                        uuid=dev_uuid.upper(),
+                        driver_version=None,
+                        runtime_version=sys_runtime_ver,
+                        runtime_version_original=sys_runtime_ver_original,
+                        cores=dev_cores_aicore,
+                        memory=dev_mem,
+                        memory_status=dev_mem_status,
+                        appendix=dev_appendix,
+                    ),
+                )
+        except pydcmi.DCMIError:
+            debug_log_exception(logger, "Failed to fetch devices through the V2 API")
+            raise
+        except Exception:
+            debug_log_exception(
+                logger,
+                "Failed to process devices fetching through the V2 API",
+            )
+            raise
+
+        return ret
+
     def detect_usage(self, devices: Devices | None = None) -> Devices | None:
         """
         Fetch Ascend NPUs' usage using pydcmi.
@@ -256,6 +402,9 @@ class AscendDetector(Detector):
             devices = self.detect_info()
         if not devices:
             return devices
+
+        if pydcmi.dcmi_api_version() == 2:
+            return self._detect_usage_v2(devices)
 
         usages: Devices = []
 
@@ -337,6 +486,99 @@ class AscendDetector(Detector):
 
         return merge_devices_usage(devices, usages)
 
+    def _detect_usage_v2(self, devices: Devices) -> Devices:
+        """
+        Fetch Ascend NPUs' usage through the DCMI V2 API.
+
+        Args:
+            devices:
+                The devices to refresh, matched by UUID.
+
+        Returns:
+            The devices carrying usage.
+
+        Raises:
+            If there is an error during detection.
+
+        """
+        usages: Devices = []
+
+        # The uuid a device was detected under is what the usage merges on, and
+        # it may have fallen back to the address, so it is read off the device
+        # rather than derived a second time -- deriving it twice is how the two
+        # sides come to disagree.
+        uuid_by_index = {dev.index: dev.uuid for dev in devices if dev}
+
+        try:
+            for dev_index in pydcmi.dcmiv2_get_device_list():
+                dev_uuid = uuid_by_index.get(dev_index)
+                if not dev_uuid:
+                    continue
+
+                # Polled path: merge_devices_usage joins by uuid, so a device
+                # left out keeps its last figures. Propagating would clear
+                # every device's metrics over one transient error.
+                try:
+                    dev_mem, dev_mem_used = _get_device_memory_info_v2(dev_index)
+                except pydcmi.DCMIError:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d memory usage, skipping it this round",
+                        dev_index,
+                    )
+                    continue
+                dev_mem_status = _get_device_memory_status_v2(dev_index)
+
+                dev_util_aicore = None
+                with contextlib.suppress(pydcmi.DCMIError):
+                    dev_util_aicore = pydcmi.dcmiv2_get_device_utilization_rate(
+                        dev_index,
+                        pydcmi.DCMI_INPUT_TYPE_AICORE,
+                    )
+                if dev_util_aicore is None:
+                    debug_log_warning(
+                        logger,
+                        "Failed to get device %d cores utilization, setting to 0",
+                        dev_index,
+                    )
+                    dev_util_aicore = 0
+
+                dev_temp = None
+                with contextlib.suppress(pydcmi.DCMIError):
+                    dev_temp = pydcmi.dcmiv2_get_device_temperature(dev_index)
+
+                dev_power_used = None
+                with contextlib.suppress(pydcmi.DCMIError):
+                    dev_power_used = pydcmi.dcmiv2_get_device_power_info(dev_index)
+                if dev_power_used:
+                    dev_power_used = dev_power_used / 10  # 0.1W to W
+
+                usages.append(
+                    Device(
+                        uuid=dev_uuid,
+                        cores_utilization=dev_util_aicore,
+                        memory_used=dev_mem_used,
+                        memory_utilization=get_utilization(dev_mem_used, dev_mem),
+                        memory_status=dev_mem_status,
+                        temperature=dev_temp,
+                        power_used=dev_power_used,
+                    ),
+                )
+        except pydcmi.DCMIError:
+            debug_log_exception(
+                logger,
+                "Failed to fetch devices usage through the V2 API",
+            )
+            raise
+        except Exception:
+            debug_log_exception(
+                logger,
+                "Failed to process devices usage fetching through the V2 API",
+            )
+            raise
+
+        return merge_devices_usage(devices, usages)
+
     def get_topology(self, devices: Devices | None = None) -> Topology | None:
         """
         Get the Topology object between Ascend NPUs.
@@ -350,6 +592,13 @@ class AscendDetector(Detector):
             A Topology object, or None if not supported.
 
         """
+        # detect_topologies() hands the devices in directly, skipping
+        # detect_info() and with it the call that resolves the API version --
+        # leaving the V1 dcmi_init() below to raise on a V2-only driver.
+        # Cached, so asking again is free.
+        if not self.is_supported():
+            return None
+
         if devices is None:
             devices = self.detect_info()
             if devices is None:
@@ -360,8 +609,17 @@ class AscendDetector(Detector):
             devices_count=len(devices),
         )
 
+        # V2 declares no topology call at all, so the distances stay unknown
+        # there. The NUMA and CPU affinities come from the appendix and are
+        # reported either way.
+        distances_available = pydcmi.dcmi_api_version() == 1
+
         try:
-            pydcmi.dcmi_init()
+            # V2 needs no call here at all: the affinities are read off the
+            # appendix and the distances are unavailable, so nothing has to be
+            # initialized to report what can be reported.
+            if distances_available:
+                pydcmi.dcmi_init()
 
             for i, dev_i in enumerate(devices):
                 dev_i_card_id = dev_i.appendix.get("card_id", i)
@@ -374,6 +632,8 @@ class AscendDetector(Detector):
                 )
 
                 # Get distances to other devices.
+                if not distances_available:
+                    continue
                 for j, dev_j in enumerate(devices):
                     if dev_i.index == dev_j.index or ret.devices_distances[i][j] != 0:
                         continue
@@ -445,6 +705,117 @@ def _is_npu_device(dev_card_id, dev_device_id) -> bool:
         return False
 
     return True
+
+
+def _is_npu_device_v2(dev_id) -> bool:
+    """
+    Report whether the given device is an NPU, through the V2 API.
+
+    As on the V1 path, a device whose type cannot be read is kept: only a
+    reading that succeeds and says something other than NPU disqualifies it.
+
+    Args:
+        dev_id:
+            The device ID of the device.
+
+    Returns:
+        True if the device is an NPU, or its type is unreadable.
+
+    """
+    dev_type = None
+    with contextlib.suppress(pydcmi.DCMIError):
+        dev_type = pydcmi.dcmiv2_get_device_type(dev_id)
+
+    if dev_type is not None and dev_type != pydcmi.DCMI_UNIT_TYPE_NPU:
+        slogger.debug("Skipping non-NPU device %d, type %d", dev_id, dev_type)
+        return False
+
+    return True
+
+
+def _get_device_die_v2(dev_id, dev_bdf: str) -> str:
+    """
+    Get the device's SoC die through the V2 API, falling back to its address.
+
+    The A5 driver reports neither die type -- both answer NOT_SUPPORT -- and a
+    die is not what the uuid is needed for: it only has to tell one device from
+    another, which is what the usage pass merges on and what the inventory is
+    keyed by. The PCI address does that on a machine whose cards have not
+    moved, where dropping the device would leave the NPU unusable outright.
+
+    Args:
+        dev_id:
+            The device ID of the device.
+        dev_bdf:
+            The device's PCI address, used when no die can be read.
+
+    Returns:
+        The die as a string, or the PCI address.
+
+    """
+    for dev_die_type in (pydcmi.DCMI_DIE_TYPE_VDIE, pydcmi.DCMI_DIE_TYPE_NDIE):
+        with contextlib.suppress(pydcmi.DCMIError):
+            return pydcmi.dcmiv2_get_device_die_id(dev_id, dev_die_type)
+
+    debug_log_warning(
+        logger,
+        "Failed to fetch die of device %d, identifying it by its address %s",
+        dev_id,
+        dev_bdf,
+    )
+    return dev_bdf
+
+
+def _get_device_memory_info_v2(dev_id) -> tuple[int, int]:
+    """
+    Get device memory information through the V2 API.
+
+    V2 declares the HBM call alone, which this generation carries anyway. The
+    V1 helper's `memory_size > 0` guard reroutes a non-HBM device; with nowhere
+    to reroute, repeating it here would only silence a readable zero.
+
+    Args:
+        dev_id:
+            The device ID of the device.
+
+    Returns:
+        A tuple containing total memory and used memory in MiB.
+
+    Raises:
+        pydcmi.DCMIError: If the driver refuses the HBM query.
+
+    """
+    dev_hbm_info = pydcmi.dcmiv2_get_device_hbm_info(dev_id)
+    return dev_hbm_info.memory_size, dev_hbm_info.memory_usage
+
+
+def _get_device_memory_status_v2(dev_id) -> DeviceMemoryStatusEnum:
+    """
+    Get device memory ECC status through the V2 API.
+
+    Args:
+        dev_id:
+            The device ID of the device.
+
+    Returns:
+        DeviceMemoryStatusEnum indicating the ECC status.
+
+    """
+    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        for dev_mem_type in [pydcmi.DCMI_DEVICE_TYPE_HBM, pydcmi.DCMI_DEVICE_TYPE_DDR]:
+            with contextlib.suppress(pydcmi.DCMIError):
+                dev_ecc_info = pydcmi.dcmiv2_get_device_ecc_info(
+                    dev_id,
+                    dev_mem_type,
+                )
+                if dev_ecc_info.enable_flag and (
+                    dev_ecc_info.single_bit_error_cnt > 0
+                    or dev_ecc_info.double_bit_error_cnt > 0
+                ):
+                    return DeviceMemoryStatusEnum.UNHEALTHY
+                return DeviceMemoryStatusEnum.HEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY
 
 
 def _get_device_die(dev_card_id, dev_device_id) -> str:
@@ -745,12 +1116,21 @@ _soc_name_version_mapping: dict[str, int] = {
     "Ascend910_9579": 260,
     "Ascend910_95": 260,
     "Ascend950": 260,
+    "Ascend950PR": 260,
 }
 
 
 _910A_REGEX = re.compile(r"^910")
 _910B_REGEX = re.compile(r"^(910B\d|A2G\d)")
 _310P_REGEX = re.compile(r"^(310P\d?|I2\d?)")
+
+# An A5 chip names itself "Ascend950XX" -- keeping the "Ascend" prefix the
+# earlier generations drop -- so the operator matches it by prefix instead of
+# by an exact name. See api.Ascend910A5Prefix in
+# https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/api/default_name_v2.go,
+# used by
+# https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-docker-runtime/runtime/process/process.go.
+_950_PREFIX = "Ascend950"
 
 
 def _guess_soc_name_from_dev_name(dev_name: str) -> str | None:
@@ -773,6 +1153,12 @@ def _guess_soc_name_from_dev_name(dev_name: str) -> str | None:
         return soc_name
 
     # https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/devmanager/common/utils.go#L159-L176
+    #
+    # The A5 prefix is matched first: a name the mapping does not carry yet,
+    # like a later 950 variant, still belongs to the generation, and none of
+    # the regexes below would claim it.
+    if soc_name.startswith(_950_PREFIX):
+        return "Ascend950"
     if _310P_REGEX.match(dev_name):
         return "Ascend310P1"
     if "310B" in dev_name:

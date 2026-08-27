@@ -143,6 +143,56 @@ def device_to_cdi_device_node(
     )
 
 
+def path_to_cdi_device_nodes(
+    path: str,
+    permission: str = "rw",
+    no_user: bool = False,
+) -> list[ConfigDeviceNode]:
+    """
+    Convert a device path, or a directory holding device paths, to ConfigDeviceNodes.
+
+    A generation may expose a bus as a directory of device nodes rather than as
+    a single node -- Ascend's UB does, which is why the operator enumerates it,
+    see addUBDevicesFromDir in
+    https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/cdi/devnode.go.
+    Both shapes are accepted so that a path which is a plain device node on one
+    driver and a directory on another needs no caller-side branch.
+
+    Args:
+        path:
+            Path to the device, or to a directory of devices, on the host.
+        permission:
+            Permissions for the devices.
+        no_user:
+            Whether to omit user and group information.
+
+    Returns:
+        The ConfigDeviceNode objects, empty if the path holds no device.
+
+    """
+    p = Path(path)
+    if not p.is_dir():
+        cdn = device_to_cdi_device_node(
+            path=path,
+            permission=permission,
+            no_user=no_user,
+        )
+        return [cdn] if cdn else []
+
+    return [
+        cdn
+        for entry in sorted(p.iterdir())
+        if not entry.is_dir()
+        and (
+            cdn := device_to_cdi_device_node(
+                path=str(entry),
+                permission=permission,
+                no_user=no_user,
+            )
+        )
+    ]
+
+
 def path_to_cdi_mount(
     path: str,
     container_path: str | None = None,
@@ -181,3 +231,34 @@ def path_to_cdi_mount(
         container_path=container_path,
         options=options,
     )
+
+
+def glob_to_cdi_mounts(
+    pattern: str,
+    options: list[str] | None = None,
+) -> list[ConfigMount]:
+    """
+    Convert every path matching a glob pattern to ConfigMounts.
+
+    A user-space library is versioned in its file name, so the set of files to
+    mount cannot be spelled out ahead of time -- the operator's mount profile
+    lists them as patterns for the same reason.
+
+    Args:
+        pattern:
+            Path on the host whose last segment may carry a wildcard; the
+            directory part is taken literally, so a wildcard there matches
+            nothing. A pattern without a wildcard resolves to that path alone.
+        options:
+            Mount options.
+
+    Returns:
+        The ConfigMount objects, empty if nothing matches.
+
+    """
+    p = Path(pattern)
+    return [
+        cm
+        for path in sorted(p.parent.glob(p.name))
+        if (cm := path_to_cdi_mount(path=str(path), options=options))
+    ]

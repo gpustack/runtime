@@ -1,11 +1,14 @@
 from __future__ import annotations as __future_annotations__
 
+import logging
+
 from ...detector import (
     Devices,
     ManufacturerEnum,
     detect_devices,
     filter_devices_by_manufacturer,
 )
+from ...detector.ascend import get_ascend_cann_variant
 from .__types__ import (
     Config,
     ConfigContainerEdits,
@@ -14,7 +17,44 @@ from .__types__ import (
     manufacturer_to_cdi_kind,
     manufacturer_to_runtime_env,
 )
-from .__utils__ import device_to_cdi_device_node, path_to_cdi_mount
+from .__utils__ import (
+    device_to_cdi_device_node,
+    glob_to_cdi_mounts,
+    path_to_cdi_device_nodes,
+    path_to_cdi_mount,
+)
+
+logger = logging.getLogger(__name__)
+
+_A5_CANN_VARIANT = "950"
+"""
+The CANN variant of the A5 generation, whose UB fabric replaces what the
+earlier generations reach through the shared memory device.
+"""
+
+_A5_UB_MOUNT_PATTERNS = [
+    "/usr/lib64/libummu*",
+    "/usr/lib64/liburma*",
+    "/usr/lib64/urma",
+    "/usr/lib64/libnl*",
+    "/usr/bin/urma_admin",
+    "/usr/bin/urma_perftest",
+    "/usr/bin/urma_ping",
+]
+"""
+The UB user-space libraries an A5 container needs, mirroring the operator's
+mount profile for the Ascend950 generation, see
+https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/cdi/mount/profile.go.
+
+These are mounted for the A5 generation only. Some of them -- libnl above all
+-- are ordinary system libraries present on any host, so mounting them
+unconditionally would shadow what an earlier generation's container ships with
+its own image.
+
+The /usr/lib64 prefix is the operator's, and holds on the openEuler and CentOS
+hosts an A5 ships on; a Debian-derived host uses /usr/lib/<triplet>, where none
+of these match -- hence the log line when a pattern finds nothing.
+"""
 
 
 class AscendGenerator(Generator):
@@ -73,16 +113,14 @@ class AscendGenerator(Generator):
                 break
         for p in [
             "/dev/dvpp_cmdlist",
+            # UB exposes a directory of device nodes rather than a single one,
+            # so every entry below it has to be injected.
             "/dev/uburma",
             "/dev/ummu",
             "/dev/devmm_svm",
             "/dev/hisi_hdc",
         ]:
-            cdn = device_to_cdi_device_node(
-                path=p,
-            )
-            if cdn:
-                common_device_nodes.append(cdn)
+            common_device_nodes.extend(path_to_cdi_device_nodes(path=p))
         if not common_device_nodes:
             return None
 
@@ -102,6 +140,25 @@ class AscendGenerator(Generator):
             if cm:
                 common_mounts.append(cm)
 
+        # Device.appendix defaults to None and callers pass their own devices
+        # in, so every read goes through `or {}`.
+        if any(
+            get_ascend_cann_variant((dev.appendix or {}).get("arch_family"))
+            == _A5_CANN_VARIANT
+            for dev in devices
+            if dev
+        ):
+            for pattern in _A5_UB_MOUNT_PATTERNS:
+                ub_mounts = glob_to_cdi_mounts(pattern=pattern)
+                if not ub_mounts:
+                    # Otherwise this surfaces later as a container that cannot
+                    # reach the UB fabric.
+                    logger.debug(
+                        "No UB library matched %s, an A5 container will lack it",
+                        pattern,
+                    )
+                common_mounts.extend(ub_mounts)
+
         cdi_devices: list[ConfigDevice] = []
 
         all_device_nodes = []
@@ -119,7 +176,7 @@ class AscendGenerator(Generator):
             # addressed by the index, which would resolve to another NPU's
             # node. The detector already drops such a device; this guards the
             # devices a caller passes in.
-            cdn_number = dev.appendix.get("physical_id")
+            cdn_number = (dev.appendix or {}).get("physical_id")
             if cdn_number is None:
                 continue
             cdn_path = f"/dev/davinci{cdn_number}"

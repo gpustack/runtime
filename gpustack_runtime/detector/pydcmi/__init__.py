@@ -171,6 +171,7 @@ dcmiLib = None
 libLoadLock = threading.Lock()
 _libInitialized = False
 _libInitializedException = None
+_apiVersion = 1
 
 
 ## Error Checking ##
@@ -796,6 +797,21 @@ def _LoadDcmiLibrary():
             libLoadLock.release()
 
 
+def dcmi_library_path() -> str | None:
+    """
+    Report which candidate the DCMI library was loaded from.
+
+    Initialization can fail after the library loads, and the candidates differ
+    in where they come from -- the linker's search path, the driver, or the
+    DCMI package -- so which one answered narrows down the failure.
+
+    Returns:
+        The name the library was loaded by, or None if it is not loaded yet.
+
+    """
+    return getattr(dcmiLib, "_name", None) if dcmiLib is not None else None
+
+
 ## C function wrappers ##
 def dcmi_init():
     _LoadDcmiLibrary()
@@ -826,8 +842,41 @@ def dcmi_init():
             _libInitialized = True
 
 
+def dcmiv2_init():
+    _LoadDcmiLibrary()
+
+    global _libInitialized, _libInitializedException, _apiVersion
+
+    # Short-circuit as dcmi_init() does. Only a prior V2 init counts: getting
+    # here after a V1 init means a caller is probing V2 anyway.
+    if _libInitialized and _apiVersion == 2:
+        return
+
+    fn = _dcmiGetFunctionPointer("dcmiv2_init")
+    ret = fn()
+    _dcmiCheckReturn(ret)
+
+    # The library is usable once V2 answers, so the V1 entry point's refusal is
+    # no longer the final word: clear it, or every later dcmi_init() would
+    # re-raise it and no call could be made at all.
+    with libLoadLock:
+        _libInitialized = True
+        _libInitializedException = None
+        _apiVersion = 2
+
+
+def dcmi_api_version() -> int:
+    """
+    Report which API version initialized the library: 1 or 2.
+
+    The two do not interoperate -- a driver serving V2 refuses every V1 entry
+    point -- so a caller has to keep to whichever one answered.
+    """
+    return _apiVersion
+
+
 def dcmi_shutdown():
-    global _libInitialized, _libInitializedException
+    global _libInitialized, _libInitializedException, _apiVersion
 
     with libLoadLock:
         if not _libInitialized:
@@ -835,6 +884,8 @@ def dcmi_shutdown():
 
         _libInitialized = False
         _libInitializedException = None
+        # Or a re-init on a V1 host would keep answering 2.
+        _apiVersion = 1
 
 
 def dcmi_get_card_list():
@@ -1295,3 +1346,131 @@ def dcmi_get_affinity_cpu_info_by_device_id(card_id, device_id):
     ret = fn(card_id, device_id, c_cpu_info, byref(c_cpu_info_len))
     _dcmiCheckReturn(ret)
     return c_cpu_info.value
+
+
+## DCMI V2 API wrappers ##
+# A driver serving the V2 API answers every V1 entry point with
+# DCMI_ERROR_NOT_SUPPORT -- initialization included -- so a caller that had to
+# reach for V2 has to stay on it throughout.
+#
+# The structs are the V1 ones: dcmi_interface_api_v2.h declares no type of its
+# own. What differs is the index, a single device id in place of the
+# card/device pair, and that device id is the logic id the V1 API enumerates
+# separately.
+def dcmiv2_get_device_list(list_len=64):
+    c_device_list = (c_int * list_len)()
+    c_device_num = c_int()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_list")
+    ret = fn(c_device_list, byref(c_device_num), list_len)
+    _dcmiCheckReturn(ret)
+    return list(c_device_list[: c_device_num.value])
+
+
+def dcmiv2_get_device_type(dev_id):
+    c_device_type = c_uint()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_type")
+    ret = fn(dev_id, byref(c_device_type))
+    _dcmiCheckReturn(ret)
+    return c_device_type.value
+
+
+def dcmiv2_get_device_chip_info(dev_id):
+    c_chip_info = c_dcmi_chip_info_v2()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_chip_info")
+    ret = fn(dev_id, byref(c_chip_info))
+    _dcmiCheckReturn(ret)
+    return c_chip_info
+
+
+def dcmiv2_get_device_hbm_info(dev_id):
+    c_hbm_info = c_dcmi_hbm_info()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_hbm_info")
+    ret = fn(dev_id, byref(c_hbm_info))
+    _dcmiCheckReturn(ret)
+    return c_hbm_info
+
+
+def dcmiv2_get_device_die_id(dev_id, input_type):
+    c_die_id = c_dcmi_die_id()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_die_id")
+    ret = fn(dev_id, input_type, byref(c_die_id))
+    _dcmiCheckReturn(ret)
+    return " ".join([hex(i)[2:] for i in c_die_id.soc_die])
+
+
+def dcmiv2_get_chip_phy_id_by_dev_id(dev_id):
+    c_phyid = c_uint()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_chip_phy_id_by_dev_id")
+    ret = fn(dev_id, byref(c_phyid))
+    _dcmiCheckReturn(ret)
+    return c_phyid.value
+
+
+def dcmiv2_get_device_pcie_info(dev_id):
+    c_pcie_info = c_dcmi_pcie_info_all()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_pcie_info")
+    ret = fn(dev_id, byref(c_pcie_info))
+    _dcmiCheckReturn(ret)
+    return c_pcie_info
+
+
+def dcmiv2_get_device_bdf(dev_id):
+    c_pcie_info = dcmiv2_get_device_pcie_info(dev_id)
+
+    domain = c_pcie_info.domain
+    bus = c_pcie_info.bdf_busid
+    device = c_pcie_info.bdf_deviceid
+    function = c_pcie_info.bdf_funcid
+    return f"{domain:04x}:{bus:02x}:{device:02x}.{function:x}"
+
+
+def dcmiv2_get_device_ecc_info(dev_id, device_type):
+    c_device_ecc_info = c_dcmi_ecc_info()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_ecc_info")
+    ret = fn(dev_id, device_type, byref(c_device_ecc_info))
+    _dcmiCheckReturn(ret)
+    return c_device_ecc_info
+
+
+def dcmiv2_get_device_utilization_rate(dev_id, input_type):
+    c_utilization_rate = c_uint()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_utilization_rate")
+    ret = fn(dev_id, input_type, byref(c_utilization_rate))
+    _dcmiCheckReturn(ret)
+    return c_utilization_rate.value
+
+
+def dcmiv2_get_device_temperature(dev_id):
+    c_temperature = c_int()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_temperature")
+    ret = fn(dev_id, byref(c_temperature))
+    _dcmiCheckReturn(ret)
+    return c_temperature.value
+
+
+def dcmiv2_get_device_power_info(dev_id):
+    c_power = c_int()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_power_info")
+    ret = fn(dev_id, byref(c_power))
+    _dcmiCheckReturn(ret)
+    return c_power.value
+
+
+@convertStrBytes
+def dcmiv2_get_affinity_cpu_info_by_dev_id(dev_id):
+    c_cpu_info = create_string_buffer(TOPO_INFO_MAX_LENGTH)
+    c_cpu_info_len = c_int()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_affinity_cpu_info_by_dev_id")
+    ret = fn(dev_id, c_cpu_info, byref(c_cpu_info_len))
+    _dcmiCheckReturn(ret)
+    return c_cpu_info.value
+
+
+@convertStrBytes
+def dcmiv2_get_dcmi_version():
+    # V2 exposes no driver version call at all, only the DCMI library's own.
+    c_dcmi_ver = create_string_buffer(32)
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_dcmi_version")
+    ret = fn(c_dcmi_ver, c_int(32))
+    _dcmiCheckReturn(ret)
+    return c_dcmi_ver.value
