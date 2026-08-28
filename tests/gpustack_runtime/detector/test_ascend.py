@@ -750,13 +750,12 @@ def test_cdi_emits_no_vdavinci_path(monkeypatch):
 @pytest.mark.parametrize(
     "dev_name, soc_name, variant",
     [
-        # An A5 chip keeps the "Ascend" prefix that the earlier generations
-        # drop, and is reported either way round.
-        ("Ascend950PR", "Ascend950PR", "950"),
-        ("950PR", "Ascend950PR", "950"),
-        # A 950 variant the mapping does not carry yet still belongs to the
-        # generation rather than falling through to nothing.
+        # An A5 chip keeps the "Ascend" prefix the earlier generations drop, and
+        # is reported either way round. Both models on sale collapse onto one.
+        ("Ascend950PR", "Ascend950", "950"),
+        ("950PR", "Ascend950", "950"),
         ("Ascend950DT", "Ascend950", "950"),
+        ("Ascend950", "Ascend950", "950"),
         # The generations that already worked, both where the mapping answers
         # directly and where the regexes have to: the A5 prefix must claim
         # neither.
@@ -771,6 +770,22 @@ def test_cdi_emits_no_vdavinci_path(monkeypatch):
 def test_guess_soc_name_carries_the_generation(dev_name, soc_name, variant):
     assert ascend._guess_soc_name_from_dev_name(dev_name) == soc_name  # noqa: SLF001
     assert ascend.get_ascend_cann_variant(soc_name) == variant
+
+
+@pytest.mark.parametrize(
+    "soc_name",
+    [
+        # Stored by an earlier runtime, or hand-written in a config.
+        "Ascend950PR",
+        "Ascend950DT",
+        # A CANN SOC_VERSION: the die suffix is what opens the name space.
+        "Ascend950PR_9579",
+    ],
+)
+def test_cann_variant_resolves_a_950_name_the_mapping_does_not_carry(soc_name):
+    # The server calls this on names that never passed through the detector.
+    # Falling through would be served with an earlier generation's image.
+    assert ascend.get_ascend_cann_variant(soc_name) == "950"
 
 
 def test_guess_soc_name_still_yields_nothing_for_an_unknown_chip():
@@ -828,7 +843,7 @@ def test_cdi_holds_the_ub_mounts_back_from_an_earlier_generation(monkeypatch):
 
 
 def test_cdi_mounts_the_ub_libraries_for_the_a5_generation(monkeypatch):
-    patterns = _collect_ub_mount_patterns(monkeypatch, arch_family="Ascend950PR")
+    patterns = _collect_ub_mount_patterns(monkeypatch, arch_family="Ascend950")
 
     assert any("liburma" in p for p in patterns)
     assert any("libummu" in p for p in patterns)
@@ -1014,8 +1029,8 @@ class _UnitV2:
     temperature: int = 51
     power_deciwatts: int = 2012
     ecc_errors: int = 0
-    # Which die types the driver answers for; the rest raise. A real 950PR
-    # answers neither, which the die-fallback tests set explicitly.
+    # Which die types the driver answers for; the rest raise. What a 950 really
+    # answers is what the die-fallback tests set explicitly.
     die_types: tuple[int, ...] = (pydcmi.DCMI_DIE_TYPE_VDIE,)
 
     @property
@@ -1045,6 +1060,7 @@ class _FakeDCMIV2:
     DCMI_UNIT_TYPE_MCU = pydcmi.DCMI_UNIT_TYPE_MCU
     DCMI_DIE_TYPE_VDIE = pydcmi.DCMI_DIE_TYPE_VDIE
     DCMI_DIE_TYPE_NDIE = pydcmi.DCMI_DIE_TYPE_NDIE
+    DCMI_DIE_TYPE_DDIE = pydcmi.DCMI_DIE_TYPE_DDIE
     DCMI_DEVICE_TYPE_HBM = pydcmi.DCMI_DEVICE_TYPE_HBM
     DCMI_DEVICE_TYPE_DDR = pydcmi.DCMI_DEVICE_TYPE_DDR
     DCMI_INPUT_TYPE_AICORE = pydcmi.DCMI_INPUT_TYPE_AICORE
@@ -1204,7 +1220,7 @@ def test_detect_info_v2_enumerates_devices_flat(fake_pydcmi_v2):
     assert "card_id" not in devices[0].appendix
     assert "device_id" not in devices[0].appendix
     # The whole point: an A5 chip resolves to its generation.
-    assert devices[0].appendix["arch_family"] == "Ascend950PR"
+    assert devices[0].appendix["arch_family"] == "Ascend950"
     assert ascend.get_ascend_cann_variant(devices[0].appendix["arch_family"]) == "950"
 
 
@@ -1392,8 +1408,10 @@ def test_get_topology_v2_resolves_the_api_version_when_handed_devices(fake_pydcm
     assert "dcmi_get_topo_info_by_device_id" not in fake.calls
 
 
-def test_detect_info_v2_falls_back_to_the_ndie(fake_pydcmi_v2):
-    fake_pydcmi_v2([_UnitV2(dev_id=0, die_types=(pydcmi.DCMI_DIE_TYPE_NDIE,))])
+def test_detect_info_v2_falls_back_to_the_ddie(fake_pydcmi_v2):
+    # The die type the vendor names as the A5 chip's uuid, and the one a 950
+    # answers: the VDie is asked for first and refused.
+    fake_pydcmi_v2([_UnitV2(dev_id=0, die_types=(pydcmi.DCMI_DIE_TYPE_DDIE,))])
 
     devices = AscendDetector().detect_info()
 
@@ -1401,8 +1419,8 @@ def test_detect_info_v2_falls_back_to_the_ndie(fake_pydcmi_v2):
 
 
 def test_detect_info_v2_identifies_a_dieless_device_by_its_address(fake_pydcmi_v2):
-    # What the 950PR driver does: both die types answer NOT_SUPPORT. Dropping
-    # the device over it would leave eight usable NPUs invisible.
+    # A driver answering no die type at all. Dropping the device over it would
+    # leave eight usable NPUs invisible.
     fake_pydcmi_v2([_UnitV2(dev_id=0, die_types=())])
 
     devices = AscendDetector().detect_info()
@@ -1435,7 +1453,7 @@ def test_detect_reproduces_the_950pr_host(fake_pydcmi_v2):
 
     assert len(devices) == 8
     assert {d.name for d in devices} == {"Ascend950PR"}
-    assert {d.appendix["arch_family"] for d in devices} == {"Ascend950PR"}
+    assert {d.appendix["arch_family"] for d in devices} == {"Ascend950"}
     assert {
         ascend.get_ascend_cann_variant(d.appendix["arch_family"]) for d in devices
     } == {"950"}
