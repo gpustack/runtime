@@ -737,11 +737,10 @@ def _get_device_die_v2(dev_id, dev_bdf: str) -> str:
     """
     Get the device's SoC die through the V2 API, falling back to its address.
 
-    The A5 driver reports neither die type -- both answer NOT_SUPPORT -- and a
-    die is not what the uuid is needed for: it only has to tell one device from
-    another, which is what the usage pass merges on and what the inventory is
-    keyed by. The PCI address does that on a machine whose cards have not
-    moved, where dropping the device would leave the NPU unusable outright.
+    The A5 chip's uuid is the DDie, asked for after the VDie as the vendor's
+    readers do. A device answering neither is identified by its PCI address:
+    the uuid only has to tell one device from another on this machine, and
+    dropping the device would leave the NPU unusable outright.
 
     Args:
         dev_id:
@@ -753,7 +752,7 @@ def _get_device_die_v2(dev_id, dev_bdf: str) -> str:
         The die as a string, or the PCI address.
 
     """
-    for dev_die_type in (pydcmi.DCMI_DIE_TYPE_VDIE, pydcmi.DCMI_DIE_TYPE_NDIE):
+    for dev_die_type in (pydcmi.DCMI_DIE_TYPE_VDIE, pydcmi.DCMI_DIE_TYPE_DDIE):
         with contextlib.suppress(pydcmi.DCMIError):
             return pydcmi.dcmiv2_get_device_die_id(dev_id, dev_die_type)
 
@@ -1113,10 +1112,10 @@ _soc_name_version_mapping: dict[str, int] = {
     "Ascend910_9382": 253,
     "Ascend910_9372": 254,
     "Ascend910_9362": 255,
+    "Ascend910_9363": 256,
     "Ascend910_9579": 260,
     "Ascend910_95": 260,
     "Ascend950": 260,
-    "Ascend950PR": 260,
 }
 
 
@@ -1154,9 +1153,8 @@ def _guess_soc_name_from_dev_name(dev_name: str) -> str | None:
 
     # https://gitcode.com/Ascend/mind-cluster/blob/master/component/ascend-common/devmanager/common/utils.go#L159-L176
     #
-    # The A5 prefix is matched first: a name the mapping does not carry yet,
-    # like a later 950 variant, still belongs to the generation, and none of
-    # the regexes below would claim it.
+    # The 950 suffixes are an open set -- 950PR, 950DT, plus a die suffix on a
+    # CANN SOC_VERSION -- so all collapse onto one SoC, as the vendor readers do.
     if soc_name.startswith(_950_PREFIX):
         return "Ascend950"
     if _310P_REGEX.match(dev_name):
@@ -1187,10 +1185,15 @@ def get_ascend_soc_version(name: str | None) -> int:
         return -1
 
     version = _soc_name_version_mapping.get(name)
-    if version is None:
-        return -1
+    if version is not None:
+        return version
 
-    return version
+    # The server calls this on names that never passed through the guess above
+    # -- a stored device, a config file -- so the prefix has to hold here too.
+    if name.startswith(_950_PREFIX):
+        return _soc_name_version_mapping[_950_PREFIX]
+
+    return -1
 
 
 def get_ascend_cann_variant(name: str | None) -> str | None:
