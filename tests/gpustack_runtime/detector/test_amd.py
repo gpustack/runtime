@@ -152,7 +152,14 @@ class _FakeRocmSmi:
 
     def rsmi_dev_power_get(self, dev_idx: int) -> int:
         self.calls.append("rsmi_dev_power_get")
-        return self.cards[dev_idx]["power_used"]
+        # A card whose fixture carries no used power stands for the one ROCm
+        # SMI cannot read either -- a VF, where the binding raises rather than
+        # answering the sentinel AMD SMI would.
+        power_used = self.cards[dev_idx]["power_used"]
+        if power_used is None:
+            msg = "power is not supported on this device"
+            raise _FakeRocmSmiError(msg)
+        return power_used
 
 
 class _FakeHSA:
@@ -525,6 +532,56 @@ def test_detect_composes_the_information_and_the_usage(amd_bindings):
     assert devices[0].memory_used == 1024
     assert devices[0].power == 750
     assert devices[0].power_used == 142
+
+
+# --------------------------------------------------------------------------- #
+# AMD SMI's "N/A": an unavailable reading is reported in-band, as a string     #
+# inside a dict otherwise holding numbers. A VF exposes no host-side power     #
+# telemetry, so its driver answers 0xFFFF and the library hands over "N/A".    #
+# --------------------------------------------------------------------------- #
+
+
+def test_detect_usage_falls_back_when_the_sentinel_hides_the_socket_power(
+    amd_bindings,
+):
+    # The sentinel has to route to the ROCm SMI fallback the same way an AMD
+    # SMI failure does -- both mean "AMD SMI cannot tell us the used power".
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["power"]["current_socket_power"] = "N/A"
+    card["power"]["average_socket_power"] = "N/A"
+    calls = amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    devices = AMDDetector().detect_usage()
+
+    assert "rsmi_dev_power_get" in calls
+    assert devices[0].power_used == 131
+
+
+def test_detect_usage_reports_no_power_when_no_binding_can_read_it(amd_bindings):
+    # The reported VF: AMD SMI answers the sentinel for both socket readings
+    # and ROCm SMI cannot read the power either, so the field is absent rather
+    # than carrying a string the consumer parses as a number.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["power"]["current_socket_power"] = "N/A"
+    card["power"]["average_socket_power"] = "N/A"
+    card["power_used"] = None
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    devices = AMDDetector().detect_usage()
+
+    assert devices[0].power_used is None
+
+
+def test_detect_usage_reports_no_metrics_when_the_sentinel_hides_them(amd_bindings):
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["metrics"]["average_gfx_activity"] = "N/A"
+    card["metrics"]["temperature_hotspot"] = "N/A"
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    devices = AMDDetector().detect_usage()
+
+    assert devices[0].cores_utilization == 0
+    assert devices[0].temperature is None
 
 
 # --------------------------------------------------------------------------- #
