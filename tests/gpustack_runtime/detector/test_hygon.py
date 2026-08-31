@@ -720,7 +720,7 @@ def _mig_instance(
     profile_id: int = 3,
     start: int = 0,
     size: int = 1,
-    memory_bytes: int = 17175674880,  # 16380 MiB
+    memory_bytes: int = 17179869184,  # 16384 MiB
     memory_used_bytes: int = 4294967296,  # 4096 MiB
     gpu_util: int = 0,
     **kwargs,
@@ -928,3 +928,100 @@ def test_detect_info_mig_one_unreadable_instance_never_aborts_the_sweep(hygon_bi
     assert [m["uuid"] for m in migs] == ["MIG-bbbbbbbb-0000-0000-0000-000000000000"]
     # The surviving instance keeps its per-card ordinal.
     assert [m["index"] for m in migs] == [1]
+
+
+# --------------------------------------------------------------------------- #
+# MIG usage: refreshed per instance through its own handle, merged by UUID.    #
+# --------------------------------------------------------------------------- #
+
+
+def test_detect_usage_merges_mig_usage_by_uuid(hygon_bindings):
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[
+                    _mig_instance(0, 5, 0, gpu_util=95),
+                    _mig_instance(1, 6, 0, start=1),
+                ],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0")],
+        dmi_mig_enabled=True,
+        dmi_mig_confs={
+            "dev0gi5ci0.conf": "aaaaaaaa-0000-0000-0000-000000000000",
+            "dev0gi6ci0.conf": "bbbbbbbb-0000-0000-0000-000000000000",
+        },
+    )
+    det = HygonDetector()
+    devices = det.detect_info()
+
+    det.detect_usage(devices)
+
+    migs = devices[0].appendix["mig_devices"]
+    assert [m["cores_utilization"] for m in migs] == [95, 0]
+    assert [m["memory_used"] for m in migs] == [4096, 4096]
+    assert [m["memory_utilization"] for m in migs] == [25.0, 25.0]
+    # A MIG device reports neither temperature nor power, so it carries the
+    # card's.
+    assert [m["temperature"] for m in migs] == [51, 51]
+    assert [m["power_used"] for m in migs] == [217, 217]
+    # The inventory fields survive the merge.
+    assert [m["memory"] for m in migs] == [16380, 16380]
+    assert [m["name"] for m in migs] == ["1g.16gb", "1g.16gb"]
+
+
+def test_detect_usage_mig_suppresses_a_single_unreadable_instance(hygon_bindings):
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[
+                    _mig_instance(0, 5, 0, fail_utilization=True),
+                    _mig_instance(1, 6, 0, start=1, gpu_util=42),
+                ],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0")],
+        dmi_mig_enabled=True,
+        dmi_mig_confs={
+            "dev0gi5ci0.conf": "aaaaaaaa-0000-0000-0000-000000000000",
+            "dev0gi6ci0.conf": "bbbbbbbb-0000-0000-0000-000000000000",
+        },
+    )
+    det = HygonDetector()
+    devices = det.detect_info()
+
+    det.detect_usage(devices)
+
+    migs = devices[0].appendix["mig_devices"]
+    # The unreadable instance keeps the inventory's defaults; its sibling is
+    # refreshed -- one bad read never blinds the sweep.
+    assert [m["cores_utilization"] for m in migs] == [0, 42]
+
+
+def test_detect_usage_mig_mode_off_makes_no_dmi_usage_call(hygon_bindings):
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[_mig_instance(0, 5, 0, gpu_util=95)],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0")],
+        dmi_mig_enabled=False,
+        dmi_mig_confs={"dev0gi5ci0.conf": "aaaaaaaa-0000-0000-0000-000000000000"},
+    )
+
+    devices = HygonDetector().detect_usage()
+
+    assert "mig_devices" not in devices[0].appendix

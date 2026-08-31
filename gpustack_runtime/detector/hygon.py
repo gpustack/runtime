@@ -304,7 +304,8 @@ class HygonDetector(Detector):
 
         Args:
             devices:
-                The devices to refresh, matched by UUID.
+                The devices to refresh, matched by UUID, MIG entries in
+                ``appendix["mig_devices"]`` included.
                 If None, detects the devices' information first.
 
         Returns:
@@ -327,6 +328,17 @@ class HygonDetector(Detector):
 
         try:
             pyrocmsmi.rsmi_init()
+
+            # The MIG mode is a property of the node, not of a card, so it is
+            # read once here; a missing library or an unreadable mode means
+            # physical-only usage, exactly as without this branch.
+            sys_mig_enabled = False
+            try:
+                pydmi.dmiInit()
+                sys_mig_current, _ = pydmi.dmiGetSystemMigMode()
+                sys_mig_enabled = sys_mig_current == pydmi.DMI_DEVICE_MIG_ENABLE
+            except pydmi.DMIError:
+                debug_log_exception(logger, "Failed to query the node MIG mode")
 
             devs_count = pyrocmsmi.rsmi_num_monitor_devices()
             for dev_idx in range(devs_count):
@@ -372,6 +384,34 @@ class HygonDetector(Detector):
                         power_used=dev_power_used,
                     ),
                 )
+
+                if sys_mig_enabled:
+                    dev_bdf = pyrocmsmi.rsmi_dev_pci_id_get(dev_idx)
+                    try:
+                        dev_dmi = pydmi.dmiDeviceGetHandleByPciBusId(dev_bdf)
+                        dev_dmi_index = pydmi.dmiDeviceGetIndex(dev_dmi)
+                    except pydmi.DMIError:
+                        debug_log_exception(
+                            logger,
+                            "Failed to reach device %s through the DMI library",
+                            dev_bdf,
+                        )
+                    else:
+                        dev_mig_slots = 0
+                        with contextlib.suppress(pydmi.DMIError):
+                            dev_mig_slots = pydmi.dmiDeviceGetMaxMigDeviceCount(
+                                dev_dmi,
+                            )
+                        usages.extend(
+                            _get_mig_usages(
+                                dev_dmi,
+                                dev_dmi_index,
+                                dev_mig_slots,
+                                dev_bdf,
+                                dev_temp,
+                                dev_power_used,
+                            ),
+                        )
         except pyrocmsmi.ROCMSMIError:
             debug_log_exception(logger, "Failed to fetch devices usage")
             raise
@@ -673,6 +713,75 @@ def _get_mig_devices(
                     "power_used": None,
                     "appendix": mdev_appendix,
                 },
+            )
+    return ret
+
+
+def _get_mig_usages(
+    dev_dmi,
+    dev_dmi_index: int,
+    dev_mig_slots: int,
+    dev_bdf: str,
+    dev_temp,
+    dev_power_used,
+) -> Devices:
+    """
+    Fetch the usage of the card's current MIG devices, one UUID-keyed entry per
+    instance, to merge into the card's `appendix["mig_devices"]`.
+
+    Memory and utilization are read through each instance's own MIG device
+    handle, which reports the partition's figures rather than the card's.
+
+    Args:
+        dev_dmi:
+            The DMI handle of the card hosting them.
+        dev_dmi_index:
+            The card's DMI enumeration index, used to resolve identities from
+            the vendor's instance registry.
+        dev_mig_slots:
+            The number of MIG devices the card can host.
+        dev_bdf:
+            The card's BDF, for the synthetic identity fallback.
+        dev_temp:
+            The card's temperature.
+        dev_power_used:
+            The card's used power.
+
+    Returns:
+        The MIG devices' usage, keyed by UUID.
+
+    """
+    ret: Devices = []
+    for mdev in _iter_mig_device_handles(dev_dmi, dev_mig_slots):
+        # Suppressed per instance, not per card: one instance refusing its
+        # reads keeps the inventory's defaults while its siblings refresh.
+        with contextlib.suppress(pydmi.DMIError):
+            mdev_gi_id = pydmi.dmiDeviceGetGpuInstanceId(mdev)
+            mdev_ci_id = pydmi.dmiDeviceGetComputeInstanceId(mdev)
+            mdev_uuid = _get_mig_device_uuid(
+                dev_dmi_index,
+                mdev_gi_id,
+                mdev_ci_id,
+                dev_bdf,
+            )
+
+            mdev_mem = pydmi.dmiDeviceGetMemoryInfo(mdev)
+            mdev_util = pydmi.dmiDeviceGetUtilizationRates(mdev)
+
+            mdev_mem_total = byte_to_mebibyte(mdev_mem.total)  # byte to MiB
+            mdev_mem_used = byte_to_mebibyte(mdev_mem.used)  # byte to MiB
+
+            ret.append(
+                Device(
+                    uuid=mdev_uuid,
+                    cores_utilization=mdev_util.gpu,
+                    memory_used=mdev_mem_used,
+                    memory_utilization=get_utilization(mdev_mem_used, mdev_mem_total),
+                    # A MIG device reports neither temperature nor power, so it
+                    # carries the card's.
+                    temperature=dev_temp,
+                    power_used=dev_power_used,
+                ),
             )
     return ret
 
