@@ -255,6 +255,10 @@ class HygonDetector(Detector):
                                 dev_dmi,
                             )
                         devs_mig_slots = max(devs_mig_slots, dev_mig_slots)
+                        # With MIG enabled HSA exposes a partition's view of
+                        # the card, so dev_cores can be one slice's count or
+                        # nothing; the profiles always reach the whole card.
+                        dev_cores = _get_mig_physical_cores(dev_dmi) or dev_cores
                         dev_mig_devices = _get_mig_devices(
                             dev_dmi,
                             dev_dmi_index,
@@ -263,6 +267,7 @@ class HygonDetector(Detector):
                             sys_runtime_ver,
                             sys_runtime_ver_original,
                             dev_cc,
+                            dev_mem_status,
                             dev_power,
                             dev_bdf,
                             dev_numa,
@@ -558,6 +563,23 @@ def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
     return card_id, renderd_id
 
 
+def _get_mig_physical_cores(dev_dmi) -> int | None:
+    """
+    Derive the card's full core count from its GPU-instance profiles.
+
+    A profile's CU count times its instance capacity always spans the whole
+    card (e.g. 20x4, 40x2 and 80x1 all reach the C-3000's 80), which HSA's
+    partition view does not. None when no profile answers.
+    """
+    ret = None
+    for profile in range(pydmi.DMI_GPU_INSTANCE_PROFILE_COUNT):
+        with contextlib.suppress(pydmi.DMIError):
+            gi_prf = pydmi.dmiDeviceGetGpuInstanceProfileInfo(dev_dmi, profile)
+            cores = gi_prf.cu_count * gi_prf.gi_count_max
+            ret = max(ret, cores) if ret is not None else cores
+    return ret
+
+
 def _iter_mig_device_handles(dev_dmi, dev_mig_slots: int) -> list:
     """
     Sweep the node-global MIG device index space for this card's MIG devices.
@@ -618,6 +640,7 @@ def _get_mig_devices(
     sys_runtime_ver,
     sys_runtime_ver_original,
     dev_cc,
+    dev_mem_status,
     dev_power,
     dev_bdf: str,
     dev_numa,
@@ -635,7 +658,9 @@ def _get_mig_devices(
     turns it into the device index once every card is detected.
     """
     ret: list[dict] = []
-    for mdev in _iter_mig_device_handles(dev_dmi, dev_mig_slots):
+    for mdev_ordinal, mdev in enumerate(
+        _iter_mig_device_handles(dev_dmi, dev_mig_slots),
+    ):
         # Suppressed per instance, not per card: one instance refusing a read
         # must not vanish every later instance from the inventory.
         with contextlib.suppress(pydmi.DMIError):
@@ -675,7 +700,9 @@ def _get_mig_devices(
                     # memory_size_MB carries MiB despite the name.
                     mdev_mem = gi_prf.memory_size_MB
                     mdev_cores = gi_prf.cu_count
-                    mdev_name = gi_prf.name.decode().removeprefix("MIG ")
+                    mdev_name = gi_prf.name.decode(errors="replace").removeprefix(
+                        "MIG ",
+                    )
                     break
 
             mdev_appendix = {
@@ -696,7 +723,9 @@ def _get_mig_devices(
 
             ret.append(
                 {
-                    "index": len(ret),
+                    # The discovery ordinal, independent of skipped reads:
+                    # a failed instance ahead must not renumber this one.
+                    "index": mdev_ordinal,
                     "name": mdev_name,
                     "uuid": mdev_uuid,
                     "driver_version": sys_driver_ver,
@@ -708,6 +737,8 @@ def _get_mig_devices(
                     "memory": mdev_mem,
                     "memory_used": 0,
                     "memory_utilization": 0,
+                    # A partition shares its card's memory-health verdict.
+                    "memory_status": dev_mem_status,
                     "temperature": None,
                     "power": dev_power,
                     "power_used": None,
@@ -817,7 +848,7 @@ def _get_mig_device_uuid(
     """
     conf = _DMI_MIG_CONFIG_DIR / "ci" / f"dev{dev_dmi_index}gi{gi_id}ci{ci_id}.conf"
     with contextlib.suppress(OSError):
-        for line in conf.read_text().splitlines():
+        for line in conf.read_text(errors="replace").splitlines():
             key, sep, value = line.partition(":")
             if sep and key.strip() == "mig_uuid" and value.strip():
                 uuid = value.strip()

@@ -356,7 +356,7 @@ def _card(
     }
 
 
-def _agent(bdf: str) -> pyhsa.Agent:
+def _agent(bdf: str, compute_units: int = 104) -> pyhsa.Agent:
     return pyhsa.Agent(
         device_type=1,
         device_id="0x6210",
@@ -364,7 +364,7 @@ def _agent(bdf: str) -> pyhsa.Agent:
         uuid="",
         name=_HSA_NAME,
         compute_capability="gfx936",
-        compute_units=104,
+        compute_units=compute_units,
     )
 
 
@@ -783,7 +783,12 @@ def test_detect_info_mig_library_absent_reports_physical_only(
     assert "mig_devices" not in dev.appendix
 
 
-def test_detect_info_marks_mig_cards_and_enumerates_instances(hygon_bindings):
+def test_detect_info_marks_mig_cards_and_enumerates_instances(
+    hygon_bindings,
+    monkeypatch,
+):
+    # The ECC read is opt-in, as the health check is disabled by default.
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
     # Two cards, each holding instances; the node-global MIG index space is
     # interleaved (card 1's instance sits between card 0's two), so the sweep
     # proves attribution by the card's own handle rather than by index ranges.
@@ -805,6 +810,7 @@ def test_detect_info_marks_mig_cards_and_enumerates_instances(hygon_bindings):
                 1,
                 mig_instances=[_mig_instance(1, 1, 0, start=0)],
                 profiles={0: _MIG_PROFILE_1G},
+                uncorrectable_err=1,
             ),
         ],
         agents=[_agent("0000:0b:00.0"), _agent("0000:0c:00.0")],
@@ -837,10 +843,18 @@ def test_detect_info_marks_mig_cards_and_enumerates_instances(hygon_bindings):
     assert [m["appendix"]["bdf"] for m in card0_migs] == ["0000:0b:00.0"] * 2
     assert [m["appendix"]["numa"] for m in card0_migs] == ["0", "0"]
     assert all(m["appendix"]["mig"] and m["appendix"]["sliced"] for m in card0_migs)
+    # A partition carries its card's memory-health verdict.
+    assert [m["memory_status"] for m in card0_migs] == [
+        DeviceMemoryStatusEnum.HEALTHY,
+        DeviceMemoryStatusEnum.HEALTHY,
+    ]
 
     card1_migs = devices[1].appendix["mig_devices"]
     assert [m["uuid"] for m in card1_migs] == [
         "MIG-cccccccc-0000-0000-0000-000000000000",
+    ]
+    assert [m["memory_status"] for m in card1_migs] == [
+        DeviceMemoryStatusEnum.UNHEALTHY,
     ]
 
     # Synthetic indexes: blocks of the card's slot count above the largest
@@ -926,8 +940,62 @@ def test_detect_info_mig_one_unreadable_instance_never_aborts_the_sweep(hygon_bi
     migs = HygonDetector().detect_info()[0].appendix["mig_devices"]
 
     assert [m["uuid"] for m in migs] == ["MIG-bbbbbbbb-0000-0000-0000-000000000000"]
-    # The surviving instance keeps its per-card ordinal.
-    assert [m["index"] for m in migs] == [1]
+    # The surviving instance keeps its per-card discovery ordinal (1) under the
+    # block offset (base 1): the failed read ahead of it must not renumber it.
+    assert [m["index"] for m in migs] == [2]
+
+
+def test_detect_info_mig_derives_physical_cores_from_profiles(hygon_bindings):
+    # With MIG enabled HSA exposes a partition's view of the card -- here one
+    # slice's 26 CUs -- so the card's own count comes from its profiles
+    # instead: 26 per instance times 4 instances of capacity.
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[_mig_instance(0, 5, 0)],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0", compute_units=26)],
+        dmi_mig_enabled=True,
+        dmi_mig_confs={"dev0gi5ci0.conf": "aaaaaaaa-0000-0000-0000-000000000000"},
+    )
+
+    dev = HygonDetector().detect_info()[0]
+
+    assert dev.cores == 104
+
+
+def test_detect_info_mig_tolerates_garbled_vendor_strings(hygon_bindings, tmp_path):
+    # A non-UTF-8 profile name or conf file is a vendor defect to report
+    # around, never a reason to lose the whole detection.
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[_mig_instance(0, 5, 0)],
+                profiles={0: {**_MIG_PROFILE_1G, "name": b"MIG \xff1g.16gb"}},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0")],
+        dmi_mig_enabled=True,
+        dmi_mig_confs={"dev0gi5ci0.conf": "aaaaaaaa-0000-0000-0000-000000000000"},
+    )
+    conf = tmp_path / "dmi_mig_config" / "ci" / "dev0gi5ci0.conf"
+    conf.write_bytes(b"\xffmig_uuid: garbled\n")
+
+    migs = HygonDetector().detect_info()[0].appendix["mig_devices"]
+
+    # The garbled byte decodes to a replacement char, not a raised error.
+    assert [m["name"] for m in migs] == ["\N{REPLACEMENT CHARACTER}1g.16gb"]
+    # The garbled conf holds no readable mig_uuid line, so the identity falls
+    # back to the synthetic one.
+    assert [m["uuid"] for m in migs] == ["MIG-0000:0b:00.0-gi5-ci0"]
 
 
 # --------------------------------------------------------------------------- #
