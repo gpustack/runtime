@@ -137,6 +137,8 @@ parametrize-names-type = "csv"
 # The fakes name methods after the vendor's NVML-style symbols and reset the
 # binding's private module state.
 "tests/gpustack_runtime/detector/test_pydmi.py" = ["D", "S101", "N802", "SLF001"]
+# The fake DMI binding names methods after pydmi's dmi* wrappers.
+"tests/gpustack_runtime/detector/test_hygon.py" = ["D", "S101", "N802"]
 
 [lint.mccabe]
 max-complexity = 50

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
-from . import Topology, pyamdgpu, pyhsa, pyrocmsmi
+from . import Topology, pyamdgpu, pydmi, pyhsa, pyrocmsmi
 from .__types__ import (
     Detector,
     Device,
@@ -15,6 +15,7 @@ from .__types__ import (
     Devices,
     ManufacturerEnum,
     TopologyDistanceEnum,
+    index_mig_devices,
     merge_devices_usage,
 )
 from .__utils__ import (
@@ -30,6 +31,22 @@ from .__utils__ import (
 from .amd import _get_arch_family, _get_pci_device_name_by_bdf
 
 logger = logging.getLogger(__name__)
+
+_DMI_MIG_CONFIG_DIR = Path("/etc/dmi_mig_config")
+"""
+The vendor's registry of live MIG instances: the driver writes one
+dev<N>gi<G>ci<C>.conf per compute instance under ci/ the moment it is
+created, and the conf's mig_uuid is the identity a workload container binds
+to (DMI_MIG_VISIBLE_DEVICE=MIG-<uuid>). A variable so tests can point at a
+fixture.
+"""
+
+_MIG_UUID_PREFIX = "MIG-"
+"""
+What the vendor's own tooling prefixes an instance UUID with, in its listing
+and in the DMI_MIG_VISIBLE_DEVICE value; reported identities carry it for the
+same reason.
+"""
 
 
 class HygonDetector(Detector):
@@ -101,6 +118,24 @@ class HygonDetector(Detector):
             }
 
             pyrocmsmi.rsmi_init()
+
+            # The MIG mode is a property of the node, not of a card, so it is
+            # read once here; a missing library or an unreadable mode means
+            # physical-only detection, exactly as without this branch.
+            sys_mig_enabled = False
+            try:
+                pydmi.dmiInit()
+                sys_mig_current, _ = pydmi.dmiGetSystemMigMode()
+                sys_mig_enabled = sys_mig_current == pydmi.DMI_DEVICE_MIG_ENABLE
+            except pydmi.DMIError:
+                debug_log_exception(logger, "Failed to query the node MIG mode")
+
+            # MIG devices of every MIG-enabled card, keyed by the card's
+            # enumeration index, and the largest number of MIG devices a card
+            # can host: both are needed to number them once every card is
+            # detected, see index_mig_devices.
+            devs_mig_devices: dict[int, list[dict]] = {}
+            devs_mig_slots = 0
 
             sys_driver_ver = None
             for path in [
@@ -202,6 +237,39 @@ class HygonDetector(Detector):
                 if dev_renderd_id is not None:
                     dev_appendix["renderd_id"] = dev_renderd_id
 
+                if sys_mig_enabled:
+                    try:
+                        dev_dmi = pydmi.dmiDeviceGetHandleByPciBusId(dev_bdf)
+                        dev_dmi_index = pydmi.dmiDeviceGetIndex(dev_dmi)
+                    except pydmi.DMIError:
+                        debug_log_exception(
+                            logger,
+                            "Failed to reach device %s through the DMI library",
+                            dev_bdf,
+                        )
+                    else:
+                        dev_appendix["mig"] = True
+                        dev_mig_slots = 0
+                        with contextlib.suppress(pydmi.DMIError):
+                            dev_mig_slots = pydmi.dmiDeviceGetMaxMigDeviceCount(
+                                dev_dmi,
+                            )
+                        devs_mig_slots = max(devs_mig_slots, dev_mig_slots)
+                        dev_mig_devices = _get_mig_devices(
+                            dev_dmi,
+                            dev_dmi_index,
+                            dev_mig_slots,
+                            sys_driver_ver,
+                            sys_runtime_ver,
+                            sys_runtime_ver_original,
+                            dev_cc,
+                            dev_power,
+                            dev_bdf,
+                            dev_numa,
+                        )
+                        dev_appendix["mig_devices"] = dev_mig_devices
+                        devs_mig_devices[dev_index] = dev_mig_devices
+
                 ret.append(
                     Device(
                         manufacturer=self.manufacturer,
@@ -219,6 +287,8 @@ class HygonDetector(Detector):
                         appendix=dev_appendix,
                     ),
                 )
+
+            index_mig_devices(ret, devs_mig_devices, devs_mig_slots)
         except pyrocmsmi.ROCMSMIError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
@@ -446,3 +516,208 @@ def _get_card_and_renderd_id(dev_bdf: str) -> tuple[int | None, int | None]:
             break
 
     return card_id, renderd_id
+
+
+def _iter_mig_device_handles(dev_dmi, dev_mig_slots: int) -> list:
+    """
+    Sweep the node-global MIG device index space for this card's MIG devices.
+
+    The index is not per-card, despite the query taking a card: it numbers
+    every MIG device on the node, and an index belonging to another card
+    answers NOT_FOUND. The sweep is bounded by the node's own capacity --
+    device count times per-card maximum -- and stops early once the card's own
+    maximum has been found. A gap or an unreadable index is skipped per index,
+    never aborting the sweep.
+
+    Args:
+        dev_dmi:
+            The DMI handle of the card.
+        dev_mig_slots:
+            The number of MIG devices the card can host.
+
+    Returns:
+        The card's MIG device handles, in index order.
+
+    """
+    if not dev_mig_slots:
+        return []
+
+    ret = []
+    try:
+        cards = pydmi.dmiDeviceGetCount()
+    except pydmi.DMIError:
+        debug_log_exception(logger, "Failed to get the DMI device count")
+        return ret
+
+    for mdev_gidx in range(dev_mig_slots * cards):
+        if len(ret) >= dev_mig_slots:
+            break
+        try:
+            mdev = pydmi.dmiDeviceGetMigDeviceHandleByIndex(dev_dmi, mdev_gidx)
+        except pydmi.DMIError as e:
+            if e.value not in (
+                pydmi.DMI_ERROR_NOT_SUPPORTED,
+                pydmi.DMI_ERROR_NOT_FOUND,
+                pydmi.DMI_ERROR_INVALID_ARGUMENT,
+            ):
+                debug_log_exception(
+                    logger,
+                    "Failed to get the MIG device at index %d",
+                    mdev_gidx,
+                )
+            continue
+        ret.append(mdev)
+    return ret
+
+
+def _get_mig_devices(
+    dev_dmi,
+    dev_dmi_index: int,
+    dev_mig_slots: int,
+    sys_driver_ver,
+    sys_runtime_ver,
+    sys_runtime_ver_original,
+    dev_cc,
+    dev_power,
+    dev_bdf: str,
+    dev_numa,
+) -> list[dict]:
+    """
+    Enumerate the card's current MIG devices with the same inventory detail a
+    plain device carries, returned as appendix entries of the physical card
+    rather than standalone devices. Empty when MIG is enabled but no instances
+    exist yet.
+
+    An entry keeps a Device's shape, so the fields the usage query owns are
+    present at a Device's defaults: `_get_mig_usages` fills them.
+
+    Each entry's `index` is the per-card discovery ordinal: index_mig_devices
+    turns it into the device index once every card is detected.
+    """
+    ret: list[dict] = []
+    for mdev in _iter_mig_device_handles(dev_dmi, dev_mig_slots):
+        # Suppressed per instance, not per card: one instance refusing a read
+        # must not vanish every later instance from the inventory.
+        with contextlib.suppress(pydmi.DMIError):
+            mdev_gi_id = pydmi.dmiDeviceGetGpuInstanceId(mdev)
+            mdev_ci_id = pydmi.dmiDeviceGetComputeInstanceId(mdev)
+
+            mdev_gi = pydmi.dmiDeviceGetGpuInstanceById(dev_dmi, mdev_gi_id)
+            mdev_gi_info = pydmi.dmiGpuInstanceGetInfo(mdev_gi)
+            if mdev_gi_info.device != dev_dmi.value:
+                # The index space is node-global; attribute strictly by the GI
+                # info's parent device, never by index ranges.
+                continue
+
+            # The library offers no UUID getter, so the identity comes from
+            # the vendor's registry, as the operator's does.
+            mdev_uuid = _get_mig_device_uuid(
+                dev_dmi_index,
+                mdev_gi_id,
+                mdev_ci_id,
+                dev_bdf,
+            )
+
+            # The profile carries the name, the memory and the CU count; find
+            # it by sweeping the fixed slice-count space for the profile id
+            # the instance reports.
+            mdev_name = ""
+            mdev_mem = None
+            mdev_cores = None
+            for width in range(1, pydmi.DMI_GPU_INSTANCE_PROFILE_COUNT + 1):
+                with contextlib.suppress(pydmi.DMIError):
+                    gi_prf = pydmi.dmiDeviceGetGpuInstanceProfileInfo(
+                        dev_dmi,
+                        width - 1,
+                    )
+                    if gi_prf.id != mdev_gi_info.profile_id:
+                        continue
+                    # memory_size_MB carries MiB despite the name.
+                    mdev_mem = gi_prf.memory_size_MB
+                    mdev_cores = gi_prf.cu_count
+                    mdev_name = gi_prf.name.decode().removeprefix("MIG ")
+                    break
+
+            mdev_appendix = {
+                "sliced": True,
+                "mig": True,
+                "bdf": dev_bdf,
+                "gpu_instance_id": mdev_gi_id,
+                "compute_instance_id": mdev_ci_id,
+                # The GPU instance's placement, in GPU-slice units; the
+                # compute instance's own placement sits inside it.
+                "placement": {
+                    "start": mdev_gi_info.placement.start,
+                    "length": mdev_gi_info.placement.size,
+                },
+            }
+            if dev_numa:
+                mdev_appendix["numa"] = dev_numa
+
+            ret.append(
+                {
+                    "index": len(ret),
+                    "name": mdev_name,
+                    "uuid": mdev_uuid,
+                    "driver_version": sys_driver_ver,
+                    "runtime_version": sys_runtime_ver,
+                    "runtime_version_original": sys_runtime_ver_original,
+                    "compute_capability": dev_cc,
+                    "cores": mdev_cores,
+                    "cores_utilization": 0,
+                    "memory": mdev_mem,
+                    "memory_used": 0,
+                    "memory_utilization": 0,
+                    "temperature": None,
+                    "power": dev_power,
+                    "power_used": None,
+                    "appendix": mdev_appendix,
+                },
+            )
+    return ret
+
+
+def _get_mig_device_uuid(
+    dev_dmi_index: int,
+    gi_id: int,
+    ci_id: int,
+    dev_bdf: str,
+) -> str:
+    """
+    Resolve a MIG device's identity from the vendor's instance registry, the
+    mig_uuid line of dev<N>gi<G>ci<C>.conf, reported as MIG-<uuid>.
+
+    The registry is a driver convenience, not part of the library's API, so it
+    can be absent or stale (e.g. instances created outside the operator); then
+    the identity falls back to a synthetic MIG-<bdf>-gi<G>-ci<C>, which is
+    still unique on the node, and the gap is logged at debug.
+
+    Args:
+        dev_dmi_index:
+            The card's DMI enumeration index, the conf name's N.
+        gi_id:
+            The GPU instance ID, the conf name's G.
+        ci_id:
+            The compute instance ID, the conf name's C.
+        dev_bdf:
+            The parent card's BDF, for the synthetic fallback.
+
+    Returns:
+        The instance's identity, prefixed the way the vendor's tooling spells it.
+
+    """
+    conf = _DMI_MIG_CONFIG_DIR / "ci" / f"dev{dev_dmi_index}gi{gi_id}ci{ci_id}.conf"
+    with contextlib.suppress(OSError):
+        for line in conf.read_text().splitlines():
+            key, sep, value = line.partition(":")
+            if sep and key.strip() == "mig_uuid" and value.strip():
+                uuid = value.strip()
+                if uuid.startswith(_MIG_UUID_PREFIX):
+                    return uuid
+                return f"{_MIG_UUID_PREFIX}{uuid}"
+
+    logger.debug(
+        "Failed to read %s, falling back to a synthetic MIG identity",
+        conf,
+    )
+    return f"{_MIG_UUID_PREFIX}{dev_bdf}-gi{gi_id}-ci{ci_id}"

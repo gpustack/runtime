@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import ctypes
 from types import SimpleNamespace
 
 import pytest
@@ -15,10 +16,142 @@ from gpustack_runtime.detector import (
     amd,
     hygon,
     pyamdgpu,
+    pydmi,
     pyhsa,
 )
 from gpustack_runtime.detector.__utils__ import _load_pci_device_names
 from gpustack_runtime.detector.hygon import HygonDetector
+
+
+class _FakeDmi:
+    """
+    A pydmi stand-in answering out of fixture cards keyed by BDF.
+
+    Handles are opaque c_void_p tokens the fixture hands out and decodes back,
+    so a mix-up between a card, GPU instance, compute instance or MIG device
+    handle reads as a wrong answer, not a passing one. Everything not faked
+    here (error type, constants) comes from the real binding.
+    """
+
+    def __getattr__(self, name):
+        return getattr(pydmi, name)
+
+    def __init__(self, cards: list[dict], mig_enabled: bool = False):
+        self.mig_enabled = mig_enabled
+        self.cards = {card["bdf"]: card for card in cards}
+        # The MIG device index space is node-global: every card's instances
+        # share it, and an index belonging to another card answers NOT_FOUND.
+        self.mig_by_index = {}
+        for card in cards:
+            for inst in card.get("mig_instances", []):
+                self.mig_by_index[inst["mig_index"]] = (card, inst)
+
+    @staticmethod
+    def _card_handle(card: dict) -> ctypes.c_void_p:
+        return ctypes.c_void_p(0x1000 + card["dmi_index"])
+
+    def _card_of_handle(self, handle) -> dict:
+        for card in self.cards.values():
+            if self._card_handle(card).value == handle.value:
+                return card
+        raise pydmi.DMIError(pydmi.DMI_ERROR_NOT_FOUND)
+
+    def dmiInit(self):
+        pass
+
+    def dmiGetSystemMigMode(self) -> tuple[int, int]:
+        if self.mig_enabled:
+            return pydmi.DMI_DEVICE_MIG_ENABLE, 0
+        return pydmi.DMI_DEVICE_MIG_DISABLE, 0
+
+    def dmiDeviceGetCount(self) -> int:
+        return len(self.cards)
+
+    def dmiDeviceGetHandleByPciBusId(self, bdf: str):
+        card = self.cards.get(bdf)
+        if card is None or card.get("dmi_unreachable"):
+            raise pydmi.DMIError(pydmi.DMI_ERROR_NOT_FOUND)
+        return self._card_handle(card)
+
+    def dmiDeviceGetIndex(self, handle) -> int:
+        return self._card_of_handle(handle)["dmi_index"]
+
+    def dmiDeviceGetMaxMigDeviceCount(self, handle) -> int:
+        return self._card_of_handle(handle).get("max_mig", 4)
+
+    def dmiDeviceGetMigDeviceHandleByIndex(self, handle, index: int):
+        card, _inst = self.mig_by_index.get(index) or (None, None)
+        if card is None or card is not self._card_of_handle(handle):
+            raise pydmi.DMIError(pydmi.DMI_ERROR_NOT_FOUND)
+        return ctypes.c_void_p(0x2000 + index)
+
+    def _mig_instance_of(self, mdev_handle) -> tuple[dict, dict]:
+        card, inst = self.mig_by_index.get(mdev_handle.value - 0x2000) or (None, None)
+        if inst is None:
+            raise pydmi.DMIError(pydmi.DMI_ERROR_NOT_FOUND)
+        return card, inst
+
+    def dmiDeviceGetGpuInstanceId(self, mdev_handle) -> int:
+        _, inst = self._mig_instance_of(mdev_handle)
+        if inst.get("fail_gi_id"):
+            raise pydmi.DMIError(pydmi.DMI_ERROR_UNKNOWN)
+        return inst["gi_id"]
+
+    def dmiDeviceGetComputeInstanceId(self, mdev_handle) -> int:
+        _, inst = self._mig_instance_of(mdev_handle)
+        return inst["ci_id"]
+
+    def dmiDeviceGetGpuInstanceById(self, handle, gi_id: int):
+        card = self._card_of_handle(handle)
+        return ctypes.c_void_p(0x3000 + card["dmi_index"] * 100 + gi_id)
+
+    def dmiGpuInstanceGetInfo(self, gi_handle):
+        gi_id = gi_handle.value - 0x3000
+        dmi_index, gi_id = divmod(gi_id, 100)
+        card = next(c for c in self.cards.values() if c["dmi_index"] == dmi_index)
+        for inst in card.get("mig_instances", []):
+            if inst["gi_id"] == gi_id:
+                return SimpleNamespace(
+                    device=self._card_handle(card).value,
+                    id=gi_id,
+                    profile_id=inst["profile_id"],
+                    placement=SimpleNamespace(start=inst["start"], size=inst["size"]),
+                )
+        raise pydmi.DMIError(pydmi.DMI_ERROR_NOT_FOUND)
+
+    def dmiGpuInstanceGetComputeInstanceById(self, gi_handle, ci_id: int):
+        return ctypes.c_void_p(0x4000 + gi_handle.value - 0x3000 + ci_id)
+
+    def dmiComputeInstanceGetInfo(self, ci_handle):
+        return SimpleNamespace(
+            device=0,
+            gpu_instance=0,
+            id=0,
+            profile_id=0,
+            placement=SimpleNamespace(start=0, size=1),
+        )
+
+    def dmiDeviceGetGpuInstanceProfileInfo(self, handle, profile: int):
+        card = self._card_of_handle(handle)
+        prf = card.get("profiles", {}).get(profile)
+        if prf is None:
+            # A width the card offers no profile for is a routine gap.
+            raise pydmi.DMIError(pydmi.DMI_ERROR_INVALID_ARGUMENT)
+        return SimpleNamespace(**prf)
+
+    def dmiDeviceGetMemoryInfo(self, mdev_handle):
+        _, inst = self._mig_instance_of(mdev_handle)
+        return SimpleNamespace(
+            total=inst["memory_bytes"],
+            free=inst["memory_bytes"] - inst["memory_used_bytes"],
+            used=inst["memory_used_bytes"],
+        )
+
+    def dmiDeviceGetUtilizationRates(self, mdev_handle):
+        _, inst = self._mig_instance_of(mdev_handle)
+        if inst.get("fail_utilization"):
+            raise pydmi.DMIError(pydmi.DMI_ERROR_UNKNOWN)
+        return SimpleNamespace(gpu=inst["gpu_util"], memory=0)
 
 
 @pytest.mark.skipif(
@@ -246,12 +379,33 @@ def hygon_bindings(monkeypatch, tmp_path):
         cards: list[dict],
         agents: list | None = None,
         pci_ids: str | None = _PCI_IDS,
+        dmi_mig_enabled: bool = False,
+        dmi_mig_confs: dict[str, str] | None = None,
     ) -> list[str]:
         calls: list[str] = []
 
         monkeypatch.setattr(HygonDetector, "is_supported", staticmethod(lambda: True))
         monkeypatch.setattr(hygon, "pyrocmsmi", _FakeRocmSmi(calls, cards))
         monkeypatch.setattr(hygon, "pyhsa", _FakeHSA(list(agents or [])))
+        monkeypatch.setattr(
+            hygon,
+            "pydmi",
+            _FakeDmi(cards, mig_enabled=dmi_mig_enabled),
+        )
+
+        # The vendor's instance registry: only the confs the test names exist.
+        mig_config_dir = tmp_path / "dmi_mig_config"
+        if dmi_mig_confs:
+            ci_dir = mig_config_dir / "ci"
+            ci_dir.mkdir(parents=True)
+            for name, uuid in dmi_mig_confs.items():
+                (ci_dir / name).write_text(
+                    "cu_count:           20\n"
+                    "memory_size_MB:     16380\n"
+                    f"mig_uuid:           {uuid}\n",
+                    encoding="utf-8",
+                )
+        monkeypatch.setattr(hygon, "_DMI_MIG_CONFIG_DIR", mig_config_dir)
 
         pci_devices_path = tmp_path / "pci_devices"
         for card in cards:
@@ -519,3 +673,258 @@ def test_cdi_spec_numbers_the_device_nodes_from_the_appendix(monkeypatch):
         "/dev/kfd",
         "/dev/mkfd",
     ]
+
+
+# --------------------------------------------------------------------------- #
+# MIG: the node-wide mode gates per-card marking and instance enumeration.     #
+# --------------------------------------------------------------------------- #
+
+_MIG_PROFILE_1G = {
+    "id": 3,
+    "gi_count_max": 4,
+    "cu_count": 26,
+    "gpu_slice_count": 1,
+    "memory_size_MB": 16380,
+    "name": b"MIG 1g.16gb",
+}
+
+
+def _mig_card(
+    bdf: str,
+    unique_id: str,
+    dmi_index: int,
+    *,
+    mig_instances: list[dict] | None = None,
+    profiles: dict | None = None,
+    max_mig: int = 4,
+    dmi_unreachable: bool = False,
+    **kwargs,
+) -> dict:
+    """
+    One fake Hygon card plus what the fake DMI library serves for it.
+    """
+    card = _card(bdf, unique_id, **kwargs)
+    card["dmi_index"] = dmi_index
+    card["max_mig"] = max_mig
+    card["profiles"] = profiles or {}
+    card["mig_instances"] = mig_instances or []
+    card["dmi_unreachable"] = dmi_unreachable
+    return card
+
+
+def _mig_instance(
+    mig_index: int,
+    gi_id: int,
+    ci_id: int,
+    *,
+    profile_id: int = 3,
+    start: int = 0,
+    size: int = 1,
+    memory_bytes: int = 17175674880,  # 16380 MiB
+    memory_used_bytes: int = 4294967296,  # 4096 MiB
+    gpu_util: int = 0,
+    **kwargs,
+) -> dict:
+    return {
+        "mig_index": mig_index,
+        "gi_id": gi_id,
+        "ci_id": ci_id,
+        "profile_id": profile_id,
+        "start": start,
+        "size": size,
+        "memory_bytes": memory_bytes,
+        "memory_used_bytes": memory_used_bytes,
+        "gpu_util": gpu_util,
+        **kwargs,
+    }
+
+
+def test_detect_info_mig_mode_off_reports_physical_only(hygon_bindings):
+    # The library answers and the conf registry could even hold stale entries:
+    # with the node-wide mode off the detector behaves exactly as without MIG.
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[_mig_instance(0, 5, 0)],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0")],
+        dmi_mig_enabled=False,
+        dmi_mig_confs={"dev0gi5ci0.conf": "aaaaaaaa-0000-0000-0000-000000000000"},
+    )
+
+    dev = HygonDetector().detect_info()[0]
+
+    assert "mig" not in dev.appendix
+    assert "mig_devices" not in dev.appendix
+
+
+def test_detect_info_mig_library_absent_reports_physical_only(
+    hygon_bindings,
+    monkeypatch,
+):
+    class _AbsentDmi(_FakeDmi):
+        def dmiInit(self):
+            raise pydmi.DMIError(pydmi.DMI_ERROR_LIBRARY_NOT_FOUND)
+
+    hygon_bindings(
+        [_mig_card("0000:0b:00.0", "0x9f8e7d6c5b4a3921", 0)],
+        agents=[_agent("0000:0b:00.0")],
+    )
+    monkeypatch.setattr(hygon, "pydmi", _AbsentDmi([], mig_enabled=True))
+
+    dev = HygonDetector().detect_info()[0]
+
+    assert "mig" not in dev.appendix
+    assert "mig_devices" not in dev.appendix
+
+
+def test_detect_info_marks_mig_cards_and_enumerates_instances(hygon_bindings):
+    # Two cards, each holding instances; the node-global MIG index space is
+    # interleaved (card 1's instance sits between card 0's two), so the sweep
+    # proves attribution by the card's own handle rather than by index ranges.
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[
+                    _mig_instance(0, 5, 0, start=0),
+                    _mig_instance(2, 6, 0, start=1),
+                ],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+            _mig_card(
+                "0000:0c:00.0",
+                "0x9f8e7d6c5b4a3922",
+                1,
+                mig_instances=[_mig_instance(1, 1, 0, start=0)],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0"), _agent("0000:0c:00.0")],
+        dmi_mig_enabled=True,
+        dmi_mig_confs={
+            "dev0gi5ci0.conf": "aaaaaaaa-0000-0000-0000-000000000000",
+            "dev0gi6ci0.conf": "bbbbbbbb-0000-0000-0000-000000000000",
+            "dev1gi1ci0.conf": "cccccccc-0000-0000-0000-000000000000",
+        },
+    )
+
+    devices = HygonDetector().detect_info()
+
+    assert [dev.appendix["mig"] for dev in devices] == [True, True]
+
+    card0_migs = devices[0].appendix["mig_devices"]
+    assert [m["uuid"] for m in card0_migs] == [
+        "MIG-aaaaaaaa-0000-0000-0000-000000000000",
+        "MIG-bbbbbbbb-0000-0000-0000-000000000000",
+    ]
+    assert [m["name"] for m in card0_migs] == ["1g.16gb", "1g.16gb"]
+    assert [m["memory"] for m in card0_migs] == [16380, 16380]
+    assert [m["cores"] for m in card0_migs] == [26, 26]
+    assert [m["appendix"]["gpu_instance_id"] for m in card0_migs] == [5, 6]
+    assert [m["appendix"]["compute_instance_id"] for m in card0_migs] == [0, 0]
+    assert [m["appendix"]["placement"] for m in card0_migs] == [
+        {"start": 0, "length": 1},
+        {"start": 1, "length": 1},
+    ]
+    assert [m["appendix"]["bdf"] for m in card0_migs] == ["0000:0b:00.0"] * 2
+    assert [m["appendix"]["numa"] for m in card0_migs] == ["0", "0"]
+    assert all(m["appendix"]["mig"] and m["appendix"]["sliced"] for m in card0_migs)
+
+    card1_migs = devices[1].appendix["mig_devices"]
+    assert [m["uuid"] for m in card1_migs] == [
+        "MIG-cccccccc-0000-0000-0000-000000000000",
+    ]
+
+    # Synthetic indexes: blocks of the card's slot count above the largest
+    # physical index (2), per index_mig_devices -- partitioning one card never
+    # renumbers another's instances.
+    assert [m["index"] for m in card0_migs] == [2, 3]
+    assert [m["index"] for m in card1_migs] == [6]
+
+
+def test_detect_info_mig_conf_missing_falls_back_to_a_synthetic_uuid(hygon_bindings):
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[_mig_instance(0, 5, 0)],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0")],
+        dmi_mig_enabled=True,
+        dmi_mig_confs=None,  # no registry at all
+    )
+
+    migs = HygonDetector().detect_info()[0].appendix["mig_devices"]
+
+    assert [m["uuid"] for m in migs] == ["MIG-0000:0b:00.0-gi5-ci0"]
+
+
+def test_detect_info_mig_card_unreachable_via_dmi_degrades_to_physical(hygon_bindings):
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[_mig_instance(0, 5, 0)],
+                profiles={0: _MIG_PROFILE_1G},
+                dmi_unreachable=True,
+            ),
+            _mig_card(
+                "0000:0c:00.0",
+                "0x9f8e7d6c5b4a3922",
+                1,
+                mig_instances=[_mig_instance(1, 1, 0)],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0"), _agent("0000:0c:00.0")],
+        dmi_mig_enabled=True,
+        dmi_mig_confs={"dev1gi1ci0.conf": "cccccccc-0000-0000-0000-000000000000"},
+    )
+
+    devices = HygonDetector().detect_info()
+
+    assert "mig" not in devices[0].appendix
+    assert devices[1].appendix["mig"] is True
+    assert [m["uuid"] for m in devices[1].appendix["mig_devices"]] == [
+        "MIG-cccccccc-0000-0000-0000-000000000000",
+    ]
+
+
+def test_detect_info_mig_one_unreadable_instance_never_aborts_the_sweep(hygon_bindings):
+    hygon_bindings(
+        [
+            _mig_card(
+                "0000:0b:00.0",
+                "0x9f8e7d6c5b4a3921",
+                0,
+                mig_instances=[
+                    _mig_instance(0, 5, 0, fail_gi_id=True),
+                    _mig_instance(1, 6, 0, start=1),
+                ],
+                profiles={0: _MIG_PROFILE_1G},
+            ),
+        ],
+        agents=[_agent("0000:0b:00.0")],
+        dmi_mig_enabled=True,
+        dmi_mig_confs={"dev0gi6ci0.conf": "bbbbbbbb-0000-0000-0000-000000000000"},
+    )
+
+    migs = HygonDetector().detect_info()[0].appendix["mig_devices"]
+
+    assert [m["uuid"] for m in migs] == ["MIG-bbbbbbbb-0000-0000-0000-000000000000"]
+    # The surviving instance keeps its per-card ordinal.
+    assert [m["index"] for m in migs] == [1]

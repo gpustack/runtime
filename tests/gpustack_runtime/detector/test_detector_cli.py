@@ -160,3 +160,57 @@ def test_no_detector_emits_a_vgpu_appendix_key():
     # own `*_VGPU_*` constants are upstream SDK symbols, not appendix keys,
     # and do not match.
     assert offenders == []
+
+
+# --------------------------------------------------------------------------- #
+# Hygon MIG inventory serialization.                                          #
+# --------------------------------------------------------------------------- #
+def test_json_keeps_a_hygon_mig_devices_entry():
+    dev = Device(
+        manufacturer=ManufacturerEnum.HYGON,
+        index=0,
+        name="K100_AI",
+        uuid="GPU-9f8e7d6c5b4a3921",
+        appendix={
+            "mig": True,
+            "bdf": "0000:0b:00.0",
+            "numa": "0",
+            "mig_devices": [
+                {
+                    "index": 2,
+                    "name": "1g.16gb",
+                    "uuid": "MIG-aaaaaaaa-0000-0000-0000-000000000000",
+                    "cores": 26,
+                    "cores_utilization": 0,
+                    "memory": 16380,
+                    "memory_used": 0,
+                    "memory_utilization": 0,
+                    "temperature": None,
+                    "power": 350,
+                    "power_used": None,
+                    "appendix": {
+                        "mig": True,
+                        "sliced": True,
+                        "bdf": "0000:0b:00.0",
+                        "numa": "0",
+                        "gpu_instance_id": 5,
+                        "compute_instance_id": 0,
+                        "placement": {"start": 0, "length": 1},
+                    },
+                },
+            ],
+        },
+    )
+
+    payload = json.loads(cmds_detector.format_devices_json([dev]))
+
+    assert payload[0]["appendix"]["mig"] is True
+    mig = payload[0]["appendix"]["mig_devices"][0]
+    assert mig["uuid"] == "MIG-aaaaaaaa-0000-0000-0000-000000000000"
+    assert mig["index"] == 2
+    assert mig["name"] == "1g.16gb"
+    assert mig["cores"] == 26
+    assert mig["memory"] == 16380
+    assert mig["appendix"]["gpu_instance_id"] == 5
+    assert mig["appendix"]["compute_instance_id"] == 0
+    assert mig["appendix"]["placement"] == {"start": 0, "length": 1}
