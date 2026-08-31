@@ -125,6 +125,7 @@ parametrize-names-type = "csv"
 "gpustack_runtime/detector/pyamdgpu/*.py" = ["ALL"]
 "gpustack_runtime/detector/pycndev/*.py" = ["ALL"]
 "gpustack_runtime/detector/pydcmi/*.py" = ["ALL"]
+"gpustack_runtime/detector/pydmi/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyhgml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyhsa/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyixml/*.py" = ["ALL"]
@@ -133,6 +134,11 @@ parametrize-names-type = "csv"
 "gpustack_runtime/detector/pynvml/*.py" = ["ALL"]
 "gpustack_runtime/detector/pyrocmsmi/*.py" = ["ALL"]
 "tests/*.py" = ["D", "S101"]
+# The fakes name methods after the vendor's NVML-style symbols and reset the
+# binding's private module state.
+"tests/gpustack_runtime/detector/test_pydmi.py" = ["D", "S101", "N802", "SLF001"]
+# The fake DMI binding names methods after pydmi's dmi* wrappers.
+"tests/gpustack_runtime/detector/test_hygon.py" = ["D", "S101", "N802"]
 
 [lint.mccabe]
 max-complexity = 50
