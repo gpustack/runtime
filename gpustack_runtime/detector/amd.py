@@ -138,7 +138,7 @@ class AMDDetector(Detector):
                 )
 
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
-                dev_driver_ver = dev_gpu_driver_info.get("driver_version")
+                dev_driver_ver = _get_reading(dev_gpu_driver_info, "driver_version")
 
                 # The operator resolves the name from the local PCI ID database
                 # first: pci.ids knows the board -- the subsystem vendor's name
@@ -158,7 +158,7 @@ class AMDDetector(Detector):
                     ):
                         dev_name = pyamdgpu.amdgpu_get_marketing_name(dev_gpudev)
                 if not dev_name:
-                    dev_name = dev_gpu_asic_info.get("market_name")
+                    dev_name = _get_reading(dev_gpu_asic_info, "market_name", "")
 
                 dev_cc = dev_hsa_agent.compute_capability
                 if not dev_cc:
@@ -212,12 +212,12 @@ class AMDDetector(Detector):
                 # The power limit is inventory, so it stays here, while the used
                 # power the same call carries belongs to the usage query.
                 dev_power = None
-                try:
+                with contextlib.suppress(pyamdsmi.AmdSmiException):
                     dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
-                    dev_power = (
-                        dev_power_info.get("power_limit", 0) // 1000000
-                    )  # uW to W
-                except pyamdsmi.AmdSmiException:
+                    dev_power_limit = _get_reading(dev_power_info, "power_limit")
+                    if dev_power_limit is not None:
+                        dev_power = dev_power_limit // 1000000  # uW to W
+                if dev_power is None:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
 

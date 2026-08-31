@@ -541,6 +541,44 @@ def test_detect_composes_the_information_and_the_usage(amd_bindings):
 # --------------------------------------------------------------------------- #
 
 
+def test_detect_info_falls_back_when_the_sentinel_hides_the_power_limit(amd_bindings):
+    # The limit is floor-divided from uW to W, so a sentinel reaching that
+    # arithmetic raises a TypeError -- which is not an AmdSmiException, so it
+    # escapes the handler and costs the host every AMD card.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["power"]["power_limit"] = "N/A"
+    calls = amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    devices = AMDDetector().detect_info()
+
+    assert "rsmi_dev_power_cap_get" in calls
+    assert devices[0].power == 700
+
+
+def test_detect_info_reports_no_driver_version_when_the_sentinel_hides_it(
+    amd_bindings,
+):
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["driver_info"]["driver_version"] = "N/A"
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    devices = AMDDetector().detect_info()
+
+    assert devices[0].driver_version is None
+
+
+def test_detect_info_never_names_a_board_after_the_sentinel(amd_bindings):
+    # The ASIC market name is the last link of the name chain, so a sentinel
+    # there would otherwise be stored as the board's name.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["asic_info"]["market_name"] = "N/A"
+    amd_bindings([card], pci_ids=None)
+
+    devices = AMDDetector().detect_info()
+
+    assert devices[0].name == ""
+
+
 def test_detect_usage_falls_back_when_the_sentinel_hides_the_socket_power(
     amd_bindings,
 ):
