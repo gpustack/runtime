@@ -349,8 +349,15 @@ class HygonDetector(Detector):
             for dev_idx in range(devs_count):
                 dev_uuid = f"GPU-{pyrocmsmi.rsmi_dev_unique_id_get(dev_idx)[2:]}"
 
-                dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
-                dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
+                # Each reading is isolated on its own, mirroring the AMD path:
+                # ROCm SMI raises on one it cannot serve, and an unwrapped call
+                # would cost the whole sweep rather than the reading.
+                dev_cores_util = None
+                with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                    dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
+                dev_temp = None
+                with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                    dev_temp = pyrocmsmi.rsmi_dev_temp_metric_get(dev_idx)
                 if dev_cores_util is None:
                     debug_log_warning(
                         logger,
@@ -376,7 +383,9 @@ class HygonDetector(Detector):
                         if dev_ecc_count.uncorrectable_err > 0:
                             dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
-                dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
+                dev_power_used = None
+                with contextlib.suppress(pyrocmsmi.ROCMSMIError):
+                    dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
                 usages.append(
                     Device(
