@@ -4,6 +4,7 @@ import contextlib
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
@@ -137,7 +138,7 @@ class AMDDetector(Detector):
                 )
 
                 dev_gpu_driver_info = pyamdsmi.amdsmi_get_gpu_driver_info(dev)
-                dev_driver_ver = dev_gpu_driver_info.get("driver_version")
+                dev_driver_ver = _get_reading(dev_gpu_driver_info, "driver_version")
 
                 # The operator resolves the name from the local PCI ID database
                 # first: pci.ids knows the board -- the subsystem vendor's name
@@ -157,7 +158,7 @@ class AMDDetector(Detector):
                     ):
                         dev_name = pyamdgpu.amdgpu_get_marketing_name(dev_gpudev)
                 if not dev_name:
-                    dev_name = dev_gpu_asic_info.get("market_name")
+                    dev_name = _get_reading(dev_gpu_asic_info, "market_name", "")
 
                 dev_cc = dev_hsa_agent.compute_capability
                 if not dev_cc:
@@ -211,12 +212,12 @@ class AMDDetector(Detector):
                 # The power limit is inventory, so it stays here, while the used
                 # power the same call carries belongs to the usage query.
                 dev_power = None
-                try:
+                with contextlib.suppress(pyamdsmi.AmdSmiException):
                     dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
-                    dev_power = (
-                        dev_power_info.get("power_limit", 0) // 1000000
-                    )  # uW to W
-                except pyamdsmi.AmdSmiException:
+                    dev_power_limit = _get_reading(dev_power_info, "power_limit")
+                    if dev_power_limit is not None:
+                        dev_power = dev_power_limit // 1000000  # uW to W
+                if dev_power is None:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         dev_power = pyrocmsmi.rsmi_dev_power_cap_get(dev_idx)
 
@@ -308,8 +309,14 @@ class AMDDetector(Detector):
                 dev_temp = None
                 try:
                     dev_gpu_metrics_info = pyamdsmi.amdsmi_get_gpu_metrics_info(dev)
-                    dev_cores_util = dev_gpu_metrics_info.get("average_gfx_activity", 0)
-                    dev_temp = dev_gpu_metrics_info.get("temperature_hotspot", 0)
+                    dev_cores_util = _get_reading(
+                        dev_gpu_metrics_info,
+                        "average_gfx_activity",
+                    )
+                    dev_temp = _get_reading(
+                        dev_gpu_metrics_info,
+                        "temperature_hotspot",
+                    )
                 except pyamdsmi.AmdSmiException:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         dev_cores_util = pyrocmsmi.rsmi_dev_busy_percent_get(dev_idx)
@@ -353,15 +360,21 @@ class AMDDetector(Detector):
                             if dev_ecc_count.uncorrectable_err > 0:
                                 dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
 
+                # A sentinel reading means the same as a failed call -- AMD SMI
+                # cannot tell the used power -- so both route to ROCm SMI.
                 dev_power_used = None
-                try:
+                with contextlib.suppress(pyamdsmi.AmdSmiException):
                     dev_power_info = pyamdsmi.amdsmi_get_power_info(dev)
-                    dev_power_used = (
-                        dev_power_info.get("current_socket_power")
-                        if dev_power_info.get("current_socket_power", "N/A") != "N/A"
-                        else dev_power_info.get("average_socket_power", 0)
+                    dev_power_used = _get_reading(
+                        dev_power_info,
+                        "current_socket_power",
                     )
-                except pyamdsmi.AmdSmiException:
+                    if dev_power_used is None:
+                        dev_power_used = _get_reading(
+                            dev_power_info,
+                            "average_socket_power",
+                        )
+                if dev_power_used is None:
                     with contextlib.suppress(pyrocmsmi.ROCMSMIError):
                         dev_power_used = pyrocmsmi.rsmi_dev_power_get(dev_idx)
 
@@ -508,6 +521,31 @@ class AMDDetector(Detector):
             raise
 
         return ret
+
+
+def _get_reading(dev_info: dict, key: str, default: Any = None) -> Any:
+    """
+    Read one value out of an AMD SMI answer, treating its sentinel as absent.
+
+    AMD SMI reports an unavailable reading in-band: it rewrites the 0xFFFF (or
+    max-uint) the driver answered into the string "N/A" before returning, so a
+    dict otherwise holding numbers can carry a string at any key. A VF is where
+    this surfaces, its host-side telemetry being invisible to the guest.
+
+    Args:
+        dev_info:
+            The answer AMD SMI returned.
+        key:
+            The reading to take.
+        default:
+            What an absent or unavailable reading becomes.
+
+    Returns:
+        The reading, or the default.
+
+    """
+    dev_reading = dev_info.get(key, "N/A")
+    return default if dev_reading == "N/A" else dev_reading
 
 
 def _get_pci_device_name_by_bdf(dev_bdf: str) -> str:

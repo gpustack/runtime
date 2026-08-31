@@ -244,11 +244,11 @@ class _FakeRocmSmi:
 
     def rsmi_dev_busy_percent_get(self, dev_idx: int) -> int:
         self.calls.append("rsmi_dev_busy_percent_get")
-        return self.cards[dev_idx]["busy_percent"]
+        return self._reading(dev_idx, "busy_percent")
 
     def rsmi_dev_temp_metric_get(self, dev_idx: int) -> int:
         self.calls.append("rsmi_dev_temp_metric_get")
-        return self.cards[dev_idx]["temperature"]
+        return self._reading(dev_idx, "temperature")
 
     def rsmi_dev_power_cap_get(self, dev_idx: int) -> int:
         self.calls.append("rsmi_dev_power_cap_get")
@@ -256,7 +256,17 @@ class _FakeRocmSmi:
 
     def rsmi_dev_power_get(self, dev_idx: int) -> int:
         self.calls.append("rsmi_dev_power_get")
-        return self.cards[dev_idx]["power_used"]
+        return self._reading(dev_idx, "power_used")
+
+    def _reading(self, dev_idx: int, key: str) -> int:
+        # A card whose fixture carries None for a reading stands for the one
+        # ROCm SMI cannot answer: the binding checks every return code and
+        # raises, rather than handing back a sentinel the way AMD SMI does.
+        reading = self.cards[dev_idx][key]
+        if reading is None:
+            msg = f"{key} is not supported on this device"
+            raise _FakeRocmSmiError(msg)
+        return reading
 
     def rsmi_topo_get_numa_node_number(self, dev_idx: int) -> int:
         return self.cards[dev_idx]["numa"]
@@ -626,6 +636,45 @@ def test_detect_composes_the_information_and_the_usage(hygon_bindings):
     assert devices[0].memory == _MEMORY_TOTAL
     assert devices[0].memory_used == 1024
     assert devices[0].power == 350
+    assert devices[0].power_used == 217
+
+
+def test_detect_usage_bounds_an_unreadable_power_to_its_own_card(hygon_bindings):
+    # ROCm SMI raises on a reading it cannot serve, so an unwrapped read takes
+    # the whole sweep down with it and leaves every card on the host with its
+    # information-query values.
+    hygon_bindings(
+        [
+            _card("0000:0b:00.0", "0x9f8e7d6c5b4a3921", power_used=None),
+            _card("0000:0c:00.0", "0x9f8e7d6c5b4a3922"),
+        ],
+        agents=[_agent("0000:0b:00.0"), _agent("0000:0c:00.0")],
+    )
+
+    devices = HygonDetector().detect_usage()
+
+    assert [dev.power_used for dev in devices] == [None, 217]
+    # The rest of the faulty card's usage still arrives, and the healthy card
+    # is untouched.
+    assert [dev.cores_utilization for dev in devices] == [44, 44]
+    assert [dev.temperature for dev in devices] == [51, 51]
+    assert [dev.memory_used for dev in devices] == [1024, 1024]
+
+
+def test_detect_usage_bounds_an_unreadable_utilization_to_its_own_reading(
+    hygon_bindings,
+):
+    # Each reading is isolated on its own, so an unreadable utilization does
+    # not carry off the temperature the next call would have served.
+    hygon_bindings(
+        [_card("0000:0b:00.0", "0x9f8e7d6c5b4a3921", busy_percent=None)],
+        agents=[_agent("0000:0b:00.0")],
+    )
+
+    devices = HygonDetector().detect_usage()
+
+    assert devices[0].cores_utilization == 0
+    assert devices[0].temperature == 51
     assert devices[0].power_used == 217
 
 
