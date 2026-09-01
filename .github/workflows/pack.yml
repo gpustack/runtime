@@ -1,6 +1,6 @@
 # This workflow packs the Docker images for the GPUStack runtime.
 
-name: pack
+name: Pack
 
 permissions:
   actions: read

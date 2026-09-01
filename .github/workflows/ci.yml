@@ -1,6 +1,6 @@
 # This workflow runs for continuous integration (CI) of the project.
 
-name: ci
+name: CI
 
 permissions:
   actions: read
