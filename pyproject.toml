@@ -23,7 +23,7 @@ dependencies = [
     # NB(thxCode): Pin to this Podman version for a custom patch. See gpustack_runtime/deployer/__patches__.py.
     "podman==5.6.0",
     "pyyaml",
-    "gpustack-runner>=0.1.26.post2",
+    "gpustack-runner>=0.1.29",
     "nvidia-ml-py>=13.580.65",
     "mthreads-ml-py>=2.2.10",
     "argcomplete>=3.6.3",
@@ -43,13 +43,13 @@ gpustack-runtime = "gpustack_runtime.__main__:main"
 dev=[
     "pyclean==3.4.0",
     "pre-commit==4.5.0",
-    "pytest==8.4.2",
+    "pytest>=9.0.3,<10",
     "hatchling",
     "hatch-vcs",
     "mkdocs>=1.6.1",
     "mkdocstrings-python>=1.18.0",
     "mkdocs-material>=9.6.18",
-    "pymdown-extensions>=10.16.1",
+    "pymdown-extensions>=11.0.1",
     "dockerpty>=0.4.1",
     "amdsmi>=7.0.2",
 ]
