@@ -247,9 +247,10 @@ if TYPE_CHECKING:
     """
     GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY: str | None = None
     """
-    Resource injection policy for the Docker deployer (e.g., Env, CDI).
+    Resource injection policy for the Docker deployer (e.g., Env, CDI, Device).
     `Env`: Injects resources using standard environment variable, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES`.
     `CDI`: Injects resources using CDI, based on `GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_CDI`.
+    `Device`: Injects device nodes and mounts directly, without the visible-devices env or a CDI-capable Docker. Suits hosts where the visible-devices env breaks the accelerator (e.g. Ascend A5 UB fabric).
     """
     GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE: bool = True
     """
@@ -647,7 +648,7 @@ variables: dict[str, Callable[[], Any]] = {
         getenv(
             "GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY",
         ),
-        options=["Env", "CDI"],
+        options=["Env", "CDI", "Device"],
         default="Env",
     ),
     "GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE": lambda: ternary(

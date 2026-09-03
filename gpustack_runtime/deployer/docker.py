@@ -58,6 +58,7 @@ from .__utils__ import (
     sensitive_env_var,
 )
 from .cdi import dump_config as cdi_dump_config
+from .cdi import generate_config_by_manufacturer as cdi_generate_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -255,7 +256,7 @@ class DockerWorkloadStatus(WorkloadStatus):
             elif not _has_restart_policy(ci):
                 d_init_state = WorkloadStatusStateEnum.INITIALIZING
 
-        return d_init_state if d_init_state else d_run_state
+        return d_init_state or d_run_state
 
     def __init__(
         self,
@@ -776,7 +777,112 @@ class DockerDeployer(EndoscopicDeployer):
                 mount_binding.append(binding)
 
         if mount_binding:
-            create_options["mounts"] = mount_binding
+            create_options["mounts"] = (
+                create_options.get("mounts") or []
+            ) + mount_binding
+
+    @staticmethod
+    def _apply_compute_resource(
+        create_options: dict[str, Any],
+        r_k: str,
+        r_v: Any,
+    ) -> bool:
+        """Apply a cpu/memory resource request; return True if handled."""
+        if r_k == "cpu":
+            if isinstance(r_v, int | float):
+                create_options["cpu_shares"] = ceil(r_v * 1024)
+            elif isinstance(r_v, str) and r_v.isdigit():
+                create_options["cpu_shares"] = ceil(float(r_v) * 1024)
+            return True
+        if r_k == "memory":
+            if isinstance(r_v, int):
+                create_options["mem_limit"] = r_v
+                create_options["mem_reservation"] = r_v
+                create_options["memswap_limit"] = r_v
+            elif isinstance(r_v, str):
+                v = r_v.lower().removesuffix("i")
+                create_options["mem_limit"] = v
+                create_options["mem_reservation"] = v
+                create_options["memswap_limit"] = v
+            return True
+        return False
+
+    def _inject_plain_devices(
+        self,
+        create_options: dict[str, Any],
+        runtime_envs: list[str],
+        resource_values: list[str],
+        r_v: str,
+        privileged: bool,
+    ):
+        """
+        Plain device passthrough for one resource request: inject each mapped
+        manufacturer's device nodes and mounts, skipping the visible-devices env.
+        """
+        if r_v == "all":
+            create_options["privileged"] = True
+        want_all = r_v == "all" or privileged
+        for ren in runtime_envs:
+            self._inject_devices_plain(
+                create_options,
+                self.get_manufacturer(ren),
+                resource_values,
+                want_all,
+            )
+
+    @staticmethod
+    def _inject_devices_plain(
+        create_options: dict[str, Any],
+        manufacturer: Any,
+        resource_values: list[str],
+        want_all: bool,
+    ):
+        """
+        Inject a manufacturer's device nodes and mounts as plain Docker devices
+        and bind mounts, reusing the CDI generator's knowledge. No visible-devices
+        env is set, so the vendor runtime does not apply device isolation.
+        """
+        cfg = cdi_generate_config(manufacturer)
+        if not cfg:
+            return
+
+        edits = cfg.container_edits
+        device_nodes = list(edits.device_nodes or []) if edits else []
+        wanted = set(resource_values)
+        for dev in cfg.devices:
+            if (want_all and dev.name == "all") or (
+                not want_all and dev.name in wanted
+            ):
+                device_nodes.extend(dev.container_edits.device_nodes or [])
+
+        devices = create_options.get("devices") or []
+        seen = {d.split(":")[1] if ":" in d else d for d in devices}
+        for dn in device_nodes:
+            if dn.path in seen:
+                continue
+            seen.add(dn.path)
+            devices.append(
+                f"{dn.host_path or dn.path}:{dn.path}:{dn.permissions or 'rwm'}",
+            )
+        if devices:
+            create_options["devices"] = devices
+
+        mounts = create_options.get("mounts") or []
+        targets = {m.get("Target") for m in mounts}
+        for m in (edits.mounts if edits else None) or []:
+            if m.container_path in targets:
+                continue
+            targets.add(m.container_path)
+            mounts.append(
+                docker.types.Mount(
+                    type="bind",
+                    source=m.host_path,
+                    target=m.container_path,
+                    read_only=bool(m.options) and "ro" in m.options,
+                ),
+            )
+        if mounts:
+            create_options["mounts"] = mounts
 
     @staticmethod
     def _parameterize_healthcheck(
@@ -994,29 +1100,15 @@ class DockerDeployer(EndoscopicDeployer):
 
             # Parameterize resources.
             if c.resources:
-                cdi = (
-                    envs.GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY.lower()
-                    == "cdi"
-                )
-                fmt = "plain" if not cdi else "cdi"
+                policy = (
+                    envs.GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY or ""
+                ).lower()
+                cdi = policy == "cdi"
+                plain_device = policy == "device"
+                fmt = "cdi" if cdi else "plain"
 
                 for r_k, r_v in c.resources.items():
-                    if r_k == "cpu":
-                        if isinstance(r_v, int | float):
-                            create_options["cpu_shares"] = ceil(r_v * 1024)
-                        elif isinstance(r_v, str) and r_v.isdigit():
-                            create_options["cpu_shares"] = ceil(float(r_v) * 1024)
-                        continue
-                    if r_k == "memory":
-                        if isinstance(r_v, int):
-                            create_options["mem_limit"] = r_v
-                            create_options["mem_reservation"] = r_v
-                            create_options["memswap_limit"] = r_v
-                        elif isinstance(r_v, str):
-                            v = r_v.lower().removesuffix("i")
-                            create_options["mem_limit"] = v
-                            create_options["mem_reservation"] = v
-                            create_options["memswap_limit"] = v
+                    if self._apply_compute_resource(create_options, r_k, r_v):
                         continue
 
                     if (
@@ -1037,6 +1129,20 @@ class DockerDeployer(EndoscopicDeployer):
 
                     privileged = create_options.get("privileged", False)
                     resource_values = [x.strip() for x in r_v.split(",")]
+
+                    # Plain device passthrough: inject device nodes and mounts
+                    # directly, skipping the visible-devices env. The env drives
+                    # the vendor runtime's device isolation, which breaks the
+                    # Ascend A5 UB fabric; a bare device passthrough does not.
+                    if plain_device:
+                        self._inject_plain_devices(
+                            create_options,
+                            runtime_envs,
+                            resource_values,
+                            r_v,
+                            privileged,
+                        )
+                        continue
 
                     # Generate CDI config if not yet.
                     if cdi and envs.GPUSTACK_RUNTIME_DOCKER_CDI_SPECS_GENERATE:
@@ -1313,6 +1419,20 @@ class DockerDeployer(EndoscopicDeployer):
                 for k, v in mirrored_envs.items()
                 if k not in igs
             }
+        # Non-Env policies inject devices without the visible-devices env, so a
+        # mirrored one would defeat that -- and re-trigger the vendor runtime's
+        # device isolation (breaks e.g. Ascend A5 UB). Drop those env names.
+        if (
+            envs.GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY or "Env"
+        ).lower() != "env":
+            visible_envs = set(
+                envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_RUNTIME_VISIBLE_DEVICES.values(),
+            )
+            for names in envs.GPUSTACK_RUNTIME_DEPLOY_RESOURCE_KEY_MAP_BACKEND_VISIBLE_DEVICES.values():
+                visible_envs.update(names if isinstance(names, list) else [names])
+            mirrored_envs = {
+                k: v for k, v in mirrored_envs.items() if k not in visible_envs
+            }
         ## - Container customized mounts
         mirrored_mounts: list[dict[str, Any]] = [
             # Always filter out Docker Socket mount.
@@ -1402,7 +1522,7 @@ class DockerDeployer(EndoscopicDeployer):
                 c_devices: list[dict[str, Any]] = []
                 for c_device in create_options.get("devices") or []:
                     sp = c_device.split(":")
-                    c_device.append(
+                    c_devices.append(
                         {
                             "PathOnHost": sp[0],
                             "PathInContainer": sp[1] if len(sp) > 1 else sp[0],

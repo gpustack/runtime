@@ -110,6 +110,23 @@ def generate_config(
     return cfg
 
 
+def generate_config_by_manufacturer(
+    manufacturer: ManufacturerEnum,
+) -> Config | None:
+    """
+    Generate the CDI configuration for all devices of a manufacturer.
+
+    Returns the Config object, or None if not supported. Unlike ``dump_config``,
+    the object is returned as-is so a caller can translate its device nodes and
+    mounts into plain container options.
+    """
+    gen = _GENERATORS_MAP.get(manufacturer)
+    if not gen:
+        return None
+
+    return gen.generate()
+
+
 def available_manufacturers() -> list[ManufacturerEnum]:
     """
     Get a list of available manufacturers,
@@ -156,6 +173,7 @@ __all__ = [
     "available_manufacturers",
     "dump_config",
     "generate_config",
+    "generate_config_by_manufacturer",
     "manufacturer_to_cdi_kind",
     "manufacturer_to_runtime_env",
     "supported_manufacturers",
