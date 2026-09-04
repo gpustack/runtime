@@ -124,30 +124,47 @@ class AscendGenerator(Generator):
         if not common_device_nodes:
             return None
 
+        # Device.appendix defaults to None and callers pass their own devices
+        # in, so every read goes through `or {}`.
+        is_a5 = any(
+            get_ascend_cann_variant((dev.appendix or {}).get("arch_family"))
+            == _A5_CANN_VARIANT
+            for dev in devices
+            if dev
+        )
+
+        if is_a5:
+            # A5's UB fabric management lives under the driver tree (ube_mgmt,
+            # device), siblings of lib64 that the per-subdir profile omits, so
+            # HCCL cannot init UB -- mount the whole driver. hccl_rootinfo.json
+            # is dropped: nothing here generates it, and a stale host copy makes
+            # rootInfo detection fail.
+            mount_paths = [
+                "/usr/local/Ascend/driver",
+                "/usr/local/dcmi",
+                "/usr/local/bin/npu-smi",
+                "/var/queue_schedule",
+            ]
+        else:
+            mount_paths = [
+                "/etc/hccl_rootinfo.json",
+                "/usr/local/Ascend/driver/topo",
+                "/usr/local/Ascend/driver/lib64",
+                "/usr/local/Ascend/driver/include",
+                "/usr/local/dcmi",
+                "/usr/local/bin/npu-smi",
+                "/var/queue_schedule",
+            ]
+
         common_mounts = []
-        for p in [
-            "/etc/hccl_rootinfo.json",
-            "/usr/local/Ascend/driver/topo",
-            "/usr/local/Ascend/driver/lib64",
-            "/usr/local/Ascend/driver/include",
-            "/usr/local/dcmi",
-            "/usr/local/bin/npu-smi",
-            "/var/queue_schedule",
-        ]:
+        for p in mount_paths:
             cm = path_to_cdi_mount(
                 path=p,
             )
             if cm:
                 common_mounts.append(cm)
 
-        # Device.appendix defaults to None and callers pass their own devices
-        # in, so every read goes through `or {}`.
-        if any(
-            get_ascend_cann_variant((dev.appendix or {}).get("arch_family"))
-            == _A5_CANN_VARIANT
-            for dev in devices
-            if dev
-        ):
+        if is_a5:
             for pattern in _A5_UB_MOUNT_PATTERNS:
                 ub_mounts = glob_to_cdi_mounts(pattern=pattern)
                 if not ub_mounts:
