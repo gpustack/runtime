@@ -508,7 +508,7 @@ def _get_memory_status(
     if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
         return DeviceMemoryStatusEnum.HEALTHY
 
-    with contextlib.suppress(pyhgml.HGMLError):
+    try:
         dev_mem_ecc_errors = pyhgml.hgmlDeviceGetMemoryErrorCounter(
             dev,
             pyhgml.HGML_MEMORY_ERROR_TYPE_UNCORRECTED,
@@ -516,6 +516,11 @@ def _get_memory_status(
             memory_location,
         )
         if dev_mem_ecc_errors > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pyhgml.HGMLError as e:
+        # Fail closed: a query the driver errors on marks the device
+        # unhealthy, while an unsupported counter means it cannot be judged.
+        if e.value != pyhgml.HGML_ERROR_NOT_SUPPORTED:
             return DeviceMemoryStatusEnum.UNHEALTHY
 
     return DeviceMemoryStatusEnum.HEALTHY
