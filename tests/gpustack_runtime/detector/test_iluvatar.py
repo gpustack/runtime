@@ -6,6 +6,7 @@ from gpustack_runtime import envs
 from gpustack_runtime.deployer.cdi import iluvatar as cdi_iluvatar
 from gpustack_runtime.deployer.cdi.iluvatar import IluvatarGenerator
 from gpustack_runtime.detector import Device, ManufacturerEnum, iluvatar
+from gpustack_runtime.detector.__types__ import DeviceMemoryStatusEnum
 from gpustack_runtime.detector.__utils__ import byte_to_mebibyte
 from gpustack_runtime.detector.iluvatar import IluvatarDetector
 
@@ -42,6 +43,10 @@ class _FakeNVMLError(Exception):
     Stand-in for pyixml.NVMLError.
     """
 
+    def __init__(self, msg: str, value: int | None = None):
+        super().__init__(msg)
+        self.value = value
+
 
 class _FakeHandle:
     def __init__(self, index: int):
@@ -72,11 +77,20 @@ class FakePyixml:
 
     NVMLError = _FakeNVMLError
     IXML_HEALTH_OK = 0
+    NVML_ERROR_NOT_SUPPORTED = 3
+    NVML_ERROR_UNKNOWN = 999
     NVML_TEMPERATURE_GPU = 0
     NVML_AFFINITY_SCOPE_NODE = 0
     nvmlMemory_v2 = 0x02000028  # noqa: N815
 
-    def __init__(self, *, device_count: int = 2, v2_memory: bool = True):
+    def __init__(
+        self,
+        *,
+        device_count: int = 2,
+        v2_memory: bool = True,
+        health: int = 0,
+        health_error_code: int | None = None,
+    ):
         self.calls: list[str] = []
         self.device_count = device_count
         self.v2_memory = v2_memory
@@ -86,6 +100,8 @@ class FakePyixml:
         self.v2_memory_used = 8 * 1024**3
         self.v1_memory_total = 16 * 1024**3
         self.v1_memory_used = 4 * 1024**3
+        self.health = health
+        self.health_error_code = health_error_code
 
     # The method names below mirror pyixml's real (camelCase) API one-for-one,
     # so a test can monkeypatch this in as a drop-in for the module.
@@ -136,7 +152,10 @@ class FakePyixml:
 
     def ixmlDeviceGetHealth(self, dev):  # noqa: N802
         self.calls.append("ixmlDeviceGetHealth")
-        return self.IXML_HEALTH_OK
+        if self.health_error_code is not None:
+            msg = "health unreadable"
+            raise self.NVMLError(msg, self.health_error_code)
+        return self.health
 
     def nvmlDeviceGetPowerManagementDefaultLimit(self, dev):  # noqa: N802
         self.calls.append("nvmlDeviceGetPowerManagementDefaultLimit")
@@ -189,6 +208,22 @@ def fake_pyixml(monkeypatch):
         return fake
 
     return _install
+
+
+@pytest.fixture
+def health_check(monkeypatch):
+    """
+    Turn the device health check on: it is opt-in, as the query costs a
+    driver call per device, so GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK
+    defaults to true. A real module attribute is set because the env lookup
+    is cached.
+    """
+    monkeypatch.setattr(
+        envs,
+        "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK",
+        False,
+        raising=False,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -289,6 +324,55 @@ def test_detect_composes_info_and_usage_by_default(fake_pyixml):
     assert devices[0].cores_utilization == 37
     assert devices[0].power_used == 90
     assert "vgpu" not in devices[0].appendix
+
+
+# --------------------------------------------------------------------------- #
+# The health check fails closed: a device the driver cannot answer is         #
+# unhealthy.                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_reports_an_unhealthy_device(fake_pyixml):
+    fake_pyixml(health=1)
+
+    devices = IluvatarDetector().detect_info()
+
+    assert [dev.memory_status for dev in devices] == [
+        DeviceMemoryStatusEnum.UNHEALTHY,
+    ] * 2
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_fails_closed_on_a_health_query_error(fake_pyixml):
+    fake_pyixml(health_error_code=FakePyixml.NVML_ERROR_UNKNOWN)
+
+    devices = IluvatarDetector().detect_info()
+
+    assert [dev.memory_status for dev in devices] == [
+        DeviceMemoryStatusEnum.UNHEALTHY,
+    ] * 2
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_tolerates_an_unsupported_health_query(fake_pyixml):
+    # A device without the health query cannot be judged, not condemned.
+    fake_pyixml(health_error_code=FakePyixml.NVML_ERROR_NOT_SUPPORTED)
+
+    devices = IluvatarDetector().detect_info()
+
+    assert [dev.memory_status for dev in devices] == [
+        DeviceMemoryStatusEnum.HEALTHY,
+    ] * 2
+
+
+def test_detect_issues_no_health_check_call_by_default(fake_pyixml):
+    # The check is opt-in: at the default, detection issues no health call.
+    fake = fake_pyixml()
+
+    IluvatarDetector().detect()
+
+    assert "ixmlDeviceGetHealth" not in fake.calls
 
 
 # --------------------------------------------------------------------------- #
