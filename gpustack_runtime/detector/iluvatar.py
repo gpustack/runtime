@@ -141,7 +141,6 @@ class IluvatarDetector(Detector):
                     dev_cores = pyixml.nvmlDeviceGetNumGpuCores(dev)
 
                 dev_mem = 0
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 with contextlib.suppress(pyixml.NVMLError):
                     # Prefer the v2 memory structure, falling back to v1 --
                     # mirrors the operator's GetMemoryInfoV, which drops the
@@ -150,11 +149,7 @@ class IluvatarDetector(Detector):
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         dev_mem_info.total,
                     )
-                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                    with contextlib.suppress(pyixml.NVMLError):
-                        dev_health = pyixml.ixmlDeviceGetHealth(dev)
-                        if dev_health != pyixml.IXML_HEALTH_OK:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                dev_mem_status = _get_memory_status(dev)
 
                 dev_power = None
                 with contextlib.suppress(pyixml.NVMLError):
@@ -251,7 +246,6 @@ class IluvatarDetector(Detector):
 
                 dev_mem = 0
                 dev_mem_used = 0
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 with contextlib.suppress(pyixml.NVMLError):
                     # Same v2-then-v1 fallback as detect_info: the operator's
                     # MonitorAccelerator re-reads the memory info rather than
@@ -263,11 +257,7 @@ class IluvatarDetector(Detector):
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         dev_mem_info.used,
                     )
-                if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                    with contextlib.suppress(pyixml.NVMLError):
-                        dev_health = pyixml.ixmlDeviceGetHealth(dev)
-                        if dev_health != pyixml.IXML_HEALTH_OK:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                dev_mem_status = _get_memory_status(dev)
 
                 dev_cores_util = None
                 with contextlib.suppress(pyixml.NVMLError):
@@ -405,3 +395,34 @@ def _get_memory_info(dev):
         return pyixml.nvmlDeviceGetMemoryInfo(dev, version=pyixml.nvmlMemory_v2)
     except pyixml.NVMLError:
         return pyixml.nvmlDeviceGetMemoryInfo(dev)
+
+
+def _get_memory_status(dev) -> DeviceMemoryStatusEnum:
+    """
+    Get a device's health from its dedicated health query.
+
+    Both queries produce it, mirroring the operator, which reports `Unhealthy`
+    from `DetectAccelerator` and `MonitorAccelerator` alike.
+
+    Args:
+        dev:
+            The device handle.
+
+    Returns:
+        The memory status.
+
+    """
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    try:
+        dev_health = pyixml.ixmlDeviceGetHealth(dev)
+        if dev_health != pyixml.IXML_HEALTH_OK:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pyixml.NVMLError as e:
+        # Fail closed: a query the driver errors on marks the device
+        # unhealthy, while an unsupported query means it cannot be judged.
+        if e.value != pyixml.NVML_ERROR_NOT_SUPPORTED:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY

@@ -529,7 +529,12 @@ def _get_memory_status(
     memory_location: int,
 ) -> DeviceMemoryStatusEnum:
     """
-    Get a device's memory health from its uncorrected ECC error counter.
+    Get a device's memory health.
+
+    The verdict is the uncorrected ECC error counter plus the driver's
+    recovery state: a GSP failure (Xid 119/154) leaves the ECC counters
+    readable at zero, so the recovery action and reset status fields are
+    probed as well.
 
     Both queries produce it, mirroring the operator, which reports `Unhealthy`
     from `DetectAccelerator` and `MonitorAccelerator` alike.
@@ -549,7 +554,7 @@ def _get_memory_status(
     if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
         return DeviceMemoryStatusEnum.HEALTHY
 
-    with contextlib.suppress(pynvml.NVMLError):
+    try:
         dev_mem_ecc_errors = pynvml.nvmlDeviceGetMemoryErrorCounter(
             dev,
             pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
@@ -557,6 +562,29 @@ def _get_memory_status(
             memory_location,
         )
         if dev_mem_ecc_errors > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pynvml.NVMLError as e:
+        # Fail closed: a query the driver errors on (a wedged GSP answers
+        # NVML_ERROR_UNKNOWN after its RPC timeout) marks the card unhealthy,
+        # while an unsupported counter means the card cannot be judged.
+        if e.value != pynvml.NVML_ERROR_NOT_SUPPORTED:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+
+    try:
+        dev_fields = pynvml.nvmlDeviceGetFieldValues(
+            dev,
+            fieldIds=[
+                pynvml.NVML_FI_DEV_GET_GPU_RECOVERY_ACTION,
+                pynvml.NVML_FI_DEV_RESET_STATUS,
+            ],
+        )
+    except pynvml.NVMLError as e:
+        if e.value != pynvml.NVML_ERROR_NOT_SUPPORTED:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+        return DeviceMemoryStatusEnum.HEALTHY
+    for dev_field in dev_fields:
+        # A per-field error extracts to None: cannot judge, keep the verdict.
+        if _extract_field_value(dev_field):
             return DeviceMemoryStatusEnum.UNHEALTHY
 
     return DeviceMemoryStatusEnum.HEALTHY

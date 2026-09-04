@@ -186,28 +186,14 @@ class AMDDetector(Detector):
                             dev_asic_family_id = dev_gpudev_info.family_id
 
                 dev_mem = 0
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 try:
                     dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
                     dev_mem = dev_gpu_vram_usage.get("vram_total")
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                        dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
-                            dev,
-                            pyamdsmi.AmdSmiGpuBlock.UMC,
-                        )
-                        if dev_ecc_count.get("uncorrectable_count", 0) > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
                 except pyamdsmi.AmdSmiException:
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
                     )
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                        with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                            dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
-                                dev_idx,
-                            )
-                            if dev_ecc_count.uncorrectable_err > 0:
-                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                dev_mem_status = _get_memory_status(dev, dev_idx)
 
                 # The power limit is inventory, so it stays here, while the used
                 # power the same call carries belongs to the usage query.
@@ -331,20 +317,10 @@ class AMDDetector(Detector):
 
                 dev_mem = 0
                 dev_mem_used = 0
-                # Health is reported by both queries, as the operator reports it
-                # from DetectAccelerator and MonitorAccelerator alike.
-                dev_mem_status = DeviceMemoryStatusEnum.HEALTHY
                 try:
                     dev_gpu_vram_usage = pyamdsmi.amdsmi_get_gpu_vram_usage(dev)
                     dev_mem = dev_gpu_vram_usage.get("vram_total")
                     dev_mem_used = dev_gpu_vram_usage.get("vram_used")
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                        dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
-                            dev,
-                            pyamdsmi.AmdSmiGpuBlock.UMC,
-                        )
-                        if dev_ecc_count.get("uncorrectable_count", 0) > 0:
-                            dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
                 except pyamdsmi.AmdSmiException:
                     dev_mem = byte_to_mebibyte(  # byte to MiB
                         pyrocmsmi.rsmi_dev_memory_total_get(dev_idx),
@@ -352,13 +328,9 @@ class AMDDetector(Detector):
                     dev_mem_used = byte_to_mebibyte(  # byte to MiB
                         pyrocmsmi.rsmi_dev_memory_usage_get(dev_idx),
                     )
-                    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-                        with contextlib.suppress(pyrocmsmi.ROCMSMIError):
-                            dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(
-                                dev_idx,
-                            )
-                            if dev_ecc_count.uncorrectable_err > 0:
-                                dev_mem_status = DeviceMemoryStatusEnum.UNHEALTHY
+                # Health is reported by both queries, as the operator reports it
+                # from DetectAccelerator and MonitorAccelerator alike.
+                dev_mem_status = _get_memory_status(dev, dev_idx)
 
                 # A sentinel reading means the same as a failed call -- AMD SMI
                 # cannot tell the used power -- so both route to ROCm SMI.
@@ -521,6 +493,67 @@ class AMDDetector(Detector):
             raise
 
         return ret
+
+
+def _get_memory_status(dev, dev_idx: int) -> DeviceMemoryStatusEnum:
+    """
+    Get a device's memory health from its uncorrected ECC error count.
+
+    Both queries produce it, mirroring the operator, which reports `Unhealthy`
+    from `DetectAccelerator` and `MonitorAccelerator` alike.
+
+    Args:
+        dev:
+            The AMD SMI device handle.
+        dev_idx:
+            The device index, for the ROCm SMI fallback.
+
+    Returns:
+        The memory status.
+
+    """
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    try:
+        dev_ecc_count = pyamdsmi.amdsmi_get_gpu_ecc_count(
+            dev,
+            pyamdsmi.AmdSmiGpuBlock.UMC,
+        )
+    except pyamdsmi.AmdSmiException as e:
+        # Fail closed: a genuine driver error marks the device unhealthy, while
+        # a card without the counter cannot be judged. The stub binding raises
+        # a codeless error when amdsmi is absent, in which case ROCm SMI is
+        # the fallback, as it is for the memory read.
+        err_code = getattr(e, "err_code", None)
+        if err_code is not None:
+            if err_code != getattr(pyamdsmi, "AMDSMI_STATUS_NOT_SUPPORTED", None):
+                return DeviceMemoryStatusEnum.UNHEALTHY
+            return DeviceMemoryStatusEnum.HEALTHY
+    else:
+        if dev_ecc_count.get("uncorrectable_count", 0) > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    try:
+        dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(dev_idx)
+        if dev_ecc_count.uncorrectable_err > 0:
+            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pyrocmsmi.ROCMSMIError as e:
+        # rsmi_status_t comes from the ROCm-installed rsmiBindings, so it is
+        # looked up late: without ROCm the module has no such attribute.
+        rsmi_not_supported = getattr(
+            getattr(pyrocmsmi, "rsmi_status_t", None),
+            "RSMI_STATUS_NOT_SUPPORTED",
+            None,
+        )
+        if e.value not in (
+            pyrocmsmi.ROCMSMI_ERROR_FUNCTION_NOT_FOUND,
+            rsmi_not_supported,
+        ):
+            return DeviceMemoryStatusEnum.UNHEALTHY
+
+    return DeviceMemoryStatusEnum.HEALTHY
 
 
 def _get_reading(dev_info: dict, key: str, default: Any = None) -> Any:

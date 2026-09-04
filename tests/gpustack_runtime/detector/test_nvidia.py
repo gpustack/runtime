@@ -38,6 +38,10 @@ class _NVMLError(Exception):
     The fake binding's error type, standing in for pynvml.NVMLError.
     """
 
+    def __init__(self, msg: str, value: int | None = None):
+        super().__init__(msg)
+        self.value = value
+
 
 class _FakeFabricInfo(ctypes.Structure):
     """
@@ -97,6 +101,19 @@ class _FakeDevice:
     memory_bus_width: int | None = 192
     ecc_mode: int = 1  # NVML_FEATURE_ENABLED
     ecc_errors: int = 0
+    ecc_counter_error_code: int | None = None
+    """
+    The error code the ECC counter query raises, or None for a readable one.
+    """
+    recovery_action: int | None = 0
+    reset_status: int | None = 0
+    """
+    The recovery field values, or None for a field the driver will not answer.
+    """
+    field_values_error_code: int | None = None
+    """
+    The error code the field-values query raises, or None for an answered one.
+    """
     temperature: int = 47
     power_limit: int = 72_000  # mW
     power_used: int = 30_000  # mW
@@ -120,6 +137,16 @@ class _FakeNVML:
     NVMLError = _NVMLError
     NVML_SUCCESS = 0
     NVML_ERROR_NOT_SUPPORTED = 3
+    NVML_ERROR_UNKNOWN = 999
+    NVML_VALUE_TYPE_DOUBLE = 0
+    NVML_VALUE_TYPE_UNSIGNED_INT = 1
+    NVML_VALUE_TYPE_UNSIGNED_LONG = 2
+    NVML_VALUE_TYPE_UNSIGNED_LONG_LONG = 3
+    NVML_VALUE_TYPE_SIGNED_LONG_LONG = 4
+    NVML_VALUE_TYPE_SIGNED_INT = 5
+    NVML_VALUE_TYPE_UNSIGNED_SHORT = 6
+    NVML_FI_DEV_RESET_STATUS = 226
+    NVML_FI_DEV_GET_GPU_RECOVERY_ACTION = 230
     NVML_FEATURE_DISABLED = 0
     NVML_FEATURE_ENABLED = 1
     NVML_TEMPERATURE_GPU = 0
@@ -261,7 +288,40 @@ class _FakeNVML:
 
     def nvmlDeviceGetMemoryErrorCounter(self, handle, error_type, scope, location):  # noqa: N802
         self.calls.append("nvmlDeviceGetMemoryErrorCounter")
+        error_code = getattr(handle, "ecc_counter_error_code", None)
+        if error_code is not None:
+            msg = "ECC counter unreadable"
+            raise _NVMLError(msg, error_code)
         return handle.ecc_errors
+
+    def nvmlDeviceGetFieldValues(self, handle, fieldIds):  # noqa: N802, N803
+        self.calls.append("nvmlDeviceGetFieldValues")
+        error_code = getattr(handle, "field_values_error_code", None)
+        if error_code is not None:
+            msg = "field values unreadable"
+            raise _NVMLError(msg, error_code)
+        values = {
+            self.NVML_FI_DEV_GET_GPU_RECOVERY_ACTION: getattr(
+                handle,
+                "recovery_action",
+                None,
+            ),
+            self.NVML_FI_DEV_RESET_STATUS: getattr(handle, "reset_status", None),
+        }
+        return [
+            self._field_value(field_id, values.get(field_id)) for field_id in fieldIds
+        ]
+
+    @staticmethod
+    def _field_value(field_id, value):
+        if value is None:
+            return SimpleNamespace(nvmlReturn=_FakeNVML.NVML_ERROR_NOT_SUPPORTED)
+        return SimpleNamespace(
+            fieldId=field_id,
+            nvmlReturn=_FakeNVML.NVML_SUCCESS,
+            valueType=_FakeNVML.NVML_VALUE_TYPE_UNSIGNED_INT,
+            value=SimpleNamespace(uiVal=value),
+        )
 
     # Usage.
 
@@ -383,7 +443,7 @@ class _FakeNVML:
 @pytest.fixture
 def health_check(monkeypatch):
     """
-    Turn the ECC error check on: it is opt-in, as reading the counters costs a
+    Turn the device health check on: it is opt-in, as the queries cost a
     driver call per device, so GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK defaults
     to true. A real module attribute is set because the env lookup is cached.
     """
@@ -503,6 +563,83 @@ def test_detect_info_reports_the_memory_health(fake_nvml):
     devices = NVIDIADetector().detect_info()
 
     assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+
+# --------------------------------------------------------------------------- #
+# The health check fails closed: a card the driver cannot answer is unhealthy. #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_fails_closed_on_an_ecc_query_error(fake_nvml):
+    # A wedged GSP answers the ECC query with an error after its RPC timeout
+    # (Xid 119); swallowing that error reported the card healthy.
+    fake_nvml([_FakeDevice(ecc_counter_error_code=_FakeNVML.NVML_ERROR_UNKNOWN)])
+
+    devices = NVIDIADetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_tolerates_an_unsupported_ecc_query(fake_nvml):
+    # A card without the counter cannot be judged, not condemned.
+    fake_nvml([_FakeDevice(ecc_counter_error_code=_FakeNVML.NVML_ERROR_NOT_SUPPORTED)])
+
+    devices = NVIDIADetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+@pytest.mark.parametrize(
+    "knobs",
+    [
+        {"recovery_action": 1},  # Xid 154: GPU Reset Required.
+        {"reset_status": 1},  # A pending/past reset.
+    ],
+)
+def test_detect_info_reports_a_card_awaiting_reset(fake_nvml, knobs):
+    # The recovery state survives a GSP failure that leaves the ECC counters
+    # readable at zero, so the check probes it directly.
+    fake_nvml([_FakeDevice(**knobs)])
+
+    devices = NVIDIADetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_falls_back_to_ecc_when_the_recovery_fields_are_unreadable(
+    fake_nvml,
+):
+    # An old driver or card answers the fields with an error apiece: cannot
+    # judge, so the ECC verdict stands.
+    fake_nvml([_FakeDevice(recovery_action=None, reset_status=None)])
+
+    devices = NVIDIADetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_fails_closed_on_a_field_values_error(fake_nvml):
+    fake_nvml([_FakeDevice(field_values_error_code=_FakeNVML.NVML_ERROR_UNKNOWN)])
+
+    devices = NVIDIADetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+
+def test_detect_issues_no_health_check_call_by_default(fake_nvml):
+    # The check is opt-in: at the default, detection issues no ECC or
+    # field-values call.
+    fake = fake_nvml([_FakeDevice()])
+
+    NVIDIADetector().detect()
+
+    assert "nvmlDeviceGetMemoryErrorCounter" not in fake.calls
+    assert "nvmlDeviceGetFieldValues" not in fake.calls
 
 
 # --------------------------------------------------------------------------- #

@@ -56,11 +56,19 @@ class _FakeAmdSmiError(Exception):
     package's, which takes a status code and is absent here anyway.
     """
 
+    def __init__(self, msg: str, err_code: int | None = None):
+        super().__init__(msg)
+        self.err_code = err_code
+
 
 class _FakeRocmSmiError(Exception):
     """
     The fake ROCm SMI's own error type.
     """
+
+    def __init__(self, value):
+        super().__init__(value)
+        self.value = value
 
 
 class _FakeAmdSmi:
@@ -70,6 +78,7 @@ class _FakeAmdSmi:
     """
 
     AmdSmiException = _FakeAmdSmiError
+    AMDSMI_STATUS_NOT_SUPPORTED = 2
 
     class AmdSmiGpuBlock:
         UMC = 1
@@ -99,10 +108,20 @@ class _FakeAmdSmi:
 
     def amdsmi_get_gpu_vram_usage(self, dev: dict) -> dict:
         self.calls.append("amdsmi_get_gpu_vram_usage")
+        if dev.get("vram_error") is not None:
+            msg = "VRAM usage unreadable"
+            raise _FakeAmdSmiError(msg, dev["vram_error"])
         return dev["vram"]
 
     def amdsmi_get_gpu_ecc_count(self, dev: dict, _block: int) -> dict:
         self.calls.append("amdsmi_get_gpu_ecc_count")
+        if dev.get("ecc_error_codeless"):
+            # The stub binding's codeless error: amdsmi itself is absent.
+            msg = "amdsmi module is not installed"
+            raise _FakeAmdSmiError(msg)
+        if dev.get("ecc_error") is not None:
+            msg = "ECC count unreadable"
+            raise _FakeAmdSmiError(msg, dev["ecc_error"])
         return dev["ecc"]
 
     def amdsmi_get_power_info(self, dev: dict) -> dict:
@@ -130,6 +149,8 @@ class _FakeRocmSmi:
     """
 
     ROCMSMIError = _FakeRocmSmiError
+    ROCMSMI_ERROR_FUNCTION_NOT_FOUND = -99998
+    rsmi_status_t = SimpleNamespace(RSMI_STATUS_NOT_SUPPORTED=2)
 
     def __init__(self, calls: list[str], cards: list[dict]):
         self.calls = calls
@@ -137,6 +158,24 @@ class _FakeRocmSmi:
 
     def rsmi_init(self, *_args):
         self.calls.append("rsmi_init")
+
+    def rsmi_dev_memory_total_get(self, dev_idx: int, *_args) -> int:
+        self.calls.append("rsmi_dev_memory_total_get")
+        # ROCm SMI reports bytes where AMD SMI reports MiB.
+        return self.cards[dev_idx]["vram"]["vram_total"] * 1024**2
+
+    def rsmi_dev_memory_usage_get(self, dev_idx: int, *_args) -> int:
+        self.calls.append("rsmi_dev_memory_usage_get")
+        return self.cards[dev_idx]["vram"]["vram_used"] * 1024**2
+
+    def rsmi_dev_ecc_count_get(self, dev_idx: int, *_args):
+        self.calls.append("rsmi_dev_ecc_count_get")
+        error = self.cards[dev_idx].get("ecc_error_rocm")
+        if error is not None:
+            raise _FakeRocmSmiError(error)
+        return SimpleNamespace(
+            uncorrectable_err=self.cards[dev_idx]["ecc"]["uncorrectable_count"],
+        )
 
     def rsmi_dev_busy_percent_get(self, dev_idx: int) -> int:
         self.calls.append("rsmi_dev_busy_percent_get")
@@ -279,6 +318,22 @@ def _agent(bdf: str) -> pyhsa.Agent:
         name=_HSA_NAME,
         compute_capability="gfx942",
         compute_units=304,
+    )
+
+
+@pytest.fixture
+def health_check(monkeypatch):
+    """
+    Turn the device health check on: it is opt-in, as the queries cost a
+    driver call per device, so GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK
+    defaults to true. A real module attribute is set because the env lookup
+    is cached.
+    """
+    monkeypatch.setattr(
+        amd.envs,
+        "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK",
+        False,
+        raising=False,
     )
 
 
@@ -451,6 +506,98 @@ def test_detect_info_issues_no_usage_call(amd_bindings):
     assert dev.memory_utilization == 0
     assert dev.temperature is None
     assert dev.power_used is None
+
+
+# --------------------------------------------------------------------------- #
+# The health check fails closed: a card the driver cannot answer is unhealthy. #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_reports_uncorrectable_ecc_errors(amd_bindings):
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["ecc"] = {"uncorrectable_count": 1}
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    dev = AMDDetector().detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_fails_closed_on_an_ecc_query_error(amd_bindings):
+    # A genuine driver error used to be swallowed and reported healthy.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["ecc_error"] = 1  # AMDSMI_STATUS_INVAL: any genuine driver error
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    dev = AMDDetector().detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_tolerates_an_unsupported_ecc_query(amd_bindings):
+    # A card without the counter cannot be judged, not condemned.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["ecc_error"] = _FakeAmdSmi.AMDSMI_STATUS_NOT_SUPPORTED
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    dev = AMDDetector().detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_fails_closed_on_the_rocm_smi_fallback(amd_bindings):
+    # With AMD SMI absent (its stub raises a codeless error), health comes
+    # from ROCm SMI, which follows the same policy: a genuine error marks the
+    # card unhealthy.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["vram_error"] = 1
+    card["ecc_error_codeless"] = True
+    card["ecc_error_rocm"] = 5  # a genuine ROCm SMI error
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    dev = AMDDetector().detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+@pytest.mark.parametrize(
+    "ecc_error_rocm",
+    [
+        2,  # RSMI_STATUS_NOT_SUPPORTED: the card has no ECC counter.
+        _FakeRocmSmi.ROCMSMI_ERROR_FUNCTION_NOT_FOUND,
+    ],
+)
+def test_detect_tolerates_an_unreadable_rocm_smi_ecc_query(
+    amd_bindings,
+    ecc_error_rocm,
+):
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["vram_error"] = 1
+    card["ecc_error_codeless"] = True
+    card["ecc_error_rocm"] = ecc_error_rocm
+    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    dev = AMDDetector().detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+def test_detect_issues_no_health_check_call_by_default(amd_bindings):
+    # The check is opt-in: at the default, detection issues no ECC call.
+    calls = amd_bindings(
+        [_card("0000:05:00.0", "0x00a1b2c3d4e5f600")],
+        agents=[_agent("0000:05:00.0")],
+    )
+
+    AMDDetector().detect()
+
+    assert "amdsmi_get_gpu_ecc_count" not in calls
+    assert "rsmi_dev_ecc_count_get" not in calls
 
 
 # --------------------------------------------------------------------------- #

@@ -59,6 +59,10 @@ class _Instance:
     memory_total: int = 8192 * _MIB
     memory_used: int = 512 * _MIB
     ecc_errors: int = 0
+    ecc_counter_error_code: int | None = None
+    """
+    The error code the ECC counter query raises, or None for a readable one.
+    """
     sm_util: float | None = 60.0
     """
     The SM utilization GPM samples for the instance, or None when unreadable.
@@ -85,6 +89,10 @@ class _Card:
     memory_total: int = 65536 * _MIB
     memory_used: int = 1024 * _MIB
     ecc_errors: int = 0
+    ecc_counter_error_code: int | None = None
+    """
+    The error code the ECC counter query raises, or None for a readable one.
+    """
     cores_utilization: int = 33
     temperature: int = 55
     power_limit: int = 350_000  # mW
@@ -254,6 +262,8 @@ class _FakeHGML:
         counter_type: int,
         location_type: int,
     ) -> int:
+        if handle.ecc_counter_error_code is not None:
+            raise pyhgml.HGMLError(handle.ecc_counter_error_code)
         return handle.ecc_errors
 
     # Usage.
@@ -406,7 +416,7 @@ A default instance's memory utilization: 512 MiB used of 8192 MiB total.
 @pytest.fixture
 def health_check(monkeypatch):
     """
-    Turn the ECC error check on: it is opt-in, as reading the counters costs a
+    Turn the device health check on: it is opt-in, as the queries cost a
     driver call per device, so GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK defaults
     to true. A real module attribute is set because the env lookup is cached.
     """
@@ -733,6 +743,56 @@ def test_detect_reports_an_uncorrectable_ecc_error(detector):
         dev.appendix["mig_devices"][0]["memory_status"]
         == DeviceMemoryStatusEnum.UNHEALTHY
     )
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_fails_closed_on_an_ecc_query_error(detector):
+    # A card the driver refuses to answer is unhealthy, not healthy: the query
+    # error used to be swallowed.
+    det, _ = detector(
+        _Card(
+            uuid="PPU-0",
+            ecc_counter_error_code=pyhgml.HGML_ERROR_UNKNOWN,
+            instances=[
+                _Instance(
+                    uuid="PPU-0-MIG-0",
+                    ecc_counter_error_code=pyhgml.HGML_ERROR_UNKNOWN,
+                ),
+            ],
+        ),
+    )
+
+    dev = det.detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert (
+        dev.appendix["mig_devices"][0]["memory_status"]
+        == DeviceMemoryStatusEnum.UNHEALTHY
+    )
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_tolerates_an_unsupported_ecc_query(detector):
+    # A card without the counter cannot be judged, not condemned.
+    det, _ = detector(
+        _Card(
+            uuid="PPU-0",
+            ecc_counter_error_code=pyhgml.HGML_ERROR_NOT_SUPPORTED,
+        ),
+    )
+
+    dev = det.detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+def test_detect_issues_no_health_check_call_by_default(detector):
+    # The check is opt-in: at the default, detection issues no ECC call.
+    det, fake = detector(_Card(uuid="PPU-0"))
+
+    det.detect()
+
+    assert "hgmlDeviceGetMemoryErrorCounter" not in fake.calls
 
 
 # --------------------------------------------------------------------------- #
