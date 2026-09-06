@@ -58,6 +58,9 @@ from .__utils__ import (
     sensitive_env_var,
 )
 from .cdi import dump_config as cdi_dump_config
+from .cdi.ascend import (
+    warn_incompatible_ranktable as warn_incompatible_ascend_ranktable,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -1568,6 +1571,9 @@ class DockerDeployer(EndoscopicDeployer):
             raise TypeError(msg)
 
         self._prepare_mirrored_deployment()
+        # ascend-docker-runtime mounts the host ranktable itself, so this can
+        # only report, not prevent. Cached, so it costs one check per process.
+        warn_incompatible_ascend_ranktable()
 
         if isinstance(workload, WorkloadPlan):
             workload = DockerWorkloadPlan(**workload.__dict__)
