@@ -336,9 +336,10 @@ def warn_incompatible_ranktable() -> str | None:
     msg = (
         f"Host ranktable {_HCCL_RANKTABLE_PATH} declares version {version!r}, "
         f"but this A5 (Ascend 950) host needs {_A5_RANKTABLE_VERSION!r}. "
-        f"HCCL will refuse it with Config_Error_Ranktable(EI0014) and every "
-        f"multi-card workload will fail to initialize. Remove the file or "
-        f"replace it with a {_A5_RANKTABLE_VERSION} table."
+        f"Under the default Env policy ascend-docker-runtime mounts it on "
+        f"presence and HCCL refuses it with Config_Error_Ranktable(EI0014), "
+        f"failing every multi-card workload. Remove the file or replace it "
+        f"with a {_A5_RANKTABLE_VERSION} table."
     )
     logger.warning(msg)
     return msg
