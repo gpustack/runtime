@@ -43,6 +43,16 @@ mindcluster-tools and mounted only when present, see
 https://gitcode.com/Ascend/mind-cluster/blob/master/docs/en/scheduling/references/appendix.md.
 """
 
+_HCCN_CONF_PATH = "/etc/hccn.conf"
+"""
+The device NIC addresses, as configured on the host. A transport that builds
+RoCE endpoints reads them from this file or from hccn_tool, which lives in a
+driver directory none of the mounts below covers; without either, the engine
+fails to initialize with "Failed to get device ip from hccn.conf and
+hccn_tool". A container that talks to another node over Device RoCE therefore
+needs this file, and one that does not is unaffected by its presence.
+"""
+
 _A5_RANKTABLE_VERSION = "2.0"
 """
 The ranktable version the A5 generation requires.
@@ -160,6 +170,7 @@ class AscendGenerator(Generator):
 
         mount_paths = [
             _HCCL_RANKTABLE_PATH,
+            _HCCN_CONF_PATH,
             "/usr/local/Ascend/driver/topo",
             "/usr/local/Ascend/driver/lib64",
             "/usr/local/Ascend/driver/include",
