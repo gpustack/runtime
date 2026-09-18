@@ -79,9 +79,7 @@ def test_a5_omits_the_host_ranktable():
     targets = _mount_targets(cfg)
     assert cdi_ascend._HCCL_RANKTABLE_PATH not in targets
     # The rest of the vendor's named list is untouched.
-    assert "/usr/local/Ascend/driver/topo" in targets
-    assert "/usr/local/Ascend/driver/lib64" in targets
-    assert "/usr/local/Ascend/driver/include" in targets
+    assert cdi_ascend._ASCEND_DRIVER_PATH in targets
     assert "/usr/local/dcmi" in targets
     assert "/usr/local/bin/npu-smi" in targets
 
