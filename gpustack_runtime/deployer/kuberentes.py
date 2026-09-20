@@ -3,8 +3,10 @@ from __future__ import annotations as __future_annotations__
 import contextlib
 import json
 import logging
+import math
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -708,6 +710,30 @@ def _resolve_privileged(container: Container, kdp: bool) -> bool:
             )
             return False
     return True
+
+
+def to_since_seconds(since: int | None) -> int | None:
+    """
+    Convert an absolute epoch into the relative duration the Kubernetes API takes.
+
+    Every deployer reads `since` as an absolute epoch in seconds, but the
+    Kubernetes client only exposes `sinceSeconds`, counted back from now.
+    Rounding up and adding a second keeps the requested instant inside the
+    window instead of just outside it; the caller sees a couple of seconds of
+    older lines rather than a gap. The result is always positive, as the API
+    ignores a zero or negative duration.
+
+    Args:
+        since:
+            The absolute epoch in seconds, or None for no lower bound.
+
+    Returns:
+        The relative duration in seconds, or None if since is None.
+
+    """
+    if since is None:
+        return None
+    return max(1, math.ceil(time.time() - since) + 1)
 
 
 class KubernetesDeployer(EndoscopicDeployer):
@@ -2439,7 +2465,7 @@ class KubernetesDeployer(EndoscopicDeployer):
             tail:
                 Number of lines from the end of the logs to retrieve.
             since:
-                Only return logs newer than a relative duration in seconds.
+                Show logs since the given epoch in seconds.
             follow:
                 Whether to stream the logs.
 
@@ -2477,8 +2503,8 @@ class KubernetesDeployer(EndoscopicDeployer):
 
         logs_options = {
             "timestamps": timestamps,
-            "tail_lines": tail if tail >= 0 else None,
-            "since_seconds": since,
+            "tail_lines": tail if tail is not None and tail >= 0 else None,
+            "since_seconds": to_since_seconds(since),
             "follow": follow,
             "_preload_content": not follow,
         }
@@ -2691,8 +2717,8 @@ class KubernetesDeployer(EndoscopicDeployer):
 
         logs_options = {
             "timestamps": timestamps,
-            "tail_lines": tail if tail >= 0 else None,
-            "since_seconds": since,
+            "tail_lines": tail if tail is not None and tail >= 0 else None,
+            "since_seconds": to_since_seconds(since),
             "follow": follow,
             "_preload_content": not follow,
         }
