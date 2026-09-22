@@ -2105,7 +2105,7 @@ class DockerDeployer(EndoscopicDeployer):
 
         logs_options = {
             "timestamps": timestamps,
-            "tail": tail if tail >= 0 else None,
+            "tail": tail if tail is not None and tail >= 0 else None,
             "since": since,
             "follow": follow,
         }

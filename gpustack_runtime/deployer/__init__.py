@@ -245,7 +245,7 @@ def logs_workload(
         tail:
             The number of lines from the end of the logs to show.
         since:
-            Show logs since a given time (in seconds).
+            Show logs since the given epoch in seconds.
         follow:
             Whether to follow the logs.
 
@@ -300,7 +300,7 @@ async def async_logs_workload(
         tail:
             The number of lines from the end of the logs to show.
         since:
-            Show logs since a given time (in seconds).
+            Show logs since the given epoch in seconds.
         follow:
             Whether to follow the logs.
 
@@ -434,7 +434,7 @@ def logs_self(
         tail:
             The number of lines from the end of the logs to show.
         since:
-            Show logs since a given time (in seconds).
+            Show logs since the given epoch in seconds.
         follow:
             Whether to follow the logs.
 
@@ -479,7 +479,7 @@ async def async_logs_self(
         tail:
             The number of lines from the end of the logs to show.
         since:
-            Show logs since a given time (in seconds).
+            Show logs since the given epoch in seconds.
         follow:
             Whether to follow the logs.
 
