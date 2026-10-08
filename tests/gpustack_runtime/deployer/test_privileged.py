@@ -5,7 +5,7 @@ from gpustack_runtime.deployer.__types__ import (
     ContainerExecution,
     ContainerResources,
 )
-from gpustack_runtime.deployer.kuberentes import _resolve_privileged
+from gpustack_runtime.deployer.kubernetes import _resolve_privileged
 
 
 def _container(privileged: bool | None, resources: dict | None = None) -> Container:

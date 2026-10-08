@@ -20,7 +20,7 @@ from gpustack_runtime.deployer.__types__ import (
     DevicesMaterial,
 )
 from gpustack_runtime.deployer.docker import DockerDeployer, DockerWorkloadPlan
-from gpustack_runtime.deployer.kuberentes import (
+from gpustack_runtime.deployer.kubernetes import (
     KubernetesDeployer,
     KubernetesWorkloadPlan,
 )
@@ -164,12 +164,12 @@ def _kubernetes_container_envs(
     policy: str = "env",
 ) -> list[tuple[str, str]]:
     monkeypatch.setattr(
-        "gpustack_runtime.deployer.kuberentes.get_resource_injection_policy",
+        "gpustack_runtime.deployer.kubernetes.get_resource_injection_policy",
         lambda *_args: policy,
     )
     # Resolving the RuntimeClass reads the cluster.
     monkeypatch.setattr(
-        "gpustack_runtime.deployer.kuberentes._resolve_runtime_class_name",
+        "gpustack_runtime.deployer.kubernetes._resolve_runtime_class_name",
         lambda *_args: None,
     )
 
