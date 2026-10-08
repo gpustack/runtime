@@ -12,7 +12,7 @@ from gpustack_runtime.deployer.k8s.devicemanager import (
     get_resource_injection_policy,
     node_has_device_plugin_resources,
 )
-from gpustack_runtime.deployer.kuberentes import KubernetesDeployer
+from gpustack_runtime.deployer.kubernetes import KubernetesDeployer
 
 # Allocatable of a node whose accelerators are advertised by a device plugin
 # allocating them the way the GPUStack Operator does.

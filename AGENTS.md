@@ -9,7 +9,7 @@ launching and managing GPU workloads on Docker, Kubernetes and Podman.
   - `detector/` — one detector per vendor (`nvidia.py`, `amd.py`, `ascend.py`, `cambricon.py`,
     `hygon.py`, `iluvatar.py`, `metax.py`, `mthreads.py`, `thead.py`), plus the `py*` packages,
     ctypes bindings to vendor management libraries (`pynvml`, `pydcmi`, `pycndev`, ...).
-  - `deployer/` — one deployer per container runtime (`docker.py`, `kuberentes.py`, `podman.py`),
+  - `deployer/` — one deployer per container runtime (`docker.py`, `kubernetes.py`, `podman.py`),
     `cdi/` for vendor CDI spec handling, `k8s/` for Kubernetes helpers, and `__patches__.py` for
     the vendored Podman client patch.
   - `cmds/` — CLI subcommands behind the `gpustack-runtime` entrypoint (`__main__.py`).

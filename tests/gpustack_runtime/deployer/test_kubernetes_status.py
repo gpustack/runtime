@@ -9,7 +9,7 @@ import kubernetes.client
 import pytest
 
 from gpustack_runtime.deployer.__types__ import WorkloadStatusStateEnum
-from gpustack_runtime.deployer.kuberentes import KubernetesWorkloadStatus
+from gpustack_runtime.deployer.kubernetes import KubernetesWorkloadStatus
 
 _REGISTRY_MESSAGE = 'Back-off pulling image "does-not-exist.invalid/x:y"'
 _EVENT_MESSAGE = (

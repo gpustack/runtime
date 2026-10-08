@@ -4,7 +4,7 @@ import kubernetes
 import pytest
 
 from gpustack_runtime import envs
-from gpustack_runtime.deployer.kuberentes import (
+from gpustack_runtime.deployer.kubernetes import (
     _match_runtime_class,
     _resolve_runtime_class_name,
 )

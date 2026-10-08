@@ -36,7 +36,7 @@ from .docker import (
     DockerWorkloadPlan,
     DockerWorkloadStatus,
 )
-from .kuberentes import (
+from .kubernetes import (
     KubernetesDeployer,
     KubernetesWorkloadPlan,
     KubernetesWorkloadStatus,

@@ -16,7 +16,7 @@ from gpustack_runtime.deployer.docker import (
 from gpustack_runtime.deployer.docker import (
     DockerDeployer,
 )
-from gpustack_runtime.deployer.kuberentes import (
+from gpustack_runtime.deployer.kubernetes import (
     KubernetesDeployer,
     to_since_seconds,
 )
@@ -38,7 +38,7 @@ NOW = 1_700_000_000
 @pytest.fixture
 def frozen_now(monkeypatch):
     monkeypatch.setattr(
-        "gpustack_runtime.deployer.kuberentes.time.time",
+        "gpustack_runtime.deployer.kubernetes.time.time",
         lambda: float(NOW),
     )
 

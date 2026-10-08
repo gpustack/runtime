@@ -425,7 +425,7 @@ gpustack_runtime/
 │   ├── __types__.py         # Container/Workload{Plan,Status}, Deployer ABC, DevicesMaterial
 │   ├── docker.py            # DockerWorkloadStatus.parse_state
 │   ├── podman.py
-│   ├── kuberentes.py        # KubernetesWorkloadStatus.parse_state, Pod/Event reads
+│   ├── kubernetes.py        # KubernetesWorkloadStatus.parse_state, Pod/Event reads
 │   └── cdi/<vendor>.py      # CDI spec generation, consumes Device.index/appendix
 ├── cmds/detector.py         # `detect` / `topology` sub-commands
 └── envs.py                  # GPUSTACK_RUNTIME_* env surface
@@ -769,14 +769,14 @@ implement `detect_info()`.
 - [x] **D1 · Pin the device ordering for containers that see every card**
       Blocked by: None
       Owns: `gpustack_runtime/deployer/__types__.py`, `gpustack_runtime/deployer/docker.py`,
-      `gpustack_runtime/deployer/podman.py`, `gpustack_runtime/deployer/kuberentes.py`,
+      `gpustack_runtime/deployer/podman.py`, `gpustack_runtime/deployer/kubernetes.py`,
       `tests/gpustack_runtime/deployer/test_visible_devices_ordering.py`
       Gate: review
       Scope: add `Deployer.map_visible_devices_ordering(runtime_envs) -> dict[str, str]` beside the
       existing `map_backend_visible_devices` / `map_visible_devices_affinities` — it resolves each
       runtime visible-devices env name to its manufacturer through `get_manufacturer()` and returns
       `{"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}` when NVIDIA is among them, `{}` otherwise. Call it from all
-      three deployers' device-request loops (`docker.py`, `podman.py`, `kuberentes.py`), right beside
+      three deployers' device-request loops (`docker.py`, `podman.py`, `kubernetes.py`), right beside
       the existing `if r_v != "all" and privileged:` backend-visible-devices block, under the
       complementary condition `r_v == "all" or privileged` — the deployers' own resolution of "this
       container sees every card". Never overwrite a value the container already declares (the
@@ -823,7 +823,7 @@ implement `detect_info()`.
 
 - [x] **D5 · Kubernetes: exit status, image-pull failure, Pod Events, RBAC**
       Blocked by: D2
-      Owns: `gpustack_runtime/deployer/kuberentes.py`, `deploy/manifests/kubernetes.yaml`,
+      Owns: `gpustack_runtime/deployer/kubernetes.py`, `deploy/manifests/kubernetes.yaml`,
       `tests/gpustack_runtime/deployer/test_kubernetes_status.py`
       Gate: review
       Scope: fill the exit list from `container_statuses` / `init_container_statuses`, reading

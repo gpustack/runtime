@@ -9,7 +9,7 @@ from gpustack_runtime.deployer.__types__ import (
     WorkloadStatusExit,
     WorkloadStatusStateEnum,
 )
-from gpustack_runtime.deployer.kuberentes import (
+from gpustack_runtime.deployer.kubernetes import (
     KubernetesWorkloadStatus,
     _pin_pod_for_kueue,
 )
@@ -193,7 +193,7 @@ def test_kubernetes_workload_status_state_message_default():
     assert status.state_message == ""
 
 
-from gpustack_runtime.deployer.kuberentes import (  # noqa: E402
+from gpustack_runtime.deployer.kubernetes import (  # noqa: E402
     _apply_instance_type_admission,
 )
 

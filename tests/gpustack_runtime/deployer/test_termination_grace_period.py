@@ -30,7 +30,7 @@ from gpustack_runtime.deployer.docker import (
     DockerDeployer,
     DockerWorkloadPlan,
 )
-from gpustack_runtime.deployer.kuberentes import (
+from gpustack_runtime.deployer.kubernetes import (
     KubernetesDeployer,
     KubernetesWorkloadPlan,
     equal_containers,
@@ -487,11 +487,11 @@ def test_kubernetes_pod_declares_the_termination_grace_period(monkeypatch):
     # The Pod spec is the declarative source of truth on Kubernetes, replacing
     # the API server default of 30 seconds.
     monkeypatch.setattr(
-        "gpustack_runtime.deployer.kuberentes.get_resource_injection_policy",
+        "gpustack_runtime.deployer.kubernetes.get_resource_injection_policy",
         lambda *_args: "env",
     )
     monkeypatch.setattr(
-        "gpustack_runtime.deployer.kuberentes._resolve_runtime_class_name",
+        "gpustack_runtime.deployer.kubernetes._resolve_runtime_class_name",
         lambda *_args: None,
     )
 
