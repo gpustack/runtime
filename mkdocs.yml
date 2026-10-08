@@ -41,7 +41,7 @@ markdown_extensions:
 extra:
   generator: false
 
-copyright: Copyright &copy; 2025, GPUStack Contributors
+copyright: Copyright &copy; 2026, GPUStack Contributors
 
 nav:
   - Modules:
