@@ -36,6 +36,7 @@ from .docker import (
     DockerWorkloadPlan,
     DockerWorkloadStatus,
 )
+from .k8s.devicemanager import KubernetesResourceInjectionPolicyEnum
 from .kubernetes import (
     KubernetesDeployer,
     KubernetesWorkloadPlan,
@@ -595,6 +596,7 @@ __all__ = [
     "ContainerSecurity",
     "DockerWorkloadPlan",
     "DockerWorkloadStatus",
+    "KubernetesResourceInjectionPolicyEnum",
     "KubernetesWorkloadPlan",
     "KubernetesWorkloadStatus",
     "OperationError",

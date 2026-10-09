@@ -7,12 +7,14 @@ import math
 import os
 import re
 import time
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from threading import Lock
+from typing import TYPE_CHECKING, Literal
 
 import kubernetes
 import kubernetes.stream.ws_client
@@ -49,10 +51,15 @@ from .__utils__ import (
     sensitive_env_var,
     validate_rfc1123_domain_name,
 )
-from .k8s.devicemanager import get_resource_injection_policy
+from .k8s.devicemanager import (
+    KubernetesResourceInjectionPolicyEnum,
+    get_resource_injection_policy,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
+
+    from .__types__ import DevicesMaterial
 
 logger = logging.getLogger(__name__)
 clogger = logger.getChild("conversion")
@@ -117,6 +124,9 @@ class KubernetesWorkloadPlan(WorkloadPlan):
             Domain suffix for the cluster. Default is "cluster.local".
         service_type (KubernetesWorkloadServiceTypeEnum):
             Service type for the workload. Default is CLUSTER_IP.
+        resource_injection_policy (KubernetesResourceInjectionPolicyEnum | None):
+            Workload override for GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY.
+            None inherits the environment setting. Auto probes the target node.
         namespace (str | None):
             Namespace of the workload.
         name (str):
@@ -159,6 +169,16 @@ class KubernetesWorkloadPlan(WorkloadPlan):
     Service type for the workload.
     """
 
+    resource_injection_policy: KubernetesResourceInjectionPolicyEnum | None = None
+    """
+    Device injection policy for this workload. None inherits
+    GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY (default Auto).
+    Env uses runtime-visible device environment variables; KDP requests
+    device-plugin resources; Auto detects the policy from the target node.
+    This setting does not change the environment or other workloads.
+    Env injection of all devices uses the runtime's privileged container path.
+    """
+
     def validate_and_default(self):
         """
         Validate and set defaults for the workload plan.
@@ -168,6 +188,15 @@ class KubernetesWorkloadPlan(WorkloadPlan):
                 If the workload plan is invalid.
 
         """
+        if self.resource_injection_policy is not None:
+            try:
+                self.resource_injection_policy = KubernetesResourceInjectionPolicyEnum(
+                    self.resource_injection_policy,
+                )
+            except ValueError as e:
+                msg = f"Invalid resource injection policy '{self.resource_injection_policy}'"
+                raise ValueError(msg) from e
+
         if self.labels is None:
             self.labels = {}
         if self.containers is None:
@@ -1153,6 +1182,9 @@ class KubernetesDeployer(EndoscopicDeployer):
             self._node_name = node.metadata.name
         return node.status.allocatable or {}
 
+    _resource_injection_policy: Literal["env", "kdp"] | None = None
+    """Resolved policy on the deployment instance dedicated to one workload."""
+
     def _resolve_resource_injection_policy(self) -> str:
         """
         Resolve the resource injection policy for this deployer, probing the
@@ -1162,6 +1194,8 @@ class KubernetesDeployer(EndoscopicDeployer):
             The resource injection policy.
 
         """
+        if self._resource_injection_policy is not None:
+            return self._resource_injection_policy
         return get_resource_injection_policy(self._probe_node_allocatable)
 
     def _get_default_node_name(self) -> str:
@@ -1806,14 +1840,33 @@ class KubernetesDeployer(EndoscopicDeployer):
         self._client = self._get_client()
         self._node_name = envs.GPUSTACK_RUNTIME_KUBERNETES_NODE_NAME
         self._runtime_uuid_values_allowed: bool | None = None
+        self._deployment_lock = Lock()
+        self._materials_cache: dict[str, dict[str, DevicesMaterial]] = {}
+        self._materials_locks = {policy: Lock() for policy in ("env", "kdp")}
+
+    def _prepare(self):
+        """
+        Reuse device materials built for the same resolved injection policy.
+        """
+        if self._materials is not None:
+            return
+        policy = self._resolve_resource_injection_policy()
+        with self._materials_locks[policy]:
+            if policy not in self._materials_cache:
+                self._runtime_uuid_values_allowed = policy != "kdp"
+                try:
+                    super()._prepare()
+                except Exception:
+                    # Incomplete detection must not become a reusable device map.
+                    self._materials = None
+                    raise
+                self._materials_cache[policy] = self._materials
+            self._materials = self._materials_cache[policy]
 
     @property
     def allowed_runtime_uuid_values(self) -> bool:
-        # Resolved once per deployer, unlike the per-Pod resolution the
-        # creation path wants: this gates how `_prepare` builds the device
-        # materials, which are themselves built once, and it is read there once
-        # per manufacturer -- so probing on every read would spend one API call
-        # per manufacturer to answer a question already settled.
+        # Device materials and UUID eligibility belong to the same resolved
+        # policy. Workloads with the same policy reuse the device materials.
         if self._runtime_uuid_values_allowed is None:
             self._runtime_uuid_values_allowed = (
                 self._resolve_resource_injection_policy() != "kdp"
@@ -2143,25 +2196,40 @@ class KubernetesDeployer(EndoscopicDeployer):
             msg = f"Invalid workload plan type: {type(workload)}"
             raise TypeError(msg)
 
-        self._prepare_mirrored_deployment()
-
-        if isinstance(workload, WorkloadPlan):
+        if not isinstance(workload, KubernetesWorkloadPlan):
             workload = KubernetesWorkloadPlan(**workload.__dict__)
         workload.validate_and_default()
+
+        # Node selection and mirrored options belong to the registered deployer,
+        # including the node used by later workload listing operations.
+        with self._deployment_lock:
+            self._prepare_mirrored_deployment()
+            deployer: KubernetesDeployer = copy(self)
+
+        # Each workload resolves its policy independently while sharing cached
+        # device materials only with workloads using the same policy.
+        deployer._materials = None
+        deployer._resource_injection_policy = get_resource_injection_policy(
+            deployer._probe_node_allocatable,
+            policy=workload.resource_injection_policy,
+        )
+        deployer._runtime_uuid_values_allowed = (
+            deployer._resource_injection_policy != "kdp"
+        )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Creating workload:\n%s", workload.to_yaml())
 
         # Create ephemeral file if needed,
         # (container index, configured path): <actual ConfigMap name>
         ephemeral_filename_mapping: dict[tuple[int, str], str] = (
-            self._create_ephemeral_configmaps(workload)
+            deployer._create_ephemeral_configmaps(workload)
         )
 
         # Create Service if needed.
-        self._create_service(workload)
+        deployer._create_service(workload)
 
         # Create Pod.
-        self._create_pod(
+        deployer._create_pod(
             workload,
             ephemeral_filename_mapping,
         )

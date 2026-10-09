@@ -1,6 +1,7 @@
 from __future__ import annotations as __future_annotations__
 
 import stat
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -9,6 +10,36 @@ from gpustack_runtime import envs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+
+
+class KubernetesResourceInjectionPolicyEnum(str, Enum):
+    """
+    Device injection policies for Kubernetes workloads.
+    """
+
+    AUTO = "Auto"
+    """
+    Detect the policy from the target node's allocatable resources.
+    """
+    ENV = "Env"
+    """
+    Inject runtime-visible device environment variables without device-plugin requests.
+    """
+    KDP = "KDP"
+    """
+    Request device-plugin resources.
+    """
+
+    @classmethod
+    def _missing_(cls, value: object) -> KubernetesResourceInjectionPolicyEnum | None:
+        if isinstance(value, str):
+            for member in cls:
+                if member.value.lower() == value.lower():
+                    return member
+        return None
+
+    def __str__(self) -> str:
+        return self.value
 
 
 def is_kubelet_socket_accessible(
@@ -79,13 +110,16 @@ def node_has_device_plugin_resources(
 
 def get_resource_injection_policy(
     probe_node_allocatable: Callable[[], Mapping[str, Any] | None] | None = None,
+    *,
+    policy: KubernetesResourceInjectionPolicyEnum | None = None,
 ) -> Literal["env", "kdp"]:
     """
     Get the resource injection policy (in lowercase) for the deployer.
 
-    An explicit policy always wins. Under "auto" the decision belongs to the
-    cluster, not to the process doing the deploying: the Kubernetes deployer
-    orchestrates remotely, so whether *it* can reach a kubelet socket says
+    A workload policy overrides the environment setting. Under "auto" the
+    decision belongs to the cluster, not to the process doing the deploying:
+    the Kubernetes deployer orchestrates remotely, so whether *it* can reach
+    a kubelet socket says
     nothing about whether the *target* node runs a device plugin. So the probe
     reads that node's allocatable resources and looks for a device-plugin
     resource family there.
@@ -99,14 +133,29 @@ def get_resource_injection_policy(
         probe_node_allocatable:
             Called only under the "auto" policy, to read the target node's
             allocatable resources. Returns None when the node cannot be read.
+        policy:
+            Workload policy override. None inherits the environment setting;
+            Auto probes the node even if the environment selects Env or KDP.
+
+    Raises:
+        ValueError:
+            If the policy is not Auto, Env or KDP.
 
     Returns:
         The resource injection policy.
 
     """
-    policy = envs.GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY.lower()
-    if policy != "auto":
-        return policy
+    if policy is None:
+        policy = envs.GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY
+    try:
+        policy = KubernetesResourceInjectionPolicyEnum(policy)
+    except ValueError as e:
+        msg = f"Invalid resource injection policy '{policy}'"
+        raise ValueError(msg) from e
+    if policy == KubernetesResourceInjectionPolicyEnum.ENV:
+        return "env"
+    if policy == KubernetesResourceInjectionPolicyEnum.KDP:
+        return "kdp"
 
     if probe_node_allocatable is None:
         return "kdp"
@@ -142,6 +191,7 @@ def cdi_kind_to_kdp_resource(
 
 
 __all__ = [
+    "KubernetesResourceInjectionPolicyEnum",
     "cdi_kind_to_kdp_resource",
     "get_resource_injection_policy",
     "is_kubelet_socket_accessible",
