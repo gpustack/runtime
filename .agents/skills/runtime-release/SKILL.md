@@ -44,12 +44,13 @@ gh auth status
 git fetch origin --tags --prune
 git status --porcelain                            # must be empty
 git tag -l 'v*' --sort=-v:refname | head -5
-git rev-parse origin/main
 ```
 
 ### 2. Version and commit (confirm)
 
-- Read the range since the previous tag: `git log --no-merges --oneline <last>..origin/main`.
+- Pick the target ref: `origin/main` by default, or the `v*-dev` branch for a maintenance line. The
+  steps below call it `$TARGET`; `$SHA` is its HEAD (`git rev-parse "$TARGET"`).
+- Read the range since the previous tag: `git log --no-merges --oneline <last>..$TARGET`.
 - Propose the bump from the Conventional Commits in range: any `feat` → minor; fixes, docs, and
   chores → patch. Use `.postN` only to re-issue the same version line (packaging metadata or a
   docs-only rebuild of unchanged content).
@@ -61,7 +62,8 @@ git rev-parse origin/main
 Group the range by type: Features / Fixes / Docs / Other; omit empty sections. Keep highlights and
 fold noisy `chore`/`ci`/`test` entries. Link PRs from `(#NNN)` subjects. Do not open the body with
 a heading that repeats the tag. End with the Full Changelog compare URL
-(`https://github.com/gpustack/runtime/compare/<last>...<VER>`).
+(`https://github.com/gpustack/runtime/compare/<last>...<VER>`). Write the draft to `notes.md`;
+step 5 publishes that file.
 
 ### 4. Tag and monitor (confirm, then read-only)
 
