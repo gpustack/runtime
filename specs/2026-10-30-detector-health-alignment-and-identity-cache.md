@@ -1,6 +1,6 @@
 # Spec: Re-align detector health checks with the operator, and cache device identity between collections
 
-Status: Building
+Status: Built
 Type: Feature
 
 ## Summary
@@ -391,7 +391,7 @@ every risk has a pinned acceptance row, and the baseline suite is green.
       resolved to `0.1.32.post2`, and the environment syncs.
       Verify: `uv lock --upgrade-package gpustack-runner && uv sync && uv run python -c "import importlib.metadata as md; print(md.version('gpustack-runner'))"`
 
-- [ ] **T6 · Integration checkpoint**
+- [x] **T6 · Integration checkpoint**
       Blocked by: T1, T2, T3, T4, T5
       Owns: none (verification only; any fix goes back to the owning task)
       Acceptance: full suite green with every feature landed; the pre-existing deployer
