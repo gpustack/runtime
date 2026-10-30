@@ -51,10 +51,10 @@ if TYPE_CHECKING:
 
     When enabled (set false), the check reads the uncorrected ECC error
     counter and, on NVIDIA, the driver's recovery state (GPU reset required,
-    e.g. after a GSP failure); a query the driver errors on reports the device
-    unhealthy. Each query is a driver call per device, and against a wedged
-    device it can block until the driver's RPC timeout (up to 45s with GSP
-    firmware).
+    e.g. after a GSP failure); a query the driver errors on yields no verdict,
+    so only a readable value marks the device unhealthy. Each query is a driver
+    call per device, and against a wedged device it can block until the
+    driver's RPC timeout (up to 45s with GSP firmware).
     """
     GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL: int = 60
     """

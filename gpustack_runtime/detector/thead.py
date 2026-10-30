@@ -493,6 +493,10 @@ def _get_memory_status(
     cannot skip it: merging usage overwrites the status, so a status it did not
     read would erase the one the information query found.
 
+    A failed read yields no verdict, as the operator's counter read does: only
+    a readable value may condemn a card. The M-device aggregate-ECC probe
+    keeps its own verdict, for it reads a value rather than an error.
+
     Args:
         dev:
             The HGML device handle.
@@ -517,11 +521,10 @@ def _get_memory_status(
         )
         if dev_mem_ecc_errors > 0:
             return DeviceMemoryStatusEnum.UNHEALTHY
-    except pyhgml.HGMLError as e:
-        # Fail closed: a query the driver errors on marks the device
-        # unhealthy, while an unsupported counter means it cannot be judged.
-        if e.value != pyhgml.HGML_ERROR_NOT_SUPPORTED:
-            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pyhgml.HGMLError:
+        # Fail open: a query the driver errors on yields no verdict, so the
+        # card stays unjudged.
+        debug_log_warning(logger, "Failed to read the ECC error counter")
 
     return DeviceMemoryStatusEnum.HEALTHY
 

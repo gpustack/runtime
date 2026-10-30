@@ -80,6 +80,13 @@ class _FakeMigDevice:
     memory: int = 4864 * _MIB
     memory_used: int = 512 * _MIB
     ecc_errors: int = 0
+    aggregate_ecc_errors: int | None = None
+    """
+    The uncorrected count the aggregate counter reports, or None for the same
+    count the volatile counter reports. The two are different registers, so a
+    verdict that names the aggregate counter cannot be satisfied by the
+    volatile one.
+    """
     sm_util: float | None = None
     mig_devices: None = None
 
@@ -101,6 +108,13 @@ class _FakeDevice:
     memory_bus_width: int | None = 192
     ecc_mode: int = 1  # NVML_FEATURE_ENABLED
     ecc_errors: int = 0
+    aggregate_ecc_errors: int | None = None
+    """
+    The uncorrected count the aggregate counter reports, or None for the same
+    count the volatile counter reports. The two are different registers, so a
+    verdict that names the aggregate counter cannot be satisfied by the
+    volatile one.
+    """
     ecc_counter_error_code: int | None = None
     """
     The error code the ECC counter query raises, or None for a readable one.
@@ -192,6 +206,11 @@ class _FakeNVML:
         self.devices = list(devices)
         self.calls: list[str] = []
         self.memory_versions: list[int | None] = []
+        self.ecc_counter_reads: list[tuple[int, int]] = []
+        """
+        The counter scope and memory location of every ECC counter read, so a
+        test can tell which counter answered.
+        """
         self.memory_v2_driver = memory_v2_driver
         if memory_v2_binding:
             self.nvmlMemory_v2 = 33554472
@@ -288,10 +307,18 @@ class _FakeNVML:
 
     def nvmlDeviceGetMemoryErrorCounter(self, handle, error_type, scope, location):  # noqa: N802
         self.calls.append("nvmlDeviceGetMemoryErrorCounter")
+        self.ecc_counter_reads.append((scope, location))
         error_code = getattr(handle, "ecc_counter_error_code", None)
         if error_code is not None:
             msg = "ECC counter unreadable"
             raise _NVMLError(msg, error_code)
+        # The aggregate and the volatile counter are different registers, so
+        # the fake answers them differently: a verdict that names the
+        # aggregate counter cannot be satisfied by the volatile one.
+        if scope == self.NVML_AGGREGATE_ECC:
+            aggregate_errors = getattr(handle, "aggregate_ecc_errors", None)
+            if aggregate_errors is not None:
+                return aggregate_errors
         return handle.ecc_errors
 
     def nvmlDeviceGetFieldValues(self, handle, fieldIds):  # noqa: N802, N803
@@ -566,25 +593,23 @@ def test_detect_info_reports_the_memory_health(fake_nvml):
 
 
 # --------------------------------------------------------------------------- #
-# The health check fails closed: a card the driver cannot answer is unhealthy. #
+# The health check fails open: a card the driver cannot answer is not judged. #
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.usefixtures("health_check")
-def test_detect_info_fails_closed_on_an_ecc_query_error(fake_nvml):
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        _FakeNVML.NVML_ERROR_UNKNOWN,
+        _FakeNVML.NVML_ERROR_NOT_SUPPORTED,
+    ],
+)
+def test_detect_info_fails_open_on_an_ecc_query_error(fake_nvml, error_code):
     # A wedged GSP answers the ECC query with an error after its RPC timeout
-    # (Xid 119); swallowing that error reported the card healthy.
-    fake_nvml([_FakeDevice(ecc_counter_error_code=_FakeNVML.NVML_ERROR_UNKNOWN)])
-
-    devices = NVIDIADetector().detect_info()
-
-    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
-
-
-@pytest.mark.usefixtures("health_check")
-def test_detect_info_tolerates_an_unsupported_ecc_query(fake_nvml):
-    # A card without the counter cannot be judged, not condemned.
-    fake_nvml([_FakeDevice(ecc_counter_error_code=_FakeNVML.NVML_ERROR_NOT_SUPPORTED)])
+    # (Xid 119). The operator treats a failed counter read as healthy, so the
+    # runtime does too: only a readable counter may condemn a card.
+    fake_nvml([_FakeDevice(ecc_counter_error_code=error_code)])
 
     devices = NVIDIADetector().detect_info()
 
@@ -623,8 +648,37 @@ def test_detect_info_falls_back_to_ecc_when_the_recovery_fields_are_unreadable(
 
 
 @pytest.mark.usefixtures("health_check")
-def test_detect_info_fails_closed_on_a_field_values_error(fake_nvml):
-    fake_nvml([_FakeDevice(field_values_error_code=_FakeNVML.NVML_ERROR_UNKNOWN)])
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        _FakeNVML.NVML_ERROR_UNKNOWN,
+        _FakeNVML.NVML_ERROR_NOT_SUPPORTED,
+    ],
+)
+def test_detect_info_fails_open_on_a_field_values_error(fake_nvml, error_code):
+    # The recovery fields are a kept probe, not a verdict on their own: a
+    # failed read leaves the card unjudged, which is healthy.
+    fake_nvml([_FakeDevice(field_values_error_code=error_code)])
+
+    devices = NVIDIADetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_info_reports_a_card_awaiting_reset_after_an_ecc_query_error(
+    fake_nvml,
+):
+    # The recovery state is a kept divergence: a failed counter read leaves the
+    # probe to judge the card, and the probe reads a real value.
+    fake_nvml(
+        [
+            _FakeDevice(
+                ecc_counter_error_code=_FakeNVML.NVML_ERROR_UNKNOWN,
+                recovery_action=1,
+            ),
+        ],
+    )
 
     devices = NVIDIADetector().detect_info()
 
@@ -807,7 +861,10 @@ def test_detect_usage_reports_the_memory_health(fake_nvml):
 # --------------------------------------------------------------------------- #
 
 
-def _mig_card(**kwargs) -> _FakeDevice:
+def _mig_card(
+    mig_devices: list[_FakeMigDevice] | None = None,
+    **kwargs,
+) -> _FakeDevice:
     return _FakeDevice(
         uuid="GPU-0",
         name="NVIDIA A100-SXM4-40GB",
@@ -817,7 +874,9 @@ def _mig_card(**kwargs) -> _FakeDevice:
         # GPM is queried on the card, whether the sample is the card's or an
         # instance's.
         sm_util=55.0,
-        mig_devices=[
+        mig_devices=mig_devices
+        if mig_devices is not None
+        else [
             _FakeMigDevice(uuid="MIG-0-0", gpu_instance_id=1, sm_util=33.0),
             _FakeMigDevice(uuid="MIG-0-1", gpu_instance_id=2, sm_util=44.0),
         ],
@@ -870,6 +929,48 @@ def test_detect_fills_the_mig_devices_usage(fake_nvml):
     # The instances' own information fields are untouched by the merge.
     assert [mig["index"] for mig in mig_devices] == [1, 2]
     assert [mig["memory"] for mig in mig_devices] == [4864] * 2
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_reports_a_mig_device_with_aggregate_ecc_errors(fake_nvml):
+    # The aggregate-ECC check on MIG entries is a kept divergence: it reads a
+    # real count, so it still condemns the instance it read.
+    fake = fake_nvml(
+        [
+            _mig_card(
+                mig_devices=[
+                    _FakeMigDevice(
+                        uuid="MIG-0-0",
+                        gpu_instance_id=1,
+                        # The volatile counter reads zero and the aggregate one
+                        # does not, so only a read of the aggregate counter
+                        # condemns the instance.
+                        ecc_errors=0,
+                        aggregate_ecc_errors=2,
+                    ),
+                    _FakeMigDevice(uuid="MIG-0-1", gpu_instance_id=2),
+                ],
+            ),
+        ],
+    )
+
+    det = NVIDIADetector()
+    expected = [
+        DeviceMemoryStatusEnum.UNHEALTHY,
+        DeviceMemoryStatusEnum.HEALTHY,
+    ]
+
+    # Both queries read the aggregate counter of every instance, so the
+    # information query's verdict is not lost to the usage query's.
+    info = det.detect_info()
+    assert [mig["memory_status"] for mig in info[0].appendix["mig_devices"]] == expected
+    dev = det.detect()
+    assert [mig["memory_status"] for mig in dev[0].appendix["mig_devices"]] == expected
+    # The verdict came from the aggregate counter, not from the volatile one.
+    assert any(
+        scope == fake.NVML_AGGREGATE_ECC and location == fake.NVML_MEMORY_LOCATION_SRAM
+        for scope, location in fake.ecc_counter_reads
+    )
 
 
 def test_detect_reports_a_mig_enabled_card_without_instances(fake_nvml):

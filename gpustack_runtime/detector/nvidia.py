@@ -539,6 +539,10 @@ def _get_memory_status(
     Both queries produce it, mirroring the operator, which reports `Unhealthy`
     from `DetectAccelerator` and `MonitorAccelerator` alike.
 
+    A failed read yields no verdict, as the operator's counter read does: only
+    a readable value may condemn a card. A failed counter read still leaves
+    the recovery fields to judge the card.
+
     Args:
         dev:
             The NVML device handle.
@@ -563,12 +567,12 @@ def _get_memory_status(
         )
         if dev_mem_ecc_errors > 0:
             return DeviceMemoryStatusEnum.UNHEALTHY
-    except pynvml.NVMLError as e:
-        # Fail closed: a query the driver errors on (a wedged GSP answers
-        # NVML_ERROR_UNKNOWN after its RPC timeout) marks the card unhealthy,
-        # while an unsupported counter means the card cannot be judged.
-        if e.value != pynvml.NVML_ERROR_NOT_SUPPORTED:
-            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pynvml.NVMLError:
+        # Fail open: a query the driver errors on (a wedged GSP answers
+        # NVML_ERROR_UNKNOWN after its RPC timeout) yields no verdict, as the
+        # operator's counter read does. The recovery fields below still get
+        # their say.
+        debug_log_warning(logger, "Failed to read the ECC error counter")
 
     try:
         dev_fields = pynvml.nvmlDeviceGetFieldValues(
@@ -578,9 +582,10 @@ def _get_memory_status(
                 pynvml.NVML_FI_DEV_RESET_STATUS,
             ],
         )
-    except pynvml.NVMLError as e:
-        if e.value != pynvml.NVML_ERROR_NOT_SUPPORTED:
-            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pynvml.NVMLError:
+        # Fail open: the recovery fields are a probe, not a verdict on their
+        # own, so a failed read leaves the card unjudged.
+        debug_log_warning(logger, "Failed to read the device recovery fields")
         return DeviceMemoryStatusEnum.HEALTHY
     for dev_field in dev_fields:
         # A per-field error extracts to None: cannot judge, keep the verdict.

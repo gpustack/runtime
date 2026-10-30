@@ -365,7 +365,7 @@ every risk has a pinned acceptance row, and the baseline suite is green.
       unreadable calls stay HEALTHY. Feature B's matrix pinned.
       Verify: `uv run pytest tests/gpustack_runtime/detector/test_cambricon.py -q`
 
-- [ ] **T4 · Fail-open error defaults on four vendors**
+- [x] **T4 · Fail-open error defaults on four vendors**
       Blocked by: T1
       Owns: `gpustack_runtime/detector/nvidia.py`, `gpustack_runtime/detector/amd.py`,
       `gpustack_runtime/detector/iluvatar.py`, `gpustack_runtime/detector/thead.py`,

@@ -509,7 +509,7 @@ def test_detect_info_issues_no_usage_call(amd_bindings):
 
 
 # --------------------------------------------------------------------------- #
-# The health check fails closed: a card the driver cannot answer is unhealthy. #
+# The health check fails open: a card the driver cannot answer is not judged. #
 # --------------------------------------------------------------------------- #
 
 
@@ -525,43 +525,82 @@ def test_detect_reports_uncorrectable_ecc_errors(amd_bindings):
 
 
 @pytest.mark.usefixtures("health_check")
-def test_detect_fails_closed_on_an_ecc_query_error(amd_bindings):
-    # A genuine driver error used to be swallowed and reported healthy.
+def test_detect_reports_a_healthy_card(amd_bindings):
+    # A readable count of zero is the healthy verdict: only a readable count
+    # above the threshold condemns a card.
     card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
-    card["ecc_error"] = 1  # AMDSMI_STATUS_INVAL: any genuine driver error
-    amd_bindings([card], agents=[_agent("0000:05:00.0")])
-
-    dev = AMDDetector().detect()[0]
-
-    assert dev.memory_status == DeviceMemoryStatusEnum.UNHEALTHY
-
-
-@pytest.mark.usefixtures("health_check")
-def test_detect_tolerates_an_unsupported_ecc_query(amd_bindings):
-    # A card without the counter cannot be judged, not condemned.
-    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
-    card["ecc_error"] = _FakeAmdSmi.AMDSMI_STATUS_NOT_SUPPORTED
-    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+    calls = amd_bindings([card], agents=[_agent("0000:05:00.0")])
 
     dev = AMDDetector().detect()[0]
 
     assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # The verdict came from the driver's answer, not from a skipped check.
+    assert "amdsmi_get_gpu_ecc_count" in calls
 
 
 @pytest.mark.usefixtures("health_check")
-def test_detect_fails_closed_on_the_rocm_smi_fallback(amd_bindings):
+@pytest.mark.parametrize(
+    "ecc_error",
+    [
+        0,  # A coded error, however benign its code.
+        1,  # AMDSMI_STATUS_INVAL: any genuine driver error
+        _FakeAmdSmi.AMDSMI_STATUS_NOT_SUPPORTED,
+    ],
+)
+def test_detect_fails_open_on_an_ecc_query_error(amd_bindings, ecc_error):
+    # The operator treats a failed ECC read as healthy, so the runtime does
+    # too: only a readable count may condemn a card.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["ecc_error"] = ecc_error
+    # The fallback would report a condemnable count, so an unintended
+    # fallthrough on a coded error flips the verdict instead of passing
+    # unnoticed.
+    card["ecc"] = {"uncorrectable_count": 3}
+    calls = amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    dev = AMDDetector().detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # A coded error ends the primary read. The ROCm SMI fallback is for a
+    # card whose AMD SMI is absent, not for one whose query merely failed.
+    assert "rsmi_dev_ecc_count_get" not in calls
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_fails_open_on_the_rocm_smi_fallback(amd_bindings):
     # With AMD SMI absent (its stub raises a codeless error), health comes
-    # from ROCm SMI, which follows the same policy: a genuine error marks the
-    # card unhealthy.
+    # from ROCm SMI, which follows the same policy: a failed read leaves the
+    # card unjudged, which is healthy.
     card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
     card["vram_error"] = 1
     card["ecc_error_codeless"] = True
     card["ecc_error_rocm"] = 5  # a genuine ROCm SMI error
-    amd_bindings([card], agents=[_agent("0000:05:00.0")])
+    calls = amd_bindings([card], agents=[_agent("0000:05:00.0")])
+
+    dev = AMDDetector().detect()[0]
+
+    assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # The fallback was tried, and answered with an error.
+    assert "rsmi_dev_ecc_count_get" in calls
+
+
+@pytest.mark.usefixtures("health_check")
+def test_detect_reports_uncorrectable_ecc_errors_from_the_rocm_smi_fallback(
+    amd_bindings,
+):
+    # The ROCm SMI fallback is a kept divergence: it reads a real count, so it
+    # still condemns the card.
+    card = _card("0000:05:00.0", "0x00a1b2c3d4e5f600")
+    card["vram_error"] = 1
+    card["ecc_error_codeless"] = True
+    card["ecc"] = {"uncorrectable_count": 2}
+    calls = amd_bindings([card], agents=[_agent("0000:05:00.0")])
 
     dev = AMDDetector().detect()[0]
 
     assert dev.memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    # The codeless error means AMD SMI is absent, so the fallback answers.
+    assert "rsmi_dev_ecc_count_get" in calls
 
 
 @pytest.mark.usefixtures("health_check")

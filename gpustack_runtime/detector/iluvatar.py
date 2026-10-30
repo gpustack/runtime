@@ -404,6 +404,9 @@ def _get_memory_status(dev) -> DeviceMemoryStatusEnum:
     Both queries produce it, mirroring the operator, which reports `Unhealthy`
     from `DetectAccelerator` and `MonitorAccelerator` alike.
 
+    A failed read yields no verdict, as the operator's health read does: only
+    a readable value may condemn a device.
+
     Args:
         dev:
             The device handle.
@@ -419,10 +422,9 @@ def _get_memory_status(dev) -> DeviceMemoryStatusEnum:
         dev_health = pyixml.ixmlDeviceGetHealth(dev)
         if dev_health != pyixml.IXML_HEALTH_OK:
             return DeviceMemoryStatusEnum.UNHEALTHY
-    except pyixml.NVMLError as e:
-        # Fail closed: a query the driver errors on marks the device
-        # unhealthy, while an unsupported query means it cannot be judged.
-        if e.value != pyixml.NVML_ERROR_NOT_SUPPORTED:
-            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pyixml.NVMLError:
+        # Fail open: a query the driver errors on yields no verdict, so the
+        # device stays unjudged.
+        debug_log_warning(logger, "Failed to read the device health")
 
     return DeviceMemoryStatusEnum.HEALTHY

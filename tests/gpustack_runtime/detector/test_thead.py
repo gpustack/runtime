@@ -59,6 +59,13 @@ class _Instance:
     memory_total: int = 8192 * _MIB
     memory_used: int = 512 * _MIB
     ecc_errors: int = 0
+    aggregate_ecc_errors: int | None = None
+    """
+    The uncorrected count the aggregate counter reports, or None for the same
+    count the volatile counter reports. The two are different registers, so a
+    verdict that names the aggregate counter cannot be satisfied by the
+    volatile one.
+    """
     ecc_counter_error_code: int | None = None
     """
     The error code the ECC counter query raises, or None for a readable one.
@@ -89,6 +96,13 @@ class _Card:
     memory_total: int = 65536 * _MIB
     memory_used: int = 1024 * _MIB
     ecc_errors: int = 0
+    aggregate_ecc_errors: int | None = None
+    """
+    The uncorrected count the aggregate counter reports, or None for the same
+    count the volatile counter reports. The two are different registers, so a
+    verdict that names the aggregate counter cannot be satisfied by the
+    volatile one.
+    """
     ecc_counter_error_code: int | None = None
     """
     The error code the ECC counter query raises, or None for a readable one.
@@ -131,6 +145,11 @@ class _FakeHGML:
     cards: list[_Card]
     calls: list[str] = field(default_factory=list)
     gpm_supported: bool = True
+    ecc_counter_reads: list[tuple[int, int]] = field(default_factory=list)
+    """
+    The counter scope and memory location of every ECC counter read, so a
+    test can tell which counter answered.
+    """
 
     HGMLError = pyhgml.HGMLError
 
@@ -262,8 +281,16 @@ class _FakeHGML:
         counter_type: int,
         location_type: int,
     ) -> int:
+        self.ecc_counter_reads.append((counter_type, location_type))
         if handle.ecc_counter_error_code is not None:
             raise pyhgml.HGMLError(handle.ecc_counter_error_code)
+        # The aggregate and the volatile counter are different registers, so
+        # the fake answers them differently: a verdict that names the
+        # aggregate counter cannot be satisfied by the volatile one.
+        if counter_type == pyhgml.HGML_AGGREGATE_ECC:
+            aggregate_errors = getattr(handle, "aggregate_ecc_errors", None)
+            if aggregate_errors is not None:
+                return aggregate_errors
         return handle.ecc_errors
 
     # Usage.
@@ -721,11 +748,20 @@ def test_detect_keeps_the_memory_status_through_the_merge(detector):
 
 @pytest.mark.usefixtures("health_check")
 def test_detect_reports_an_uncorrectable_ecc_error(detector):
-    det, _ = detector(
+    det, fake = detector(
         _Card(
             uuid="PPU-0",
             ecc_errors=3,
-            instances=[_Instance(uuid="PPU-0-MIG-0", ecc_errors=1)],
+            instances=[
+                _Instance(
+                    uuid="PPU-0-MIG-0",
+                    # The volatile counter reads zero and the aggregate one
+                    # does not, so only a read of the aggregate counter
+                    # condemns the M-device.
+                    ecc_errors=0,
+                    aggregate_ecc_errors=1,
+                ),
+            ],
         ),
     )
 
@@ -743,20 +779,34 @@ def test_detect_reports_an_uncorrectable_ecc_error(detector):
         dev.appendix["mig_devices"][0]["memory_status"]
         == DeviceMemoryStatusEnum.UNHEALTHY
     )
+    # The M-device's verdict came from the aggregate counter, not from the
+    # volatile one.
+    assert any(
+        counter_type == pyhgml.HGML_AGGREGATE_ECC
+        and location == pyhgml.HGML_MEMORY_LOCATION_SRAM
+        for counter_type, location in fake.ecc_counter_reads
+    )
 
 
 @pytest.mark.usefixtures("health_check")
-def test_detect_fails_closed_on_an_ecc_query_error(detector):
-    # A card the driver refuses to answer is unhealthy, not healthy: the query
-    # error used to be swallowed.
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        pyhgml.HGML_ERROR_UNKNOWN,
+        pyhgml.HGML_ERROR_NOT_SUPPORTED,
+    ],
+)
+def test_detect_fails_open_on_an_ecc_query_error(detector, error_code):
+    # The operator treats a failed counter read as healthy, so the runtime does
+    # too: only a readable counter may condemn a card.
     det, _ = detector(
         _Card(
             uuid="PPU-0",
-            ecc_counter_error_code=pyhgml.HGML_ERROR_UNKNOWN,
+            ecc_counter_error_code=error_code,
             instances=[
                 _Instance(
                     uuid="PPU-0-MIG-0",
-                    ecc_counter_error_code=pyhgml.HGML_ERROR_UNKNOWN,
+                    ecc_counter_error_code=error_code,
                 ),
             ],
         ),
@@ -764,26 +814,11 @@ def test_detect_fails_closed_on_an_ecc_query_error(detector):
 
     dev = det.detect()[0]
 
-    assert dev.memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
     assert (
         dev.appendix["mig_devices"][0]["memory_status"]
-        == DeviceMemoryStatusEnum.UNHEALTHY
+        == DeviceMemoryStatusEnum.HEALTHY
     )
-
-
-@pytest.mark.usefixtures("health_check")
-def test_detect_tolerates_an_unsupported_ecc_query(detector):
-    # A card without the counter cannot be judged, not condemned.
-    det, _ = detector(
-        _Card(
-            uuid="PPU-0",
-            ecc_counter_error_code=pyhgml.HGML_ERROR_NOT_SUPPORTED,
-        ),
-    )
-
-    dev = det.detect()[0]
-
-    assert dev.memory_status == DeviceMemoryStatusEnum.HEALTHY
 
 
 def test_detect_issues_no_health_check_call_by_default(detector):

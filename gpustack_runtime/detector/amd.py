@@ -502,6 +502,9 @@ def _get_memory_status(dev, dev_idx: int) -> DeviceMemoryStatusEnum:
     Both queries produce it, mirroring the operator, which reports `Unhealthy`
     from `DetectAccelerator` and `MonitorAccelerator` alike.
 
+    A failed read yields no verdict, as the operator's counter read does: only
+    a readable value may condemn a card.
+
     Args:
         dev:
             The AMD SMI device handle.
@@ -521,14 +524,13 @@ def _get_memory_status(dev, dev_idx: int) -> DeviceMemoryStatusEnum:
             pyamdsmi.AmdSmiGpuBlock.UMC,
         )
     except pyamdsmi.AmdSmiException as e:
-        # Fail closed: a genuine driver error marks the device unhealthy, while
-        # a card without the counter cannot be judged. The stub binding raises
-        # a codeless error when amdsmi is absent, in which case ROCm SMI is
-        # the fallback, as it is for the memory read.
+        # Fail open: a genuine driver error yields no verdict, as the
+        # operator's counter read does. The stub binding raises a codeless
+        # error when amdsmi is absent, in which case ROCm SMI is the
+        # fallback, as it is for the memory read.
         err_code = getattr(e, "err_code", None)
         if err_code is not None:
-            if err_code != getattr(pyamdsmi, "AMDSMI_STATUS_NOT_SUPPORTED", None):
-                return DeviceMemoryStatusEnum.UNHEALTHY
+            debug_log_warning(logger, "Failed to read the UMC ECC error count")
             return DeviceMemoryStatusEnum.HEALTHY
     else:
         if dev_ecc_count.get("uncorrectable_count", 0) > 0:
@@ -539,19 +541,11 @@ def _get_memory_status(dev, dev_idx: int) -> DeviceMemoryStatusEnum:
         dev_ecc_count = pyrocmsmi.rsmi_dev_ecc_count_get(dev_idx)
         if dev_ecc_count.uncorrectable_err > 0:
             return DeviceMemoryStatusEnum.UNHEALTHY
-    except pyrocmsmi.ROCMSMIError as e:
-        # rsmi_status_t comes from the ROCm-installed rsmiBindings, so it is
-        # looked up late: without ROCm the module has no such attribute.
-        rsmi_not_supported = getattr(
-            getattr(pyrocmsmi, "rsmi_status_t", None),
-            "RSMI_STATUS_NOT_SUPPORTED",
-            None,
-        )
-        if e.value not in (
-            pyrocmsmi.ROCMSMI_ERROR_FUNCTION_NOT_FOUND,
-            rsmi_not_supported,
-        ):
-            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pyrocmsmi.ROCMSMIError:
+        # Fail open: a terminal error inside the fallback yields no verdict
+        # either, so the card stays unjudged.
+        debug_log_warning(logger, "Failed to read the ROCm SMI ECC error count")
+        return DeviceMemoryStatusEnum.HEALTHY
 
     return DeviceMemoryStatusEnum.HEALTHY
 
