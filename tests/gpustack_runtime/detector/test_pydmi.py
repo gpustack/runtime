@@ -4,7 +4,7 @@ from ctypes import RTLD_LOCAL
 
 import pytest
 
-from gpustack_runtime.detector import pydmi
+from gpustack_runtime.detector import pydcmi, pydmi
 
 
 @pytest.fixture(autouse=True)
@@ -364,3 +364,75 @@ def test_memory_and_utilization_read_through_a_mig_handle(monkeypatch):
         4 * 1024**3,
     )
     assert (util.gpu, util.memory) == (95, 12)
+
+
+# --------------------------------------------------------------------------- #
+# The DCMI V2 health entry point, pinned against dcmi_interface_api_v2.h.      #
+#                                                                             #
+# The Ascend health verdict reads this register, and no Ascend driver exists   #
+# in CI, so nothing else would catch a mislaid symbol or a narrow              #
+# out-parameter: the numbers below are read off the header's declaration, not  #
+# off the ctypes code they check.                                              #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def fake_dcmi_lib(monkeypatch):
+    """
+    Reset pydcmi's module-level library state,
+    so each test controls its own fake library.
+    """
+    monkeypatch.setattr(pydcmi, "dcmiLib", None)
+    pydcmi._dcmiGetFunctionPointer_cache.clear()
+    yield
+    pydcmi._dcmiGetFunctionPointer_cache.clear()
+
+
+@pytest.mark.usefixtures("fake_dcmi_lib")
+def test_dcmiv2_get_device_health_reads_the_health_of_one_device(monkeypatch):
+    # int dcmiv2_get_device_health(int dev_id, unsigned int *health);
+    seen = {}
+
+    class Lib:
+        def dcmiv2_get_device_health(self, dev_id, health):
+            seen["dev_id"] = dev_id
+            # 0xFFFFFFFF is the status of a device the driver cannot find, so
+            # the out-parameter has to be an unsigned int to carry it.
+            ctypes.cast(
+                health,
+                ctypes.POINTER(ctypes.c_uint),
+            ).contents.value = 0xFFFFFFFF
+            return pydcmi.DCMI_SUCCESS
+
+    monkeypatch.setattr(pydcmi, "dcmiLib", Lib())
+
+    assert pydcmi.dcmiv2_get_device_health(7) == 0xFFFFFFFF
+    # V2 addresses the device by its logic id alone, where the V1 call takes
+    # the card and device pair.
+    assert seen["dev_id"] == 7
+
+
+@pytest.mark.usefixtures("fake_dcmi_lib")
+def test_dcmiv2_get_device_health_raises_the_mapped_error(monkeypatch):
+    class Lib:
+        def dcmiv2_get_device_health(self, dev_id, health):
+            return pydcmi.DCMI_ERROR_NOT_SUPPORT
+
+    monkeypatch.setattr(pydcmi, "dcmiLib", Lib())
+
+    with pytest.raises(pydcmi.DCMIError_NotSupport):
+        pydcmi.dcmiv2_get_device_health(0)
+
+
+@pytest.mark.usefixtures("fake_dcmi_lib")
+def test_dcmiv2_get_device_health_needs_the_v2_symbol(monkeypatch):
+    # A driver that serves the V1 API only has no such symbol, which the
+    # binding has to report rather than call something else.
+    class Lib:
+        def dcmi_get_device_health(self, card_id, device_id, health):
+            return pydcmi.DCMI_SUCCESS
+
+    monkeypatch.setattr(pydcmi, "dcmiLib", Lib())
+
+    with pytest.raises(pydcmi.DCMIError_FunctionNotFound):
+        pydcmi.dcmiv2_get_device_health(0)

@@ -6,6 +6,7 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
@@ -29,6 +30,9 @@ from .__utils__ import (
     map_cpu_affinity_to_numa_node,
     map_numa_node_to_cpu_affinity,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 slogger = logger.getChild("internal")
@@ -788,33 +792,109 @@ def _get_device_memory_info_v2(dev_id) -> tuple[int, int]:
     return dev_hbm_info.memory_size, dev_hbm_info.memory_usage
 
 
+def _unhealthy(unhealthy: bool) -> DeviceMemoryStatusEnum:
+    """
+    Map a verdict to the device's health status.
+
+    Args:
+        unhealthy:
+            Whether the device is unhealthy.
+
+    Returns:
+        DeviceMemoryStatusEnum.UNHEALTHY if the device is unhealthy,
+        HEALTHY otherwise.
+
+    """
+    if unhealthy:
+        return DeviceMemoryStatusEnum.UNHEALTHY
+    return DeviceMemoryStatusEnum.HEALTHY
+
+
+def _evaluate_device_unhealthy(
+    health: int | None,
+    read_ecc: Callable[[], pydcmi.c_dcmi_ecc_info],
+) -> DeviceMemoryStatusEnum:
+    """
+    Decide whether a device is unhealthy, the way the operator does.
+
+    The DCMI health register is the primary signal: 0 is Normal, 1 is Minor,
+    and 2 or more is Major, Critical or Not Found. The ECC counters are a
+    fallback for a device whose health cannot be read, and only an enabled
+    double-bit error makes it unhealthy. A single-bit error is a corrected
+    error and the device still works, and an unreadable counter says nothing
+    about the device at all.
+
+    Args:
+        health:
+            The device's health status, or None if the query failed.
+        read_ecc:
+            Reads the ECC counters of the device's memory type. It is called
+            only when the health query failed.
+
+    Returns:
+        DeviceMemoryStatusEnum indicating the device's health.
+
+    """
+    if health is not None:
+        return _unhealthy(health >= 2)
+
+    try:
+        ecc_info = read_ecc()
+    except pydcmi.DCMIError:
+        debug_log_exception(logger, "Failed to read the ECC counters of the device")
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    return _unhealthy(ecc_info.enable_flag > 0 and ecc_info.double_bit_error_cnt > 0)
+
+
+def _read_device_health(read_health: Callable[[], int]) -> int | None:
+    """
+    Read the health register of a device.
+
+    Args:
+        read_health:
+            Reads the health status of one device.
+
+    Returns:
+        The device's health status, or None if the query failed.
+
+    """
+    try:
+        return read_health()
+    except pydcmi.DCMIError:
+        debug_log_exception(logger, "Failed to read the health of the device")
+        return None
+
+
 def _get_device_memory_status_v2(dev_id) -> DeviceMemoryStatusEnum:
     """
-    Get device memory ECC status through the V2 API.
+    Get the device's health status through the V2 API.
+
+    The health register decides, as it does in the operator's
+    evaluateDeviceUnhealthy: the device is unhealthy if and only if the
+    status is 2 or more. The ECC counters are read only when the health
+    query fails. V2 declares the HBM call alone, so the counters of that
+    memory type are the only ones a device can have.
 
     Args:
         dev_id:
             The device ID of the device.
 
     Returns:
-        DeviceMemoryStatusEnum indicating the ECC status.
+        DeviceMemoryStatusEnum indicating the device's health.
 
     """
-    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-        for dev_mem_type in [pydcmi.DCMI_DEVICE_TYPE_HBM, pydcmi.DCMI_DEVICE_TYPE_DDR]:
-            with contextlib.suppress(pydcmi.DCMIError):
-                dev_ecc_info = pydcmi.dcmiv2_get_device_ecc_info(
-                    dev_id,
-                    dev_mem_type,
-                )
-                if dev_ecc_info.enable_flag and (
-                    dev_ecc_info.single_bit_error_cnt > 0
-                    or dev_ecc_info.double_bit_error_cnt > 0
-                ):
-                    return DeviceMemoryStatusEnum.UNHEALTHY
-                return DeviceMemoryStatusEnum.HEALTHY
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
 
-    return DeviceMemoryStatusEnum.HEALTHY
+    health = _read_device_health(lambda: pydcmi.dcmiv2_get_device_health(dev_id))
+    return _evaluate_device_unhealthy(
+        health,
+        lambda: pydcmi.dcmiv2_get_device_ecc_info(
+            dev_id,
+            pydcmi.DCMI_DEVICE_TYPE_HBM,
+        ),
+    )
 
 
 def _get_device_die(dev_card_id, dev_device_id) -> str:
@@ -964,9 +1044,15 @@ def _get_device_memory_info_without_hbm(dev_card_id, dev_device_id) -> tuple[int
     )
 
 
-def _get_device_memory_status(dev_card_id, dev_device_id) -> DeviceMemoryStatusEnum:
+def _read_ecc_info_v1(dev_card_id, dev_device_id) -> pydcmi.c_dcmi_ecc_info:
     """
-    Get device memory ECC status.
+    Read the ECC counters of the memory type the device uses.
+
+    The operator picks the memory type from the HBM query: a device that
+    answers it has HBM, and one that does not has DDR. Only that one memory
+    type is read, where the old code looped over both. A device whose HBM
+    query answers with no memory has no HBM either, the same way
+    _get_device_memory_info reads it.
 
     Args:
         dev_card_id:
@@ -975,25 +1061,62 @@ def _get_device_memory_status(dev_card_id, dev_device_id) -> DeviceMemoryStatusE
             The device ID of the device.
 
     Returns:
-        DeviceMemoryStatusEnum indicating the ECC status.
+        The ECC counters of the device's memory type.
+
+    Raises:
+        pydcmi.DCMIError: If the driver refuses the ECC query.
 
     """
-    if not envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
-        for dev_mem_type in [pydcmi.DCMI_DEVICE_TYPE_HBM, pydcmi.DCMI_DEVICE_TYPE_DDR]:
-            with contextlib.suppress(pydcmi.DCMIError):
-                dev_ecc_info = pydcmi.dcmi_get_device_ecc_info(
-                    dev_card_id,
-                    dev_device_id,
-                    dev_mem_type,
-                )
-                if dev_ecc_info.enable_flag and (
-                    dev_ecc_info.single_bit_error_cnt > 0
-                    or dev_ecc_info.double_bit_error_cnt > 0
-                ):
-                    return DeviceMemoryStatusEnum.UNHEALTHY
-                return DeviceMemoryStatusEnum.HEALTHY
+    dev_mem_type = pydcmi.DCMI_DEVICE_TYPE_DDR
+    try:
+        dev_hbm_info = pydcmi.dcmi_get_device_hbm_info(dev_card_id, dev_device_id)
+        if dev_hbm_info.memory_size > 0:
+            dev_mem_type = pydcmi.DCMI_DEVICE_TYPE_HBM
+    except pydcmi.DCMIError:
+        # No HBM means a DDR device, which is what the operator falls back to.
+        debug_log_exception(
+            logger,
+            "Failed to read the HBM info of device %d/%d, reading its DDR counters",
+            dev_card_id,
+            dev_device_id,
+        )
 
-    return DeviceMemoryStatusEnum.HEALTHY
+    return pydcmi.dcmi_get_device_ecc_info(
+        dev_card_id,
+        dev_device_id,
+        dev_mem_type,
+    )
+
+
+def _get_device_memory_status(dev_card_id, dev_device_id) -> DeviceMemoryStatusEnum:
+    """
+    Get the device's health status through the V1 API.
+
+    The health register decides, as it does in the operator's
+    evaluateDeviceUnhealthy: the device is unhealthy if and only if the
+    status is 2 or more. The ECC counters are read only when the health
+    query fails, and then only for the memory type the device uses.
+
+    Args:
+        dev_card_id:
+            The card ID of the device.
+        dev_device_id:
+            The device ID of the device.
+
+    Returns:
+        DeviceMemoryStatusEnum indicating the device's health.
+
+    """
+    if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
+        return DeviceMemoryStatusEnum.HEALTHY
+
+    health = _read_device_health(
+        lambda: pydcmi.dcmi_get_device_health(dev_card_id, dev_device_id),
+    )
+    return _evaluate_device_unhealthy(
+        health,
+        lambda: _read_ecc_info_v1(dev_card_id, dev_device_id),
+    )
 
 
 def _get_device_roce_network_info(

@@ -338,7 +338,7 @@ every risk has a pinned acceptance row, and the baseline suite is green.
       `detect_usage()` uncached. Every Feature D acceptance row has a test.
       Verify: `uv run pytest tests/gpustack_runtime/detector/test_detector_cache.py tests/gpustack_runtime/detector/test_detector_types.py -q`
 
-- [ ] **T2 · Ascend health-first verdict**
+- [x] **T2 · Ascend health-first verdict**
       Blocked by: None
       Owns: `gpustack_runtime/detector/pydcmi/__init__.py`,
       `gpustack_runtime/detector/ascend.py`,
