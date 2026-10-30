@@ -327,8 +327,8 @@ def test_detect_composes_info_and_usage_by_default(fake_pyixml):
 
 
 # --------------------------------------------------------------------------- #
-# The health check fails closed: a device the driver cannot answer is         #
-# unhealthy.                                                                   #
+# The health check fails open: a device the driver cannot answer is not       #
+# judged.                                                                     #
 # --------------------------------------------------------------------------- #
 
 
@@ -344,20 +344,32 @@ def test_detect_info_reports_an_unhealthy_device(fake_pyixml):
 
 
 @pytest.mark.usefixtures("health_check")
-def test_detect_info_fails_closed_on_a_health_query_error(fake_pyixml):
-    fake_pyixml(health_error_code=FakePyixml.NVML_ERROR_UNKNOWN)
+def test_detect_info_reports_a_healthy_device(fake_pyixml):
+    # A readable health value of OK is the healthy verdict: the check reads the
+    # driver's answer, and only a value that is not OK condemns a device.
+    fake = fake_pyixml()
 
     devices = IluvatarDetector().detect_info()
 
     assert [dev.memory_status for dev in devices] == [
-        DeviceMemoryStatusEnum.UNHEALTHY,
+        DeviceMemoryStatusEnum.HEALTHY,
     ] * 2
+    # The verdict came from the driver's answer, not from a skipped check.
+    assert "ixmlDeviceGetHealth" in fake.calls
 
 
 @pytest.mark.usefixtures("health_check")
-def test_detect_info_tolerates_an_unsupported_health_query(fake_pyixml):
-    # A device without the health query cannot be judged, not condemned.
-    fake_pyixml(health_error_code=FakePyixml.NVML_ERROR_NOT_SUPPORTED)
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        FakePyixml.NVML_ERROR_UNKNOWN,
+        FakePyixml.NVML_ERROR_NOT_SUPPORTED,
+    ],
+)
+def test_detect_info_fails_open_on_a_health_query_error(fake_pyixml, error_code):
+    # The operator treats a failed health read as healthy, so the runtime does
+    # too: only a readable health value may condemn a device.
+    fake_pyixml(health_error_code=error_code)
 
     devices = IluvatarDetector().detect_info()
 

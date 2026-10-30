@@ -987,6 +987,17 @@ def dcmi_get_device_health(card_id, device_id):
     return c_health.value
 
 
+def dcmiv2_get_device_health(dev_id):
+    # The V2 API's health call. It belongs to the V2 API although it sits
+    # beside its V1 twin, which takes the card and device pair where this one
+    # takes the logic device id alone.
+    c_health = c_uint()
+    fn = _dcmiGetFunctionPointer("dcmiv2_get_device_health")
+    ret = fn(dev_id, byref(c_health))
+    _dcmiCheckReturn(ret)
+    return c_health.value
+
+
 def dcmi_get_device_errorcode_v2(card_id, device_id, list_len=1024):
     c_error_count = c_int()
     c_error_code_list = (c_uint * list_len)()

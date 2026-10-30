@@ -120,7 +120,20 @@ class _Unit:
     physical_id: int = 0
     physical_id_readable: bool = True
     aicore_cnt: int = 20
+    # The single-bit ECC counter.
     ecc_errors: int = 0
+    # The double-bit ECC counter, the one that makes a device unhealthy.
+    ecc_double_bit_errors: int = 0
+    # Whether ECC is turned on at all: the driver counts errors either way,
+    # but a disabled counter says nothing about the device's health.
+    ecc_enabled: bool = True
+    # Whether the driver answers the ECC query at all.
+    ecc_readable: bool = True
+    # The health register: 0 = Normal, 1 = Minor, 2 = Major, 3 = Critical,
+    # 0xFFFFFFFF = the device is not found.
+    health: int = 0
+    # Whether the driver answers the health query at all.
+    health_readable: bool = True
     cores_utilization: int = 42
     temperature: int = 55
     power_deciwatts: int = 1234
@@ -182,6 +195,9 @@ class _FakeDCMI:
 
     units: list[_Unit] = field(default_factory=lambda: [_Unit()])
     calls: list[str] = field(default_factory=list)
+    # The memory type of every ECC query, so a test can tell which one the
+    # verdict was taken from.
+    ecc_device_types: list[int] = field(default_factory=list)
 
     DCMIError = pydcmi.DCMIError
     DCMI_UNIT_TYPE_NPU = pydcmi.DCMI_UNIT_TYPE_NPU
@@ -224,6 +240,7 @@ class _FakeDCMI:
             "dcmi_get_device_memory_info_v3": self._get_device_memory_info_v3,
             "dcmi_get_device_memory_info_v2": self._get_device_memory_info_v2,
             "dcmi_get_device_ecc_info": self._get_device_ecc_info,
+            "dcmi_get_device_health": self._get_device_health,
             "dcmi_get_device_logic_id": self._get_device_logic_id,
             "dcmi_get_device_phyid_from_logicid": self._get_phyid_from_logicid,
             "dcmi_get_device_bdf": self._get_device_bdf,
@@ -318,11 +335,20 @@ class _FakeDCMI:
         device_type: int,
     ) -> _FakeStruct:
         unit = self._unit(card_id, device_id)
+        self.ecc_device_types.append(device_type)
+        if not unit.ecc_readable:
+            raise self._unsupported()
         return _FakeStruct(
-            enable_flag=1,
+            enable_flag=1 if unit.ecc_enabled else 0,
             single_bit_error_cnt=unit.ecc_errors,
-            double_bit_error_cnt=0,
+            double_bit_error_cnt=unit.ecc_double_bit_errors,
         )
+
+    def _get_device_health(self, card_id: int, device_id: int) -> int:
+        unit = self._unit(card_id, device_id)
+        if not unit.health_readable:
+            raise self._unsupported()
+        return unit.health
 
     def _get_device_logic_id(self, card_id: int, device_id: int) -> int:
         return self._unit(card_id, device_id).logic_id
@@ -621,9 +647,9 @@ def test_detect_usage_merges_the_usage_fields_by_uuid(fake_pydcmi):
 def test_detect_usage_recomputes_the_memory_status(fake_pydcmi, monkeypatch):
     # merge_devices_usage overwrites memory_status, so the usage pass has to
     # produce it as well or the inventory pass's verdict is lost.
-    fake_pydcmi([_Unit(ecc_errors=3)])
-    # The ECC read costs a driver call per device, so the health check is off
-    # by default.
+    fake_pydcmi([_Unit(health=2)])
+    # The health read costs a driver call per device, so the health check is
+    # off by default.
     monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
 
     devices = AscendDetector().detect_info()
@@ -694,6 +720,132 @@ def test_detect_without_usage_issues_no_usage_calls(fake_pydcmi):
 
     assert len(devices) == 1
     assert _USAGE_ONLY_CALLS.isdisjoint(fake.calls)
+
+
+# --------------------------------------------------------------------------- #
+# detect_info: the health verdict. The health register decides, the ECC       #
+# counters are the fallback, and a query that fails never makes a device      #
+# unhealthy.                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("health", [0, 1])
+def test_detect_reports_a_normal_or_minor_device_as_healthy(
+    fake_pydcmi,
+    monkeypatch,
+    health,
+):
+    fake = fake_pydcmi([_Unit(health=health)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # The health register answers, so the ECC counters are not read at all.
+    assert "dcmi_get_device_ecc_info" not in fake.calls
+
+
+@pytest.mark.parametrize("health", [2, 3, 0xFFFFFFFF])
+def test_detect_reports_a_major_critical_or_missing_device_as_unhealthy(
+    fake_pydcmi,
+    monkeypatch,
+    health,
+):
+    fake = fake_pydcmi([_Unit(health=health)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert "dcmi_get_device_ecc_info" not in fake.calls
+
+
+def test_detect_falls_back_to_the_ecc_counters_when_the_health_is_unreadable(
+    fake_pydcmi,
+    monkeypatch,
+):
+    # A single-bit error is a corrected error: the device still works.
+    fake = fake_pydcmi([_Unit(health_readable=False, ecc_errors=3)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    assert fake.calls.count("dcmi_get_device_ecc_info") == 1
+
+
+def test_detect_reports_an_uncorrectable_ecc_error_as_unhealthy(
+    fake_pydcmi,
+    monkeypatch,
+):
+    fake = fake_pydcmi(
+        [_Unit(health_readable=False, ecc_double_bit_errors=1)],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert fake.calls.count("dcmi_get_device_ecc_info") == 1
+
+
+def test_detect_keeps_a_device_with_a_disabled_ecc_counter_healthy(
+    fake_pydcmi,
+    monkeypatch,
+):
+    # A disabled ECC counter counts nothing, so its errors say nothing.
+    fake = fake_pydcmi(
+        [_Unit(health_readable=False, ecc_enabled=False, ecc_double_bit_errors=4)],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # The counter was read, and the device it describes is still working.
+    assert fake.calls.count("dcmi_get_device_ecc_info") == 1
+
+
+def test_detect_reports_a_healthy_device_when_every_query_fails(
+    fake_pydcmi,
+    monkeypatch,
+):
+    fake = fake_pydcmi([_Unit(health_readable=False, ecc_readable=False)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # The counter was asked for and could not be read, which says nothing
+    # about the device.
+    assert fake.calls.count("dcmi_get_device_ecc_info") == 1
+
+
+def test_detect_reads_the_hbm_counters_of_a_device_that_has_hbm(
+    fake_pydcmi,
+    monkeypatch,
+):
+    fake = fake_pydcmi([_Unit(health_readable=False)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    AscendDetector().detect_info()
+
+    # A device that answers the HBM query has HBM, and only HBM is read.
+    assert fake.ecc_device_types == [pydcmi.DCMI_DEVICE_TYPE_HBM]
+
+
+def test_detect_reads_the_ddr_counters_of_a_device_without_hbm(
+    fake_pydcmi,
+    monkeypatch,
+):
+    fake = fake_pydcmi([_Unit(health_readable=False, hbm=False)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    AscendDetector().detect_info()
+
+    # A device that does not answer the HBM query has DDR, and only DDR is
+    # read: one memory type, not a loop over both.
+    assert fake.ecc_device_types == [pydcmi.DCMI_DEVICE_TYPE_DDR]
 
 
 # --------------------------------------------------------------------------- #
@@ -1028,7 +1180,19 @@ class _UnitV2:
     cores_utilization: int = 17
     temperature: int = 51
     power_deciwatts: int = 2012
+    # The single-bit ECC counter.
     ecc_errors: int = 0
+    # The double-bit ECC counter, the one that makes a device unhealthy.
+    ecc_double_bit_errors: int = 0
+    # Whether ECC is turned on at all.
+    ecc_enabled: bool = True
+    # Whether the driver answers the ECC query at all.
+    ecc_readable: bool = True
+    # The health register: 0 = Normal, 1 = Minor, 2 = Major, 3 = Critical,
+    # 0xFFFFFFFF = the device is not found.
+    health: int = 0
+    # Whether the driver answers the health query at all.
+    health_readable: bool = True
     # Which die types the driver answers for; the rest raise. What a 950 really
     # answers is what the die-fallback tests set explicitly.
     die_types: tuple[int, ...] = (pydcmi.DCMI_DIE_TYPE_VDIE,)
@@ -1050,6 +1214,9 @@ class _FakeDCMIV2:
 
     units: list[_UnitV2] = field(default_factory=lambda: [_UnitV2()])
     calls: list[str] = field(default_factory=list)
+    # The memory type of every ECC query, so a test can tell which one the
+    # verdict was taken from.
+    ecc_device_types: list[int] = field(default_factory=list)
     dcmi_version: str | None = "25.7.rc1.6"
     # As the real binding: 1 until dcmiv2_init() succeeds. Hardcoding 2 would
     # make "caller never initialized" untestable.
@@ -1087,6 +1254,7 @@ class _FakeDCMIV2:
             "dcmiv2_get_device_chip_info": self._get_chip_info,
             "dcmiv2_get_device_hbm_info": self._get_hbm_info,
             "dcmiv2_get_device_ecc_info": self._get_ecc_info,
+            "dcmiv2_get_device_health": self._get_health,
             "dcmiv2_get_device_die_id": self._get_die_id,
             "dcmiv2_get_chip_phy_id_by_dev_id": self._get_phy_id,
             "dcmiv2_get_device_bdf": self._get_bdf,
@@ -1139,12 +1307,22 @@ class _FakeDCMIV2:
 
     def _get_ecc_info(self, dev_id, device_type):
         self.calls.append("dcmiv2_get_device_ecc_info")
+        self.ecc_device_types.append(device_type)
         u = self._unit(dev_id)
+        if not u.ecc_readable:
+            raise pydcmi.DCMIError(pydcmi.DCMI_ERROR_NOT_SUPPORT)
         return _FakeStruct(
-            enable_flag=1,
+            enable_flag=1 if u.ecc_enabled else 0,
             single_bit_error_cnt=u.ecc_errors,
-            double_bit_error_cnt=0,
+            double_bit_error_cnt=u.ecc_double_bit_errors,
         )
+
+    def _get_health(self, dev_id):
+        self.calls.append("dcmiv2_get_device_health")
+        u = self._unit(dev_id)
+        if not u.health_readable:
+            raise pydcmi.DCMIError(pydcmi.DCMI_ERROR_NOT_SUPPORT)
+        return u.health
 
     def _get_die_id(self, dev_id, input_type):
         self.calls.append("dcmiv2_get_device_die_id")
@@ -1309,10 +1487,13 @@ def test_detect_usage_v2_merges_the_usage_fields_by_uuid(fake_pydcmi_v2):
     assert dev.memory_utilization == get_utilization(5225, 131072)
 
 
-def test_detect_v2_reports_an_uncorrectable_ecc_error(fake_pydcmi_v2, monkeypatch):
-    # The ECC read costs a driver call per device, so the health check is off
+def test_detect_v2_reports_an_unhealthy_device_by_its_health(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    # The health read costs a driver call per device, so the health check is off
     # by default and nothing else here reaches this path.
-    fake_pydcmi_v2([_UnitV2(dev_id=0, ecc_errors=3)])
+    fake_pydcmi_v2([_UnitV2(dev_id=0, health=2)])
     monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
 
     devices = AscendDetector().detect_info()
@@ -1333,7 +1514,127 @@ def test_detect_v2_reports_a_healthy_device(fake_pydcmi_v2, monkeypatch):
     assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
     # The verdict must come from the driver, not from a skipped health check
     # -- both produce the same enum.
-    assert "dcmiv2_get_device_ecc_info" in fake.calls
+    assert "dcmiv2_get_device_health" in fake.calls
+
+
+# --------------------------------------------------------------------------- #
+# detect_info_v2: the health verdict. The health register decides, the ECC     #
+# counters are the fallback, and a query that fails never makes a device      #
+# unhealthy.                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("health", [0, 1])
+def test_detect_v2_reports_a_normal_or_minor_device_as_healthy(
+    fake_pydcmi_v2,
+    monkeypatch,
+    health,
+):
+    fake = fake_pydcmi_v2([_UnitV2(dev_id=0, health=health)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # The health register answers, so the ECC counters are not read at all.
+    assert "dcmiv2_get_device_ecc_info" not in fake.calls
+
+
+@pytest.mark.parametrize("health", [2, 3, 0xFFFFFFFF])
+def test_detect_v2_reports_a_major_critical_or_missing_device_as_unhealthy(
+    fake_pydcmi_v2,
+    monkeypatch,
+    health,
+):
+    fake = fake_pydcmi_v2([_UnitV2(dev_id=0, health=health)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert "dcmiv2_get_device_ecc_info" not in fake.calls
+
+
+def test_detect_v2_falls_back_to_the_hbm_counters_when_the_health_is_unreadable(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    fake = fake_pydcmi_v2(
+        [_UnitV2(dev_id=0, health_readable=False, ecc_double_bit_errors=1)],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    # V2 declares the HBM call alone, so HBM is the only memory type there is.
+    assert fake.ecc_device_types == [pydcmi.DCMI_DEVICE_TYPE_HBM]
+
+
+def test_detect_v2_keeps_a_device_with_a_single_bit_error_healthy(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    # A single-bit error is a corrected error: the device still works.
+    fake_pydcmi_v2([_UnitV2(dev_id=0, health_readable=False, ecc_errors=3)])
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+def test_detect_v2_keeps_a_device_with_a_disabled_ecc_counter_healthy(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    # A disabled ECC counter counts nothing, so its errors say nothing.
+    fake_pydcmi_v2(
+        [
+            _UnitV2(
+                dev_id=0,
+                health_readable=False,
+                ecc_enabled=False,
+                ecc_double_bit_errors=4,
+            ),
+        ],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+def test_detect_v2_reports_a_healthy_device_when_every_query_fails(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    fake_pydcmi_v2(
+        [_UnitV2(dev_id=0, health_readable=False, ecc_readable=False)],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    assert devices[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+
+
+def test_detect_v2_reads_no_ddr_counters_for_a_device_without_hbm(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    fake = fake_pydcmi_v2(
+        [_UnitV2(dev_id=0, hbm_size=None, health_readable=False)],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+
+    devices = AscendDetector().detect_info()
+
+    # V2 has no memory call to fall back to, so the device is dropped rather
+    # than reported on a guess -- and no DDR counter is read on its behalf.
+    assert devices == []
+    assert fake.ecc_device_types == []
 
 
 def test_detect_info_v2_skips_a_device_whose_memory_is_unreadable(fake_pydcmi_v2):

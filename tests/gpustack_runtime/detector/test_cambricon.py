@@ -69,6 +69,11 @@ class _Card:
     """
     Entry points that raise for this card, so a faulty card is reproducible.
     """
+    error_code: int = pycndev.CNDEV_ERROR_UNKNOWN
+    """
+    The CNDev error code a failing entry point raises. A fallback that only
+    triggers on one code is not a fallback, so a test can vary it.
+    """
 
 
 @dataclass
@@ -111,6 +116,18 @@ class _CardHealthState:
 
     health: int
     deviceState: int  # noqa: N815
+
+
+@dataclass
+class _CardHealthStateV1:
+    """
+    A c_cndevCardHealthState_t stand-in, of which the detector reads the
+    card-wide health bit alone, as the operator does.
+    """
+
+    health: int
+    deviceState: int  # noqa: N815
+    driverState: int  # noqa: N815
 
 
 @dataclass
@@ -161,6 +178,10 @@ class _FakeCNDev:
     CNDevError = pycndev.CNDevError
     CNDEV_HEALTH_STATE_DEVICE_GOOD = pycndev.CNDEV_HEALTH_STATE_DEVICE_GOOD
     CNDEV_HEALTH_STATE_DEVICE_IN_PROBLEM = pycndev.CNDEV_HEALTH_STATE_DEVICE_IN_PROBLEM
+    CNDEV_ERROR_UNKNOWN = pycndev.CNDEV_ERROR_UNKNOWN
+    CNDEV_ERROR_NOT_SUPPORTED = pycndev.CNDEV_ERROR_NOT_SUPPORTED
+    CNDEV_ERROR_NO_DRIVER = pycndev.CNDEV_ERROR_NO_DRIVER
+    CNDEV_ERROR_FUNCTION_NOT_FOUND = pycndev.CNDEV_ERROR_FUNCTION_NOT_FOUND
 
     def __getattr__(self, name: str):
         handler = {
@@ -174,6 +195,7 @@ class _FakeCNDev:
             "cndevGetPCIeBusId": self._get_pcie_bus_id,
             "cndevGetNUMANodeIdByDevId": self._get_numa_node_id_by_dev_id,
             "cndevGetCardHealthStateV2": self._get_card_health_state_v2,
+            "cndevGetCardHealthState": self._get_card_health_state,
             "cndevGetDeviceUtilizationInfo": self._get_device_utilization_info,
             "cndevGetTemperatureInfo": self._get_temperature_info,
             "cndevGetDevicePowerInfo": self._get_device_power_info,
@@ -191,7 +213,7 @@ class _FakeCNDev:
     def _card(self, handle: int, name: str) -> _Card:
         card = self.cards[handle - _HANDLE_OFFSET]
         if name in card.failing:
-            raise pycndev.CNDevError(pycndev.CNDEV_ERROR_UNKNOWN)
+            raise pycndev.CNDevError(card.error_code)
         return card
 
     def _init(self) -> None:
@@ -236,6 +258,14 @@ class _FakeCNDev:
     def _get_card_health_state_v2(self, handle: int) -> _CardHealthState:
         card = self._card(handle, "cndevGetCardHealthStateV2")
         return _CardHealthState(health=card.health, deviceState=card.health)
+
+    def _get_card_health_state(self, handle: int) -> _CardHealthStateV1:
+        card = self._card(handle, "cndevGetCardHealthState")
+        return _CardHealthStateV1(
+            health=card.health,
+            deviceState=card.health,
+            driverState=card.health,
+        )
 
     def _get_device_utilization_info(self, handle: int) -> _UtilizationInfo:
         card = self._card(handle, "cndevGetDeviceUtilizationInfo")
@@ -559,10 +589,88 @@ def test_detect_reports_a_card_in_problem(detector, monkeypatch):
     assert det.detect()[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
 
 
-def test_detect_tolerates_an_unreadable_health_state(detector, monkeypatch):
+def test_detect_reports_a_healthy_card_from_the_v2_health_state(detector, monkeypatch):
     monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
-    det, _ = detector(
-        _Card(uuid="card-0", failing=("cndevGetCardHealthStateV2",)),
+    det, fake = detector(_Card(uuid="card-0"))
+
+    assert det.detect_info()[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    # The V2 read answers, so the V1 read is not made.
+    assert "cndevGetCardHealthStateV2" in fake.calls
+    assert "cndevGetCardHealthState" not in fake.calls
+
+
+def test_detect_reports_a_card_in_problem_from_the_v1_health_state(
+    detector,
+    monkeypatch,
+):
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+    det, fake = detector(
+        _Card(
+            uuid="card-0",
+            health=pycndev.CNDEV_HEALTH_STATE_DEVICE_IN_PROBLEM,
+            failing=("cndevGetCardHealthStateV2",),
+        ),
+    )
+
+    # The V2 read failed, so the verdict comes from the V1 read: a card the V2
+    # path cannot report is still reported, as the operator does.
+    assert det.detect_info()[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert "cndevGetCardHealthState" in fake.calls
+
+
+def test_detect_reports_a_healthy_card_from_the_v1_health_state(detector, monkeypatch):
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+    det, fake = detector(
+        _Card(
+            uuid="card-0",
+            health=pycndev.CNDEV_HEALTH_STATE_DEVICE_GOOD,
+            failing=("cndevGetCardHealthStateV2",),
+        ),
     )
 
     assert det.detect_info()[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    assert "cndevGetCardHealthState" in fake.calls
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        pycndev.CNDEV_ERROR_NOT_SUPPORTED,
+        pycndev.CNDEV_ERROR_NO_DRIVER,
+        pycndev.CNDEV_ERROR_UNKNOWN,
+    ],
+)
+def test_detect_falls_back_to_v1_for_any_v2_failure(detector, monkeypatch, error_code):
+    # The operator's evaluateCardUnhealthy falls back on any V2 failure, not
+    # only on a missing symbol, so the fallback must not be conditioned on the
+    # error the driver reports.
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+    det, fake = detector(
+        _Card(
+            uuid="card-0",
+            health=pycndev.CNDEV_HEALTH_STATE_DEVICE_IN_PROBLEM,
+            failing=("cndevGetCardHealthStateV2",),
+            error_code=error_code,
+        ),
+    )
+
+    assert det.detect_info()[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert "cndevGetCardHealthState" in fake.calls
+
+
+def test_detect_reports_healthy_when_both_health_states_are_unreadable(
+    detector,
+    monkeypatch,
+):
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK", False)
+    det, fake = detector(
+        _Card(
+            uuid="card-0",
+            failing=("cndevGetCardHealthStateV2", "cndevGetCardHealthState"),
+        ),
+    )
+
+    # Two unreadable reads fail open: the operator derives no unhealthy verdict
+    # from a failed query, and neither may the runtime.
+    assert det.detect_info()[0].memory_status == DeviceMemoryStatusEnum.HEALTHY
+    assert "cndevGetCardHealthState" in fake.calls
