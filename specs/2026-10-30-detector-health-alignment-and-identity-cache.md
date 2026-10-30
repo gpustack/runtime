@@ -1,6 +1,6 @@
 # Spec: Re-align detector health checks with the operator, and cache device identity between collections
 
-Status: Built
+Status: Shipped
 Type: Feature
 
 ## Summary
