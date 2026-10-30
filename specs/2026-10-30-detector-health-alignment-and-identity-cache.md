@@ -352,7 +352,7 @@ every risk has a pinned acceptance row, and the baseline suite is green.
       Feature A's acceptance matrix pinned on both API versions.
       Verify: `uv run pytest tests/gpustack_runtime/detector/test_ascend.py tests/gpustack_runtime/detector/test_pydmi.py -q`
 
-- [ ] **T3 · Cambricon V1 fallback**
+- [x] **T3 · Cambricon V1 fallback**
       Blocked by: None
       Owns: `gpustack_runtime/detector/cambricon.py`,
       `tests/gpustack_runtime/detector/test_cambricon.py`

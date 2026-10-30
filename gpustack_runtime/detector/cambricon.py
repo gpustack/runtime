@@ -313,6 +313,11 @@ def _get_memory_status(device: int) -> DeviceMemoryStatusEnum:
     (`memoryUnhealthy = healthInfo.Health == 0`): CNDev reports no per-memory
     health, and the ECC counters cndevGetECCInfo exposes take no part in it.
 
+    A failed V2 health read falls back to the V1 one, for any reason and not
+    only for a missing V2 symbol, as the operator's evaluateCardUnhealthy does:
+    a driver refusing the V2 API still yields a verdict instead of a blank one.
+    Two unreadable reads yield no verdict, which is healthy.
+
     Args:
         device:
             The device handle.
@@ -324,10 +329,21 @@ def _get_memory_status(device: int) -> DeviceMemoryStatusEnum:
     if envs.GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK:
         return DeviceMemoryStatusEnum.HEALTHY
 
-    with contextlib.suppress(pycndev.CNDevError):
+    try:
         dev_health_state = pycndev.cndevGetCardHealthStateV2(device)
-        if dev_health_state.health == 0:
-            return DeviceMemoryStatusEnum.UNHEALTHY
+    except pycndev.CNDevError:
+        debug_log_warning(
+            logger,
+            "Failed to read the V2 card health state, falling back to V1",
+        )
+        try:
+            dev_health_state = pycndev.cndevGetCardHealthState(device)
+        except pycndev.CNDevError:
+            debug_log_exception(logger, "Failed to read the card health state")
+            return DeviceMemoryStatusEnum.HEALTHY
+
+    if dev_health_state.health == 0:
+        return DeviceMemoryStatusEnum.UNHEALTHY
 
     return DeviceMemoryStatusEnum.HEALTHY
 
