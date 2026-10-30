@@ -1,6 +1,9 @@
 from __future__ import annotations as __future_annotations__
 
+import copy
 import logging
+import threading
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -9,9 +12,16 @@ from typing import Any
 
 from dataclasses_json import dataclass_json
 
+from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 
 logger = logging.getLogger(__name__)
+
+_monotonic = time.monotonic
+"""
+The clock the identity cache's time to live is measured on. A module level
+indirection, so tests can inject a clock of their own.
+"""
 
 
 class ManufacturerEnum(str, Enum):
@@ -606,6 +616,240 @@ def _usage_fields_to_merge(usage: Device) -> tuple[str, ...]:
     return tuple(field for field in _DEVICE_USAGE_FIELDS if field != "memory_status")
 
 
+@dataclass
+class _IdentityCacheEntry:
+    """
+    A cached device identity and the moment it expires.
+    """
+
+    devices: Devices
+    """
+    The detected identity, handed out as a copy.
+    """
+
+    expires_at: float
+    """
+    The clock reading after which the identity is stale.
+    """
+
+
+class _RefreshFlight:
+    """
+    One identity refresh of a manufacturer.
+
+    A flight carries its own completion, so a caller that joined it takes
+    that flight's outcome, whatever a later flight does.
+    """
+
+    def __init__(self, stale: Devices | None = None):
+        self.done = threading.Event()
+        self.devices: Devices | None = None
+        self.error: Exception | None = None
+        self.stale = stale
+        """
+        The last good identity when the flight started: the fallback a failed
+        flight owes its callers.
+        """
+
+    def complete(self, devices: Devices | None, error: Exception | None) -> None:
+        """
+        Complete the flight with the devices it detected or the error it
+        raised.
+
+        Args:
+            devices:
+                The devices the flight detected, empty when it detected none.
+            error:
+                The exception the flight raised, None when it succeeded.
+
+        """
+        self.devices = devices
+        self.error = error
+        self.done.set()
+
+    def outcome(self) -> Devices | None:
+        """
+        Return the devices the flight detected, or the last good identity
+        when the flight failed.
+
+        Returns:
+            The devices to serve, as a copy.
+
+        Raises:
+            The exception the flight raised, when no identity is cached to
+            fall back on.
+
+        """
+        if self.error is not None:
+            if self.stale is None:
+                raise self.error
+            # The last good identity is better than nothing, and the next call
+            # retries the detection.
+            return copy.deepcopy(self.stale)
+        return copy.deepcopy(self.devices)
+
+
+class _VendorIdentityState:
+    """
+    The identity cache state of one manufacturer.
+
+    The condition guards the entry and the live flight. A refresh runs
+    outside the lock, so a wedged vendor delays only the callers waiting for
+    that vendor.
+    """
+
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.entry: _IdentityCacheEntry | None = None
+        self.flight: _RefreshFlight | None = None
+        """
+        The refresh running now, if any. A caller that finds one joins it
+        rather than starting a second detection of the same vendor.
+        """
+
+
+class _IdentityCache:
+    """
+    The process wide cache of detected device identities.
+
+    One state per manufacturer, so a slow refresh of one vendor delays only
+    the callers waiting for that vendor.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._states: dict[ManufacturerEnum, _VendorIdentityState] = {}
+
+    def state(self, manufacturer: ManufacturerEnum) -> _VendorIdentityState:
+        """
+        Return the cache state of the given manufacturer.
+
+        Args:
+            manufacturer:
+                The manufacturer to take the state of.
+
+        Returns:
+            The state of the manufacturer.
+
+        """
+        with self._lock:
+            state = self._states.get(manufacturer)
+            if state is None:
+                state = _VendorIdentityState()
+                self._states[manufacturer] = state
+            return state
+
+    def reset(self) -> None:
+        """
+        Drop every cached identity.
+        """
+        with self._lock:
+            self._states.clear()
+
+    def identity(self, detector: Detector, ttl: float) -> Devices | None:
+        """
+        Return the identity of the given detector, from the cache when it is
+        still fresh.
+
+        The identity is handed out as a copy: the usage merge writes into the
+        devices it is given, so a shared object would let one caller
+        contaminate the cache.
+
+        Args:
+            detector:
+                The detector to take the identity of.
+            ttl:
+                The time to live of a cached identity, in seconds.
+                Zero disables the cache.
+
+        Returns:
+            The devices carrying the identity, or None if there is none.
+
+        Raises:
+            The exception the detection raised, when the cache holds no
+            identity to fall back on.
+
+        """
+        if ttl <= 0:
+            # The cache is disabled: the identity is detected on every call.
+            return detector.detect_info()
+
+        state = self.state(detector.manufacturer)
+        with state.condition:
+            entry = state.entry
+            if entry is not None and _monotonic() < entry.expires_at:
+                return copy.deepcopy(entry.devices)
+            flight = state.flight
+            if flight is not None:
+                # A refresh is running: join it, so the callers of one vendor
+                # share one detection. The flight carries its own completion,
+                # so a later flight cannot postpone this caller's outcome.
+                state.condition.wait_for(flight.done.is_set)
+                return flight.outcome()
+            # No refresh is running: start one. The last good identity is the
+            # fallback the flight owes its callers when it fails.
+            flight = _RefreshFlight(
+                stale=entry.devices if entry is not None else None,
+            )
+            state.flight = flight
+
+        # The detection runs outside the lock: a wedged vendor must not hold
+        # the cache for the other vendors.
+        try:
+            devices = detector.detect_info()
+        except Exception as e:
+            debug_log_exception(
+                logger,
+                "Failed to detect %s devices identity, keeping the last known one",
+                detector.manufacturer,
+            )
+            with state.condition:
+                flight.complete(None, e)
+                state.flight = None
+                state.condition.notify_all()
+            return flight.outcome()
+        else:
+            with state.condition:
+                if devices:
+                    # Only a non empty identity is cached: one enumeration glitch
+                    # must not pin an empty inventory for the time to live.
+                    state.entry = _IdentityCacheEntry(
+                        devices=devices,
+                        expires_at=_monotonic() + ttl,
+                    )
+                flight.complete(devices, None)
+                state.flight = None
+                state.condition.notify_all()
+            return flight.outcome()
+
+
+_IDENTITY_CACHE = _IdentityCache()
+"""
+The process wide cache of detected device identities.
+"""
+
+
+def _identity_cache_ttl() -> float:
+    """
+    Return the time to live of a cached device identity, in seconds.
+
+    Zero disables the cache. The environment variable is read once per
+    process, so it must be set before the first detection.
+
+    Returns:
+        The time to live, in seconds.
+
+    """
+    return float(envs.GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL)
+
+
+def _reset_identity_cache() -> None:
+    """
+    Drop every cached device identity.
+    """
+    _IDENTITY_CACHE.reset()
+
+
 class Detector(ABC):
     """
     Base class for all detectors.
@@ -677,6 +921,10 @@ class Detector(ABC):
         """
         Detect devices and return a list of Device objects.
 
+        The identity of the devices is cached process wide, per manufacturer,
+        so a repeated collection pays only the usage query. The usage is read
+        on every call, and so is the health it carries.
+
         Args:
             usage:
                 Whether to fetch the devices' usage as well.
@@ -685,7 +933,7 @@ class Detector(ABC):
             A list of detected Device objects, or None if detection fails.
 
         """
-        devices = self.detect_info()
+        devices = _IDENTITY_CACHE.identity(self, _identity_cache_ttl())
         if usage and devices:
             try:
                 self.detect_usage(devices)

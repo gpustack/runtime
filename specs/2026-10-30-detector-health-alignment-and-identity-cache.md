@@ -323,11 +323,15 @@ raising; env variables are declared in `envs.py` with docstrings and a lazy gett
 Environment: local (see Commands). No PoC task: the design was cross-checked at spec stage,
 every risk has a pinned acceptance row, and the baseline suite is green.
 
-- [ ] **T1 · Identity cache core**
+- [x] **T1 · Identity cache core**
       Blocked by: None
       Owns: `gpustack_runtime/envs.py`, `gpustack_runtime/detector/__types__.py`,
       `gpustack_runtime/detector/__init__.py`,
-      `tests/gpustack_runtime/detector/test_detector_cache.py`
+      `tests/gpustack_runtime/detector/test_detector_cache.py`,
+      `tests/gpustack_runtime/detector/conftest.py` (autouse cache-reset fixture;
+      widened during the review round — the process-wide cache leaks between every
+      detector test file, so the reset lives in one fixture instead of per-file
+      edits, and the cache stays manufacturer-wide as specified)
       Gate: review
       Acceptance: `GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL` declared in `envs.py`
       (default 60 s; `0` disables; read once per process, tests reset the `lru_cache` on

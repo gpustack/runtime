@@ -56,6 +56,18 @@ if TYPE_CHECKING:
     device it can block until the driver's RPC timeout (up to 45s with GSP
     firmware).
     """
+    GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL: int = 60
+    """
+    Time to live of the cached device identity, in seconds.
+
+    A device's identity rarely changes, while its usage and health change on
+    every collection, so the identity is detected once and reused until it
+    expires. Set 0 to disable the cache and detect the identity on every
+    collection.
+
+    The value is read once per process, so it must be set before the first
+    detection. A value that is not a number disables the cache.
+    """
     GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY: dict[str, str] | None = None
     """
     The detected backend mapping to resource keys,
@@ -399,6 +411,15 @@ variables: dict[str, Callable[[], Any]] = {
             "GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK",
             "1",
         ),
+    ),
+    "GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL": lambda: (
+        to_int(
+            getenv(
+                "GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL",
+                "60",
+            ),
+        )
+        or 0
     ),
     "GPUSTACK_RUNTIME_DETECT_BACKEND_MAP_RESOURCE_KEY": lambda: to_dict(
         getenv(
