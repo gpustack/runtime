@@ -101,8 +101,9 @@ within a known time and I can disable the cache with one environment variable.
 - `_get_device_memory_status()` (V1 path) and `_get_device_memory_status_v2()` derive the
   verdict as the operator's `evaluateDeviceUnhealthy` does: query the device's health first;
   a successful query is unhealthy if and only if `health >= 2`; when the health query fails,
-  fall back to the ECC counters of the memory type the device uses (HBM when the HBM query
-  answers, otherwise DDR — one query, not today's loop), unhealthy if and only if ECC is
+  fall back to the ECC counters of the memory type the device uses (HBM when the HBM info
+  query answers with memory — `memory_size > 0`, the same test `_get_device_memory_info`
+  uses — otherwise DDR; one query, not today's loop), unhealthy if and only if ECC is
   enabled and `double_bit_error_cnt > 0`. A single-bit-only ECC count is healthy. Every
   query unreadable is healthy.
 - Acceptance: fixture-driven unit tests faking `pydcmi` cover, on both API versions: health
@@ -153,8 +154,10 @@ aligned (same counter, same comparison, both fail open). The other four fail clo
   per-detector caller share one mechanism; `detect_info()` and `detect_usage()` stay
   uncached primitives.
 - Each supported detector's `detect_info()` result is cached process-wide, keyed by
-  manufacturer. The TTL defaults to 60 s, measured on a monotonic clock, and is set by
-  `GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL` (seconds; `0` disables). The environment
+  manufacturer. The TTL defaults to 15 s — the operator's device manager monitor
+  period — measured on a monotonic clock, and is set by
+  `GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL` (seconds; `0` disables, and a value
+  that is not a number disables too). The environment
   variable is read once per process, so it must be set before the first detection.
 - Every call still runs `detect_usage()` fresh, merged onto a **deep copy** of the cached
   identity: `Device.appendix` nests mutable structures (`mig_devices`) and the merge
@@ -209,12 +212,12 @@ aligned (same counter, same comparison, both fail open). The other four fail clo
   GPUStack's worker collector and metrics exporter, and — a second consumer easy to
   miss — the deploy path, where `Deployer._prepare()` builds workload materials from
   `detect_devices(fast=False)` and `expand_mig_devices()`. Within the process the views
-  stay mutually consistent; across the TTL they can lag the host by up to 60 s. GPUStack
+  stay mutually consistent; across the TTL they can lag the host by up to 15 s. GPUStack
   itself needs no code change; it inherits the behavior.
 - The staleness window covers the whole identity, including NVIDIA's `mig_devices` appendix.
   A just-repartitioned MIG instance can take up to the TTL to appear in the worker's
-  inventory. 60 s spans two worker status syncs (30 s apart by default), so a change lands
-  within at most two reports.
+  inventory. 15 s sits inside one worker status sync (30 s apart by default) and matches
+  the operator's monitor period, so a change lands within the next report.
 - Health stays part of the usage refresh: `merge_devices_usage()` overwrites
   `memory_status` on every collection, so caching identity does not freeze health.
 - On Ascend the aligned check is cheaper than today's: one health call per device instead of
@@ -283,7 +286,8 @@ make docs                                    # docstrings render into the API re
 
 ### Project Structure
 
-- `gpustack_runtime/detector/__init__.py` — identity cache around `detect_devices()`.
+- `gpustack_runtime/detector/__init__.py` — the detector registry; unchanged, the
+  cache serves through `Detector.detect()`.
 - `gpustack_runtime/detector/__types__.py` — cache state and helpers beside the `Detector`
   base class.
 - `gpustack_runtime/detector/ascend.py` — health-first verdict, V1 and V2 paths.
@@ -334,7 +338,7 @@ every risk has a pinned acceptance row, and the baseline suite is green.
       edits, and the cache stays manufacturer-wide as specified)
       Gate: review
       Acceptance: `GPUSTACK_RUNTIME_DETECT_INFO_CACHE_TTL` declared in `envs.py`
-      (default 60 s; `0` disables; read once per process, tests reset the `lru_cache` on
+      (default 15 s; `0` disables; read once per process, tests reset the `lru_cache` on
       `__getattr__`). `Detector.detect()` caches per supported manufacturer, serves a deep
       copy, runs `detect_usage()` fresh on every call, caches non-empty identities only,
       refreshes single-flight per detector outside the cache lock, serves the last good
