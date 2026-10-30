@@ -169,7 +169,11 @@ aligned (same counter, same comparison, both fail open). The other four fail clo
   refresh delays only the callers waiting on that vendor, not unrelated vendors or pure
   cache hits.
 - A refresh failure keeps serving the last good identity and logs at debug level; the next
-  call retries.
+  call retries. The served copy carries **no health verdict** — `memory_status`
+  is UNKNOWN, including the MIG entries in `appendix["mig_devices"]` — because the
+  refresh that could have confirmed it failed: the identity stands for inventory only.
+  An interrupted detection (any `BaseException`) settles its flight the same way, so
+  later callers retry instead of blocking on it forever.
 - Acceptance: fixture-driven unit tests with a fake detector cover: second call within the
   TTL issues no identity queries; usage queries run on every call; TTL = 0 runs both;
   mutating a handed-out device's nested `appendix` leaves the cache and the next caller
@@ -260,8 +264,9 @@ aligned (same counter, same comparison, both fail open). The other four fail clo
   `GPUSTACK_RUNTIME_DETECT_NO_HEALTH_CHECK` remains the escape hatch.
 - Concurrent scrape and sync mutate shared state → the cache hands out deep copies and
   merges usage onto them, never onto cached objects.
-- The cache masks a device removal for up to the TTL → same bound; refresh failures are
-  logged, and a removal is not silent beyond one window.
+- The cache masks a device removal for up to the TTL; a persistently failing refresh
+  keeps serving the last good inventory with its health verdict blanked, and the debug
+  log is the removal signal.
 - An identity-time health verdict can look current — when a usage refresh errors, the
   returned devices carry the `memory_status` read at identity detection, up to TTL old
   (today the same figure is at most one detection old). Bounded by the TTL and by the
@@ -420,8 +425,10 @@ code solid enough prior to committing the changes necessary to implement this en
 #### Unit tests
 - `gpustack_runtime.detector` (cache): 2026-10-30 - new `test_detector_cache.py` covering
   every Feature D acceptance row (TTL hit, miss and disable; deep-copy isolation under a
-  concurrent merge; empty-not-cached; serve-stale-then-recover; single-flight refresh;
-  monotonic injectable clock). Coverage percentage is not tracked in this repo (no
+  concurrent merge; empty-not-cached; serve-stale-then-recover with the stale verdict
+  blanked to UNKNOWN; single-flight refresh; a barging retry cannot postpone a failed
+  flight's outcome; an interrupted detection strands no flight) plus a combined-failure
+  regression past one TTL. Coverage percentage is not tracked in this repo (no
   pytest-cov); the gate is the full suite staying green.
 - `gpustack_runtime.detector.ascend` + `gpustack_runtime.detector.pydcmi`: 2026-10-30 -
   Feature A's verdict matrix on both API versions, plus an ABI pin for

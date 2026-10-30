@@ -616,6 +616,28 @@ def _usage_fields_to_merge(usage: Device) -> tuple[str, ...]:
     return tuple(field for field in _DEVICE_USAGE_FIELDS if field != "memory_status")
 
 
+def _clear_health_verdict(devices: Devices) -> None:
+    """
+    Drop the health verdict of the given devices, in place.
+
+    A verdict read when the devices were detected says nothing about them
+    now, and the refresh that could have confirmed it failed. So the devices
+    are served as inventory, with no verdict, rather than with one that went
+    stale.
+
+    Args:
+        devices:
+            The devices to drop the verdict of.
+
+    """
+    for dev in devices:
+        dev.memory_status = DeviceMemoryStatusEnum.UNKNOWN
+        # A MIG device is an entry of the card's appendix, and carries its own
+        # verdict, which the CLI reports as well.
+        for mig_dev in (dev.appendix or {}).get("mig_devices") or []:
+            mig_dev["memory_status"] = DeviceMemoryStatusEnum.UNKNOWN
+
+
 @dataclass
 class _IdentityCacheEntry:
     """
@@ -644,14 +666,14 @@ class _RefreshFlight:
     def __init__(self, stale: Devices | None = None):
         self.done = threading.Event()
         self.devices: Devices | None = None
-        self.error: Exception | None = None
+        self.error: BaseException | None = None
         self.stale = stale
         """
         The last good identity when the flight started: the fallback a failed
         flight owes its callers.
         """
 
-    def complete(self, devices: Devices | None, error: Exception | None) -> None:
+    def complete(self, devices: Devices | None, error: BaseException | None) -> None:
         """
         Complete the flight with the devices it detected or the error it
         raised.
@@ -672,6 +694,10 @@ class _RefreshFlight:
         Return the devices the flight detected, or the last good identity
         when the flight failed.
 
+        The last good identity is served without its health verdict: the
+        verdict was read when the identity was detected, and the refresh that
+        could have confirmed it failed.
+
         Returns:
             The devices to serve, as a copy.
 
@@ -685,7 +711,9 @@ class _RefreshFlight:
                 raise self.error
             # The last good identity is better than nothing, and the next call
             # retries the detection.
-            return copy.deepcopy(self.stale)
+            devices = copy.deepcopy(self.stale)
+            _clear_health_verdict(devices)
+            return devices
         return copy.deepcopy(self.devices)
 
 
@@ -755,6 +783,11 @@ class _IdentityCache:
         devices it is given, so a shared object would let one caller
         contaminate the cache.
 
+        A fresh identity is served with the health verdict it was detected
+        with. A stale one is served without any verdict: the refresh that
+        could have confirmed it failed, so the last good identity stands for
+        the inventory only.
+
         Args:
             detector:
                 The detector to take the identity of.
@@ -767,7 +800,9 @@ class _IdentityCache:
 
         Raises:
             The exception the detection raised, when the cache holds no
-            identity to fall back on.
+            identity to fall back on. An interruption propagates to the caller
+            that asked for the detection, and the waiters of the same refresh
+            get its outcome.
 
         """
         if ttl <= 0:
@@ -795,6 +830,8 @@ class _IdentityCache:
 
         # The detection runs outside the lock: a wedged vendor must not hold
         # the cache for the other vendors.
+        devices: Devices | None = None
+        error: BaseException | None = None
         try:
             devices = detector.detect_info()
         except Exception as e:
@@ -803,24 +840,32 @@ class _IdentityCache:
                 "Failed to detect %s devices identity, keeping the last known one",
                 detector.manufacturer,
             )
+            error = e
+        except BaseException as e:
+            # An interruption settles the flight as well: a flight left
+            # pending blocks every later caller of the vendor forever. The
+            # interruption keeps propagating to the thread that asked for the
+            # detection, while the waiters get the flight's outcome.
+            debug_log_exception(
+                logger,
+                "Interrupted while detecting %s devices identity",
+                detector.manufacturer,
+            )
+            error = e
+            raise
+        finally:
             with state.condition:
-                flight.complete(None, e)
-                state.flight = None
-                state.condition.notify_all()
-            return flight.outcome()
-        else:
-            with state.condition:
-                if devices:
+                if error is None and devices:
                     # Only a non empty identity is cached: one enumeration glitch
                     # must not pin an empty inventory for the time to live.
                     state.entry = _IdentityCacheEntry(
                         devices=devices,
                         expires_at=_monotonic() + ttl,
                     )
-                flight.complete(devices, None)
+                flight.complete(devices, error)
                 state.flight = None
                 state.condition.notify_all()
-            return flight.outcome()
+        return flight.outcome()
 
 
 _IDENTITY_CACHE = _IdentityCache()

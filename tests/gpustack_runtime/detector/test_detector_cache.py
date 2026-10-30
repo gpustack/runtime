@@ -15,6 +15,7 @@ from gpustack_runtime.detector import (
     detect_devices,
 )
 from gpustack_runtime.detector.__types__ import (
+    _IDENTITY_CACHE,
     Detector,
     merge_devices_usage,
 )
@@ -39,19 +40,13 @@ class _FakeDetector(Detector):
         self.info_calls = 0
         self.usage_calls = 0
         self.info_threads: list[int] = []
-        self.info_error: Exception | None = None
-        self.on_detect = None
+        self.info_error: BaseException | None = None
         self.on_info = None
         self.on_usage = None
 
     @staticmethod
     def is_supported() -> bool:
         return True
-
-    def detect(self, usage: bool = True) -> Devices | None:
-        if self.on_detect is not None:
-            self.on_detect()
-        return super().detect(usage=usage)
 
     def detect_info(self) -> Devices | None:
         self.info_calls += 1
@@ -88,13 +83,17 @@ def _device(uuid: str, **kwargs) -> Device:
     return device
 
 
-def _usage(uuid: str, cores_utilization: int = 42) -> Device:
+def _usage(
+    uuid: str,
+    cores_utilization: int = 42,
+    memory_status: DeviceMemoryStatusEnum = DeviceMemoryStatusEnum.UNHEALTHY,
+) -> Device:
     return Device(
         uuid=uuid,
         cores_utilization=cores_utilization,
         memory_used=1024,
         memory_utilization=2.5,
-        memory_status=DeviceMemoryStatusEnum.UNHEALTHY,
+        memory_status=memory_status,
         temperature=61,
         power_used=250,
     )
@@ -111,6 +110,25 @@ def _mig_device() -> dict:
         "memory_status": DeviceMemoryStatusEnum.HEALTHY,
         "appendix": {"sliced": True, "mig": True},
     }
+
+
+class _ObservedCondition(threading.Condition):
+    """
+    A condition reporting when a caller joins a refresh flight.
+
+    A caller reaching the wait path of a flight has found it, and that flight
+    is the one it will get, whatever a later flight does. The event makes the
+    arrival observable, so a test can hold a failed flight open until its
+    follower is waiting on it.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.joined = threading.Event()
+
+    def wait_for(self, *args, **kwargs):
+        self.joined.set()
+        return super().wait_for(*args, **kwargs)
 
 
 @pytest.fixture
@@ -289,6 +307,60 @@ def test_a_successful_refresh_replaces_the_stale_identity(clock):
     assert det.info_calls == 3
 
 
+def test_a_failed_refresh_beyond_the_time_to_live_serves_no_health_verdict(clock):
+    det = _FakeDetector(
+        devices=[_device("GPU-0", memory_status=DeviceMemoryStatusEnum.UNHEALTHY)],
+        usages=[_usage("GPU-0", memory_status=DeviceMemoryStatusEnum.UNKNOWN)],
+    )
+
+    # The information query reads the health, so the cached identity carries
+    # a verdict.
+    fresh = det.detect()
+
+    assert fresh[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+
+    # The identity is stale now, and the refresh fails. The usage query runs
+    # as well, and it carries no verdict to supply.
+    clock(61)
+    det.info_error = RuntimeError("the driver went away")
+    stale = det.detect()
+
+    # The failed refresh serves the inventory, but not the verdict read when
+    # the identity was detected: it went stale with it.
+    assert [dev.uuid for dev in stale] == ["GPU-0"]
+    assert stale[0].memory_status == DeviceMemoryStatusEnum.UNKNOWN
+    assert det.usage_calls == 2
+
+    # The next successful detection reads the health again, and serves it.
+    det.info_error = None
+    det.devices = [_device("GPU-0", memory_status=DeviceMemoryStatusEnum.UNHEALTHY)]
+    recovered = det.detect()
+
+    assert recovered[0].memory_status == DeviceMemoryStatusEnum.UNHEALTHY
+    assert det.info_calls == 3
+    assert det.usage_calls == 3
+
+
+def test_an_interrupted_refresh_leaves_no_flight_behind():
+    det = _FakeDetector(devices=[_device("GPU-0")], usages=[_usage("GPU-0")])
+    det.info_error = KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        det.detect()
+
+    # The interruption settled the flight: a flight left pending would block
+    # every later caller of the vendor.
+    state = _IDENTITY_CACHE.state(ManufacturerEnum.NVIDIA)
+    assert state.flight is None
+
+    # The next call detects again, and returns normally.
+    det.info_error = None
+    devices = det.detect()
+
+    assert [dev.uuid for dev in devices] == ["GPU-0"]
+    assert det.info_calls == 2
+
+
 def test_the_merge_of_a_fresh_usage_over_a_cached_identity_matches_a_detection():
     baseline = _FakeDetector(devices=[_device("GPU-0")], usages=[_usage("GPU-0")])
 
@@ -386,12 +458,18 @@ def test_two_instances_of_the_same_manufacturer_share_one_identity():
 
 def test_a_barging_retry_cannot_postpone_a_waiters_stale_fallback(clock):
     det = _FakeDetector(devices=[_device("GPU-0")], usages=[_usage("GPU-0")])
+
+    # The condition reports when a caller joins a flight, so the test knows
+    # the follower is waiting on the flight it is meant to join.
+    state = _IDENTITY_CACHE.state(ManufacturerEnum.NVIDIA)
+    condition = _ObservedCondition()
+    state.condition = condition
+
     det.detect()
     clock(61)
     # The cached identity is stale now, so the next detection refreshes it.
 
     in_flight = threading.Event()
-    follower_entered = threading.Event()
     release_flight = threading.Event()
     barged = threading.Event()
     release_barge = threading.Event()
@@ -429,15 +507,13 @@ def test_a_barging_retry_cannot_postpone_a_waiters_stale_fallback(clock):
     owner_thread.start()
     assert in_flight.wait(timeout=10)
 
-    det.on_detect = follower_entered.set
     follower_thread = threading.Thread(target=follower)
     follower_thread.start()
-    assert follower_entered.wait(timeout=10)
 
-    # The flight fails, and the follower is owed the last good identity. The
-    # follower has to reach the wait path first, and it needs the interpreter
-    # lock to get there, so the main thread yields it.
-    time.sleep(0)
+    # The follower reached the wait path of the running flight, so it will
+    # get that flight's outcome. The flight is released only now, so the
+    # follower cannot miss it.
+    assert condition.joined.wait(timeout=10)
     release_flight.set()
 
     try:
