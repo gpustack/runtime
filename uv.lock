@@ -283,7 +283,7 @@ wheels = [
 
 [[package]]
 name = "gpustack-runner"
-version = "0.1.32.post1"
+version = "0.1.32.post2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "argcomplete" },
@@ -291,9 +291,9 @@ dependencies = [
     { name = "packaging" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/0c/0dc3f204214816ca094037db7980b477e5dd1534a84b3c915a443cb7eae8/gpustack_runner-0.1.32.post1.tar.gz", hash = "sha256:a125fb622c32044c3f9690791474375d8d1da77e24f4dd92983b8c651757bf7f", size = 13772622, upload-time = "2026-10-27T06:07:33.848Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/b3/0ac09e552e3dfa1dac0f8e9e343c708262ff6f2f6ce900bf9a4ef5a9e179/gpustack_runner-0.1.32.post2.tar.gz", hash = "sha256:da942ce97d416be75ade84f16170851472174e926e1cea4f33d8bcbcb0229112", size = 13772478, upload-time = "2026-10-30T02:32:02.788Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/03/bc18afc7eb03494db4e304ffd4a29c701050c90924a7041bac26efc86ac3/gpustack_runner-0.1.32.post1-py3-none-any.whl", hash = "sha256:bfc48ee3371aa0f1ffaab5c4331d41b4cc8686d2b81766896bc17b583cbd387c", size = 33017, upload-time = "2026-10-27T06:07:31.604Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/fa/24992f837b2c6022a844b0ec776a0ffd85f321adbe0ef736fe8bc3725235/gpustack_runner-0.1.32.post2-py3-none-any.whl", hash = "sha256:b33943f7c08c4e5cf47bfb4e85123025d4982e17c121c3545115b60d84fc3837", size = 33021, upload-time = "2026-10-30T02:32:01.14Z" },
 ]
 
 [[package]]
@@ -332,7 +332,7 @@ requires-dist = [
     { name = "argcomplete", specifier = ">=3.6.3" },
     { name = "cachetools", specifier = ">=5.5.2" },
     { name = "docker", specifier = ">=7.1.0" },
-    { name = "gpustack-runner", specifier = ">=0.1.32.post1" },
+    { name = "gpustack-runner", specifier = ">=0.1.32.post2" },
     { name = "kubernetes", specifier = ">=33.1.0" },
     { name = "mthreads-ml-py", specifier = ">=2.2.10" },
     { name = "nvidia-ml-py", specifier = ">=13.580.65" },
