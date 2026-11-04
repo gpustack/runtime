@@ -5,7 +5,7 @@ from __future__ import annotations as __future_annotations__
 
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -339,7 +339,7 @@ def test_workloads_share_default_node_and_remain_listable(cluster, monkeypatch):
     select_node.assert_called_once()
     for pod in cluster.pods.values():
         assert pod.spec.node_name == "node-a"
-        pod.metadata.creation_timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        pod.metadata.creation_timestamp = datetime(2026, 1, 1, tzinfo=UTC)
         pod.status = kubernetes.client.V1PodStatus(phase="Running")
     cluster.core.list_namespaced_pod.return_value = kubernetes.client.V1PodList(
         items=list(cluster.pods.values()),

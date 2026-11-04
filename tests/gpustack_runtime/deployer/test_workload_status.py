@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import kubernetes.client
 
@@ -20,7 +20,7 @@ def _pod(annotations=None) -> kubernetes.client.V1Pod:
         metadata=kubernetes.client.V1ObjectMeta(
             name="gpustack-test",
             namespace="default",
-            creation_timestamp=datetime(2026, 7, 29, 8, 0, 0, tzinfo=timezone.utc),
+            creation_timestamp=datetime(2026, 7, 29, 8, 0, 0, tzinfo=UTC),
             labels={"app": "test"},
             annotations=annotations,
         ),

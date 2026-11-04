@@ -3,7 +3,7 @@
 # observable without a live cluster: hand-built kubernetes.client objects plus a
 # fake CoreV1Api carrying a call log.
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import kubernetes.client
 import pytest
@@ -77,7 +77,7 @@ def _pod(
             name="gpustack-test",
             namespace="default",
             uid=uid,
-            creation_timestamp=datetime(2026, 8, 14, 8, 0, 0, tzinfo=timezone.utc),
+            creation_timestamp=datetime(2026, 8, 14, 8, 0, 0, tzinfo=UTC),
             labels={"app": "test"},
             annotations=annotations,
         ),
@@ -135,8 +135,8 @@ def _terminated_status(
                 exit_code=exit_code,
                 reason=reason,
                 message="the process exited",
-                started_at=datetime(2026, 8, 14, 8, 1, 0, tzinfo=timezone.utc),
-                finished_at=datetime(2026, 8, 14, 8, 2, 0, tzinfo=timezone.utc),
+                started_at=datetime(2026, 8, 14, 8, 1, 0, tzinfo=UTC),
+                finished_at=datetime(2026, 8, 14, 8, 2, 0, tzinfo=UTC),
             ),
         ),
     )
@@ -155,15 +155,15 @@ def _restarted_status(
         restart_count=1,
         state=kubernetes.client.V1ContainerState(
             running=kubernetes.client.V1ContainerStateRunning(
-                started_at=datetime(2026, 8, 14, 8, 3, 0, tzinfo=timezone.utc),
+                started_at=datetime(2026, 8, 14, 8, 3, 0, tzinfo=UTC),
             ),
         ),
         last_state=kubernetes.client.V1ContainerState(
             terminated=kubernetes.client.V1ContainerStateTerminated(
                 exit_code=137,
                 reason="OOMKilled",
-                started_at=datetime(2026, 8, 14, 8, 1, 0, tzinfo=timezone.utc),
-                finished_at=datetime(2026, 8, 14, 8, 2, 0, tzinfo=timezone.utc),
+                started_at=datetime(2026, 8, 14, 8, 1, 0, tzinfo=UTC),
+                finished_at=datetime(2026, 8, 14, 8, 2, 0, tzinfo=UTC),
             ),
         ),
     )
@@ -178,7 +178,7 @@ def _ready_status(name: str = "run-0") -> kubernetes.client.V1ContainerStatus:
         restart_count=0,
         state=kubernetes.client.V1ContainerState(
             running=kubernetes.client.V1ContainerStateRunning(
-                started_at=datetime(2026, 8, 14, 8, 1, 0, tzinfo=timezone.utc),
+                started_at=datetime(2026, 8, 14, 8, 1, 0, tzinfo=UTC),
             ),
         ),
     )
@@ -223,9 +223,9 @@ def test_pod_event_message_takes_the_latest_by_timestamp():
     stale = _event(
         message="0/3 nodes are available: insufficient nvidia.com/gpu.",
         reason="FailedScheduling",
-        last_timestamp=datetime(2026, 8, 14, 7, 0, 0, tzinfo=timezone.utc),
+        last_timestamp=datetime(2026, 8, 14, 7, 0, 0, tzinfo=UTC),
     )
-    latest = _event(last_timestamp=datetime(2026, 8, 14, 9, 0, 0, tzinfo=timezone.utc))
+    latest = _event(last_timestamp=datetime(2026, 8, 14, 9, 0, 0, tzinfo=UTC))
     api = _FakeCoreV1Api(events=[latest, stale])
 
     status = KubernetesWorkloadStatus(
@@ -244,10 +244,10 @@ def test_pod_event_message_prefers_the_image_pull_failure():
     later_unrelated = _event(
         message="Liveness probe failed: connection refused",
         reason="Unhealthy",
-        last_timestamp=datetime(2026, 8, 14, 10, 0, 0, tzinfo=timezone.utc),
+        last_timestamp=datetime(2026, 8, 14, 10, 0, 0, tzinfo=UTC),
     )
     pull_failure = _event(
-        last_timestamp=datetime(2026, 8, 14, 9, 0, 0, tzinfo=timezone.utc),
+        last_timestamp=datetime(2026, 8, 14, 9, 0, 0, tzinfo=UTC),
     )
     api = _FakeCoreV1Api(events=[pull_failure, later_unrelated])
 
