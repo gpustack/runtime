@@ -9,7 +9,7 @@ import re
 import time
 from copy import copy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -427,7 +427,7 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         # timestamp at all sorts first, i.e. loses to any that does.
         k_warnings.sort(
             key=lambda e: (e.last_timestamp or e.event_time or e.first_timestamp)
-            or datetime.min.replace(tzinfo=timezone.utc),
+            or datetime.min.replace(tzinfo=UTC),
         )
 
         # Among the warnings, the kubelet's image-pull failure is the one being

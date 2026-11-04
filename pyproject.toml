@@ -6,13 +6,12 @@ build-backend = "hatchling.build"
 name = "gpustack-runtime"
 description = "GPUStack Runtime is library for detecting GPU resources and launching GPU workloads."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{name = "GPUStack Authors", email = "contact@gpustack.ai"}]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -23,7 +22,7 @@ dependencies = [
     # NB(thxCode): Pin to this Podman version for a custom patch. See gpustack_runtime/deployer/__patches__.py.
     "podman==5.6.0",
     "pyyaml",
-    "gpustack-runner>=0.1.32.post2",
+    "gpustack-runner>=0.1.32.post3",
     "nvidia-ml-py>=13.580.65",
     "mthreads-ml-py>=2.2.10",
     "argcomplete>=3.6.3",
@@ -56,6 +55,5 @@ dev=[
 
 [tool.uv]
 override-dependencies = [
-    "filelock==3.20.3; python_full_version < '3.11'",
-    "filelock>=4.2.1; python_full_version >= '3.11'",
+    "filelock>=4.2.1",
 ]
