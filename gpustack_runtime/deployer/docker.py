@@ -29,6 +29,7 @@ from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
 from .__types__ import (
     DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
+    UNKNOWN_RUNTIME_ENV,
     Container,
     ContainerCheck,
     ContainerEnv,
@@ -1076,53 +1077,34 @@ class DockerDeployer(EndoscopicDeployer):
                                     manu,
                                 )
 
-                    # Request devices.
                     if r_v == "all":
-                        # Configure privileged.
                         create_options["privileged"] = True
-                        # Request all devices.
-                        for ren in runtime_envs:
+
+                    for ren in runtime_envs:
+                        if r_v == "all" or privileged:
                             r_vs = self.get_runtime_visible_devices(ren, fmt)
-                            # Request device via CDI.
-                            if cdi:
-                                if "device_requests" not in create_options:
-                                    create_options["device_requests"] = []
-                                create_options["device_requests"].append(
-                                    docker.types.DeviceRequest(
-                                        driver="cdi",
-                                        count=0,
-                                        device_ids=r_vs,
-                                    ),
-                                )
-                                continue
-                            # Request device via visible devices env.
-                            create_options["environment"][ren] = ",".join(r_vs)
-                    else:
-                        # Request specific devices.
-                        for ren in runtime_envs:
-                            # Request all devices if privileged,
-                            # otherwise, normalize requested devices.
-                            if privileged:
-                                r_vs = self.get_runtime_visible_devices(ren, fmt)
-                            else:
-                                r_vs = self.map_runtime_visible_devices(
-                                    ren,
-                                    resource_values,
-                                    fmt,
-                                )
-                            # Request device via CDI.
-                            if cdi:
-                                if "device_requests" not in create_options:
-                                    create_options["device_requests"] = []
-                                create_options["device_requests"].append(
-                                    docker.types.DeviceRequest(
-                                        driver="cdi",
-                                        count=0,
-                                        device_ids=r_vs,
-                                    ),
-                                )
-                                continue
-                            # Request device via visible devices env.
+                        else:
+                            r_vs = self.map_runtime_visible_devices(
+                                ren,
+                                resource_values,
+                                fmt,
+                            )
+                        if not r_vs or (ren == UNKNOWN_RUNTIME_ENV and r_v != "all"):
+                            msg = (
+                                f"Cannot create container {container_name}: "
+                                f"no detected devices for {ren} "
+                                f"(requested {r_k}={r_v})"
+                            )
+                            raise OperationError(msg)
+                        if cdi:
+                            create_options.setdefault("device_requests", []).append(
+                                docker.types.DeviceRequest(
+                                    driver="cdi",
+                                    count=0,
+                                    device_ids=r_vs,
+                                ),
+                            )
+                        else:
                             create_options["environment"][ren] = ",".join(r_vs)
 
                     # If not requesting all devices but privileged,

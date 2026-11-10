@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
+from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 from dataclasses_json import dataclass_json
@@ -1492,6 +1493,9 @@ class DevicesMaterial:
     """
 
 
+UNKNOWN_RUNTIME_ENV = "UNKNOWN_RUNTIME_VISIBLE_DEVICES"
+
+
 class Deployer(ABC):
     """
     Base class for all deployers.
@@ -1549,6 +1553,7 @@ class Deployer(ABC):
 
     def __init__(self, name: str):
         self._name = name
+        self._materials_lock = Lock()
 
     def __enter__(self):
         return self
@@ -1556,15 +1561,30 @@ class Deployer(ABC):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def _prepare(self):
+    def _prepare(self) -> dict[str, DevicesMaterial]:
         """
-        Detect devices and prepare materials.
+        Build and cache device materials while the caller holds the cache lock.
         """
-        if self._materials is not None:
-            return
+        materials = self._detect_materials()
+        if materials:
+            self._materials = materials
+            return materials
 
-        self._materials = {}
+        # Keep the generic fallback available without caching an empty detection.
+        ben = "UNKNOWN_BACKEND_VISIBLE_DEVICES"
+        return {
+            UNKNOWN_RUNTIME_ENV: DevicesMaterial(
+                manufacturer=ManufacturerEnum.UNKNOWN,
+                runtime_env=UNKNOWN_RUNTIME_ENV,
+                backend_env=[ben],
+                cdi="unknown.com/gpu",
+                runtime_values={"all": "all"},
+                backend_values={ben: {"all": "all"}},
+            ),
+        }
 
+    def _detect_materials(self) -> dict[str, DevicesMaterial]:
+        materials: dict[str, DevicesMaterial] = {}
         devices = detect_devices(fast=False)
         if self.allowed_mig_devices:
             devices = expand_mig_devices(devices)
@@ -1617,7 +1637,7 @@ class Deployer(ABC):
                             dev_numa_affinities[dev_index],
                         )
 
-                    self._materials[ren] = DevicesMaterial(
+                    materials[ren] = DevicesMaterial(
                         manufacturer=manu,
                         runtime_env=ren,
                         backend_env=ben_list,
@@ -1638,21 +1658,7 @@ class Deployer(ABC):
                         cpus_affinities=dev_cpus_affinities,
                     )
 
-            if self._materials:
-                return
-
-        # Fallback to unknown backend
-        ren = "UNKNOWN_RUNTIME_VISIBLE_DEVICES"
-        ben_list = ["UNKNOWN_BACKEND_VISIBLE_DEVICES"]
-        cdi = "unknown.com/gpu"
-        self._materials[ren] = DevicesMaterial(
-            manufacturer=ManufacturerEnum.UNKNOWN,
-            runtime_env=ren,
-            backend_env=ben_list,
-            cdi=cdi,
-            runtime_values={"all": "all"},
-            backend_values={ben: {"all": "all"} for ben in ben_list},
-        )
+        return materials
 
     def _get_materials(
         self,
@@ -1665,8 +1671,12 @@ class Deployer(ABC):
             to corresponding devices materials.
 
         """
-        self._prepare()
-        return self._materials
+        if self._materials is not None:
+            return self._materials
+        with self._materials_lock:
+            if self._materials is not None:
+                return self._materials
+            return self._prepare()
 
     def get_manufacturer(
         self,
