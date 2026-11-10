@@ -1844,24 +1844,22 @@ class KubernetesDeployer(EndoscopicDeployer):
         self._materials_cache: dict[str, dict[str, DevicesMaterial]] = {}
         self._materials_locks = {policy: Lock() for policy in ("env", "kdp")}
 
-    def _prepare(self):
+    def _get_materials(self) -> dict[str, DevicesMaterial]:
         """
         Reuse device materials built for the same resolved injection policy.
         """
         if self._materials is not None:
-            return
+            return self._materials
         policy = self._resolve_resource_injection_policy()
         with self._materials_locks[policy]:
             if policy not in self._materials_cache:
                 self._runtime_uuid_values_allowed = policy != "kdp"
-                try:
-                    super()._prepare()
-                except Exception:
-                    # Incomplete detection must not become a reusable device map.
-                    self._materials = None
-                    raise
-                self._materials_cache[policy] = self._materials
+                materials = self._prepare()
+                if self._materials is not None:
+                    self._materials_cache[policy] = self._materials
+                return materials
             self._materials = self._materials_cache[policy]
+            return self._materials
 
     @property
     def allowed_runtime_uuid_values(self) -> bool:

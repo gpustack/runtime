@@ -3,6 +3,8 @@
 # Docker daemon, Podman socket or Kubernetes cluster.
 # ruff: noqa: SLF001
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 
 import docker.errors
@@ -18,6 +20,7 @@ from gpustack_runtime.deployer.__types__ import (
     ContainerResources,
     Deployer,
     DevicesMaterial,
+    OperationError,
 )
 from gpustack_runtime.deployer.docker import DockerDeployer, DockerWorkloadPlan
 from gpustack_runtime.deployer.kubernetes import (
@@ -25,7 +28,7 @@ from gpustack_runtime.deployer.kubernetes import (
     KubernetesWorkloadPlan,
 )
 from gpustack_runtime.deployer.podman import PodmanDeployer, PodmanWorkloadPlan
-from gpustack_runtime.detector import ManufacturerEnum
+from gpustack_runtime.detector import Device, ManufacturerEnum
 
 _ORDERING_ENV = "CUDA_DEVICE_ORDER"
 
@@ -62,7 +65,7 @@ _AMD_MATERIALS = {
 _MIXED_MATERIALS = {**_NVIDIA_MATERIALS, **_AMD_MATERIALS}
 
 
-def _deployer(cls, materials: dict[str, DevicesMaterial]):
+def _deployer(cls, materials: dict[str, DevicesMaterial] | None):
     # Bypass the deployer's __init__, which reaches out to a live daemon or
     # API server, and pin the materials so _prepare() short-circuits instead
     # of detecting devices.
@@ -106,7 +109,7 @@ class _FakeContainers:
 
 
 def _docker_container_envs(
-    materials: dict[str, DevicesMaterial],
+    materials: dict[str, DevicesMaterial] | None,
     container: Container,
     monkeypatch,
 ) -> list[tuple[str, str]]:
@@ -131,6 +134,114 @@ def _docker_container_envs(
     deployer._create_containers(workload, {}, SimpleNamespace(id="pause"))
 
     return list(created[0]["environment"].items())
+
+
+@pytest.mark.parametrize(
+    "resource_key, requested",
+    [
+        ("huawei.com/devices", "2,3"),
+        ("huawei.com/devices", "all"),
+        ("gpustack.ai/devices", "2,3"),
+    ],
+)
+def test_docker_rejects_request_without_device_material(
+    monkeypatch,
+    resource_key,
+    requested,
+):
+    monkeypatch.setattr(
+        "gpustack_runtime.deployer.__types__.detect_devices",
+        lambda **_: [],
+    )
+    container = _container({resource_key: requested}, privileged=True)
+
+    with pytest.raises(OperationError, match=f"requested {resource_key}={requested}"):
+        _docker_container_envs(None, container, monkeypatch)
+
+
+def test_docker_preserves_automap_all_fallback(monkeypatch):
+    monkeypatch.setattr(
+        "gpustack_runtime.deployer.__types__.detect_devices",
+        lambda **_: [],
+    )
+    container = _container({"gpustack.ai/devices": "all"})
+
+    assert dict(_docker_container_envs(None, container, monkeypatch)) == {
+        "UNKNOWN_RUNTIME_VISIBLE_DEVICES": "all",
+    }
+
+
+def test_docker_retries_device_detection_after_empty_result(monkeypatch):
+    devices = iter(
+        [
+            [],
+            [
+                Device(
+                    manufacturer=ManufacturerEnum.ASCEND,
+                    index=index,
+                    name="Ascend 910B2",
+                    uuid=str(index),
+                    appendix={},
+                )
+                for index in range(4)
+            ],
+        ],
+    )
+    monkeypatch.setattr(
+        "gpustack_runtime.deployer.__types__.detect_devices",
+        lambda **_: next(devices),
+    )
+    deployer = _deployer(DockerDeployer, None)
+    runtime_env = "ASCEND_VISIBLE_DEVICES"
+
+    assert deployer.get_runtime_visible_devices(runtime_env) == []
+    assert deployer.get_runtime_visible_devices(runtime_env) == ["0", "1", "2", "3"]
+    assert deployer.map_backend_visible_devices([runtime_env], ["2", "3"]) == {
+        "ASCEND_RT_VISIBLE_DEVICES": "2,3",
+        "NPU_VISIBLE_DEVICES": "2,3",
+    }
+
+
+def test_concurrent_device_mapping_waits_for_detection(monkeypatch):
+    detection_started = Event()
+    finish_detection = Event()
+    lookup_started = Event()
+    deployer = _deployer(DockerDeployer, None)
+    runtime_env = "ASCEND_VISIBLE_DEVICES"
+
+    def detect(**_):
+        assert not detection_started.is_set()
+        detection_started.set()
+        assert finish_detection.wait(timeout=5)
+        return [
+            Device(
+                manufacturer=ManufacturerEnum.ASCEND,
+                index=0,
+                name="Ascend 910B2",
+                uuid="0",
+                appendix={},
+            ),
+        ]
+
+    def lookup():
+        lookup_started.set()
+        return deployer.map_backend_visible_devices([runtime_env], ["0"])
+
+    monkeypatch.setattr("gpustack_runtime.deployer.__types__.detect_devices", detect)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(deployer.get_runtime_visible_devices, runtime_env)
+        try:
+            assert detection_started.wait(timeout=5)
+            second = executor.submit(lookup)
+            assert lookup_started.wait(timeout=5)
+            assert deployer._materials is None
+        finally:
+            finish_detection.set()
+        assert first.result(timeout=5) == ["0"]
+        assert second.result(timeout=5) == {
+            "ASCEND_RT_VISIBLE_DEVICES": "0",
+            "NPU_VISIBLE_DEVICES": "0",
+        }
 
 
 def _podman_container_envs(
