@@ -12,12 +12,12 @@ from gpustack_runtime.deployer.kubernetes import _set_privilege_escalation
         (None, False),
         (kubernetes.client.V1SecurityContext(privileged=False), False),
         (kubernetes.client.V1SecurityContext(privileged=True), True),
-        (
-            kubernetes.client.V1SecurityContext(
-                capabilities=kubernetes.client.V1Capabilities(add=["SYS_ADMIN"]),
-            ),
-            True,
-        ),
+        *[
+            (kubernetes.client.V1SecurityContext(
+                capabilities=kubernetes.client.V1Capabilities(add=[value]),
+            ), True)
+            for value in ["SYS_ADMIN", "CAP_SYS_ADMIN", "sys_admin", "cap_sys_admin", "ALL", "CAP_ALL"]
+        ],
         (
             kubernetes.client.V1SecurityContext(
                 capabilities=kubernetes.client.V1Capabilities(add=["IPC_LOCK"]),

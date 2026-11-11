@@ -695,10 +695,14 @@ def _resolve_runtime_class_name(
 def _set_privilege_escalation(container: kubernetes.client.V1Container) -> None:
     security = container.security_context or kubernetes.client.V1SecurityContext()
     capabilities = security.capabilities
-    # Kubernetes cannot disable escalation for privileged containers or CAP_SYS_ADMIN.
+    added_capabilities = {
+        capability.upper().removeprefix("CAP_")
+        for capability in (capabilities.add or [])
+    } if capabilities else set()
+    # Kubernetes cannot disable escalation for privileged containers, SYS_ADMIN, or ALL.
     security.allow_privilege_escalation = bool(
         security.privileged
-        or (capabilities and "SYS_ADMIN" in (capabilities.add or [])),
+        or added_capabilities.intersection({"SYS_ADMIN", "ALL"}),
     )
     container.security_context = security
 
