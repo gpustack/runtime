@@ -692,6 +692,17 @@ def _resolve_runtime_class_name(
     pod.spec.runtime_class_name = runtime_class_name
 
 
+def _set_privilege_escalation(container: kubernetes.client.V1Container) -> None:
+    security = container.security_context or kubernetes.client.V1SecurityContext()
+    capabilities = security.capabilities
+    # Kubernetes cannot disable escalation for privileged containers or CAP_SYS_ADMIN.
+    security.allow_privilege_escalation = bool(
+        security.privileged
+        or (capabilities and "SYS_ADMIN" in (capabilities.add or [])),
+    )
+    container.security_context = security
+
+
 def _resolve_privileged(container: Container, kdp: bool) -> bool:
     """
     Resolve whether a container runs privileged.
@@ -1764,6 +1775,8 @@ class KubernetesDeployer(EndoscopicDeployer):
                         mount_path="/dev/shm",  # noqa: S108
                     ),
                 )
+
+            _set_privilege_escalation(container)
 
             # Append the container.
             if c.profile == ContainerProfileEnum.INIT:
