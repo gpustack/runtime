@@ -131,6 +131,11 @@ class IluvatarDetector(Detector):
                 dev_minor_number = None
                 with contextlib.suppress(pyixml.NVMLError):
                     dev_minor_number = pyixml.nvmlDeviceGetMinorNumber(dev)
+                if (
+                    envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY
+                    and dev_minor_number is not None
+                ):
+                    dev_index = dev_minor_number
 
                 dev_name = pyixml.nvmlDeviceGetName(dev)
 

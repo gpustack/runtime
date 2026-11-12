@@ -194,6 +194,8 @@ class AscendDetector(Detector):
                             dev_index,
                         )
                         continue
+                    if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                        dev_index = dev_physical_id
 
                     dev_uuid = _get_device_die(dev_card_id, dev_device_id)
 
@@ -359,7 +361,11 @@ class AscendDetector(Detector):
                 ret.append(
                     Device(
                         manufacturer=self.manufacturer,
-                        index=dev_index,
+                        index=(
+                            dev_physical_id
+                            if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY
+                            else dev_index
+                        ),
                         name=dev_name,
                         uuid=dev_uuid.upper(),
                         driver_version=None,
@@ -515,7 +521,13 @@ class AscendDetector(Detector):
 
         try:
             for dev_index in pydcmi.dcmiv2_get_device_list():
-                dev_uuid = uuid_by_index.get(dev_index)
+                lookup_index = dev_index
+                if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
+                    with contextlib.suppress(pydcmi.DCMIError):
+                        lookup_index = pydcmi.dcmiv2_get_chip_phy_id_by_dev_id(
+                            dev_index,
+                        )
+                dev_uuid = uuid_by_index.get(lookup_index)
                 if not dev_uuid:
                     continue
 

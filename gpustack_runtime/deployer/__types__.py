@@ -1467,7 +1467,7 @@ class DevicesMaterial:
     """
     Mapping devices to runtime visible devices env values,
     the key is the device index string,
-    the value is the device index string or uuid.
+    the value is the device index string, physical id string, or uuid.
     For example, {"0": "GPU-11111111-2222-3333-4444-555555555555"} for NVIDIA.
     """
     backend_values: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -1624,15 +1624,24 @@ class Deployer(ABC):
                     dev_cpus_affinities: dict[str, str] = {}
                     for dev_i, dev in enumerate(devs):
                         dev_index = str(dev.index)
+                        dev_appendix = dev.appendix or {}
                         if valued_runtime_uuid:
                             dev_runtime_values[dev_index] = dev.uuid
+                        elif manu == ManufacturerEnum.ASCEND:
+                            # ascend-docker-runtime and the Ascend CDI spec
+                            # address each NPU by the driver's physical id
+                            # (/dev/davinci<N>), while Device.index carries the
+                            # DCMI logic id that callers schedule by.
+                            dev_runtime_values[dev_index] = str(
+                                dev_appendix.get("physical_id", dev_index),
+                            )
                         else:
                             dev_runtime_values[dev_index] = dev_index
                         dev_backend_values[dev_index] = dev_index
-                        if dev.appendix.get("sliced", False):
+                        if dev_appendix.get("sliced", False):
                             dev_backend_values[dev_index] = dev.uuid
                         dev_backend_aligned_values[dev_index] = str(dev_i)
-                        dev_numa_affinities[dev_index] = dev.appendix.get("numa", "")
+                        dev_numa_affinities[dev_index] = dev_appendix.get("numa", "")
                         dev_cpus_affinities[dev_index] = map_numa_node_to_cpu_affinity(
                             dev_numa_affinities[dev_index],
                         )

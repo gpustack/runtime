@@ -887,8 +887,10 @@ def test_cdi_emits_no_vdavinci_path(monkeypatch):
 
     assert config is not None
     assert not any("vdavinci" in path for path in seen_paths)
-    # The device carrying a physical id is addressed by it.
+    # The device carrying a physical id is addressed and named by it, so a CDI
+    # request built from runtime_values resolves to that same device node.
     assert "/dev/davinci3" in seen_paths
+    assert [dev.name for dev in config.devices] == ["3", "all"]
     # The device without one is skipped: Device.index is the logic id, so
     # standing it in for the physical id would address another NPU's node.
     assert "/dev/davinci1" not in seen_paths
@@ -1763,3 +1765,42 @@ def test_detect_reproduces_the_950pr_host(fake_pydcmi_v2):
     # Every card has to be told apart, which the address fallback still manages.
     assert len({d.uuid for d in devices}) == 8
     assert [d.appendix["physical_id"] for d in devices] == list(range(8))
+
+
+def test_detect_physical_index_priority_uses_physical_id_as_index(
+    fake_pydcmi,
+    monkeypatch,
+):
+    fake_pydcmi(
+        [
+            _Unit(card_id=1, device_id=0, logic_id=0, physical_id=0),
+            _Unit(card_id=2, device_id=0, logic_id=1, physical_id=2),
+            _Unit(card_id=4, device_id=0, logic_id=2, physical_id=4),
+            _Unit(card_id=5, device_id=0, logic_id=3, physical_id=6),
+        ],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", True)
+
+    devices = AscendDetector().detect_info()
+
+    assert [d.index for d in devices] == [0, 2, 4, 6]
+    assert [d.appendix["physical_id"] for d in devices] == [0, 2, 4, 6]
+
+
+def test_detect_v2_physical_index_priority_uses_physical_id_and_merges_usage(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    fake_pydcmi_v2(
+        [
+            _UnitV2(dev_id=0, phy_id=0, die_types=()),
+            _UnitV2(dev_id=1, phy_id=2, die_types=()),
+        ],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", True)
+
+    devices = AscendDetector().detect(usage=True)
+
+    assert [d.index for d in devices] == [0, 2]
+    assert [d.appendix["physical_id"] for d in devices] == [0, 2]
+    assert all(d.cores_utilization == _UnitV2().cores_utilization for d in devices)

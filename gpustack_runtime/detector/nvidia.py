@@ -174,6 +174,11 @@ class NVIDIADetector(Detector):
                 dev_minor_number = None
                 with contextlib.suppress(pynvml.NVMLError):
                     dev_minor_number = pynvml.nvmlDeviceGetMinorNumber(dev)
+                if (
+                    envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY
+                    and dev_minor_number is not None
+                ):
+                    dev_index = dev_minor_number
 
                 # Report the physical card, whether or not MIG is enabled.
                 # MIG instances are partitioned on demand by the operator's

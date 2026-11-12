@@ -251,9 +251,11 @@ class AscendGenerator(Generator):
             container_device_nodes.append(cdn)
 
             # Add specific container edits for each device.
+            # Name the CDI device by the physical id as well, matching what
+            # Deployer._prepare puts in runtime_values for fmt="cdi".
             cdi_devices.append(
                 ConfigDevice(
-                    name=str(dev.index),
+                    name=str(cdn_number),
                     container_edits=ConfigContainerEdits(
                         device_nodes=container_device_nodes,
                     ),
