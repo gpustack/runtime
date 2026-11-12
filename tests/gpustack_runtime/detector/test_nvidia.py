@@ -583,6 +583,32 @@ def test_detect_info_omits_an_unreadable_minor_number(fake_nvml):
     assert "minor_number" not in devices[0].appendix
 
 
+def test_detect_info_physical_index_priority_skips_unreadable_minor_number(
+    fake_nvml,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        nvidia.envs,
+        "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY",
+        True,
+        raising=False,
+    )
+    fake_nvml(
+        [
+            _FakeDevice(uuid="GPU-0", minor_number=1),
+            _FakeDevice(uuid="GPU-1", minor_number=None),
+        ],
+    )
+
+    devices = NVIDIADetector().detect_info()
+
+    assert [
+        (dev.uuid, dev.index, dev.appendix.get("minor_number")) for dev in devices
+    ] == [
+        ("GPU-0", 1, 1),
+    ]
+
+
 @pytest.mark.usefixtures("health_check")
 def test_detect_info_reports_the_memory_health(fake_nvml):
     fake_nvml([_FakeDevice(ecc_errors=1)])
