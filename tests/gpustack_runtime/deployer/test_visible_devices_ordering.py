@@ -489,3 +489,121 @@ def test_visible_devices_ordering_injection_with_device_plugin(
     )
     actual = [v for n, v in container_envs if n == _ORDERING_ENV]
     assert actual == expected, f"case {name} expected {expected}, but got {actual}"
+
+
+def _ascend_310p_devices() -> list[Device]:
+    """
+    Reproduce the 4 x Atlas 300I Pro (Ascend 310P3) layout from issue #6747:
+    DCMI logic ids 0..3, driver physical ids 0, 2, 4, 6 (/dev/davinci0,2,4,6).
+    """
+    return [
+        Device(
+            manufacturer=ManufacturerEnum.ASCEND,
+            index=logic_id,
+            name="Ascend310P3",
+            uuid=f"DIE-{logic_id}",
+            appendix={"physical_id": physical_id},
+        )
+        for logic_id, physical_id in ((0, 0), (1, 2), (2, 4), (3, 6))
+    ]
+
+
+def test_prepare_maps_ascend_runtime_values_to_physical_ids(monkeypatch):
+    monkeypatch.setattr(
+        "gpustack_runtime.deployer.__types__.detect_devices",
+        lambda **_kwargs: _ascend_310p_devices(),
+    )
+    deployer = object.__new__(DockerDeployer)
+    Deployer.__init__(deployer, "test")
+
+    materials = deployer._get_materials()
+
+    ascend_material = materials["ASCEND_VISIBLE_DEVICES"]
+    assert ascend_material.runtime_values == {
+        "0": "0",
+        "1": "2",
+        "2": "4",
+        "3": "6",
+    }
+    assert ascend_material.backend_values == {
+        "ASCEND_RT_VISIBLE_DEVICES": {"0": "0", "1": "1", "2": "2", "3": "3"},
+        "NPU_VISIBLE_DEVICES": {"0": "0", "1": "1", "2": "2", "3": "3"},
+    }
+    assert deployer.get_runtime_visible_devices("ASCEND_VISIBLE_DEVICES", "plain") == [
+        "0",
+        "2",
+        "4",
+        "6",
+    ]
+    assert deployer.map_runtime_visible_devices(
+        "ASCEND_VISIBLE_DEVICES",
+        ["1", "3"],
+        "plain",
+    ) == ["2", "6"]
+    assert deployer.map_runtime_visible_devices(
+        "ASCEND_VISIBLE_DEVICES",
+        ["1", "3"],
+        "cdi",
+    ) == ["huawei.com/npu=2", "huawei.com/npu=6"]
+
+
+@pytest.mark.parametrize(
+    "runner",
+    [
+        _docker_container_envs,
+        _kubernetes_container_envs,
+    ],
+    ids=["docker", "kubernetes"],
+)
+@pytest.mark.parametrize(
+    "name, resources, privileged, expected_envs",
+    [
+        (
+            "privileged single card uses all physical ids for runtime and aligned index for backend",
+            {"huawei.com/devices": "2"},
+            True,
+            {
+                "ASCEND_VISIBLE_DEVICES": "0,2,4,6",
+                "ASCEND_RT_VISIBLE_DEVICES": "2",
+                "NPU_VISIBLE_DEVICES": "2",
+            },
+        ),
+        (
+            "unprivileged subset maps logic ids to physical ids",
+            {"huawei.com/devices": "1,3"},
+            False,
+            {
+                "ASCEND_VISIBLE_DEVICES": "2,6",
+            },
+        ),
+    ],
+)
+def test_ascend_env_injection_uses_physical_ids(
+    name,
+    resources,
+    privileged,
+    expected_envs,
+    runner,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "gpustack_runtime.deployer.__types__.detect_devices",
+        lambda **_kwargs: _ascend_310p_devices(),
+    )
+    probe_deployer = object.__new__(DockerDeployer)
+    Deployer.__init__(probe_deployer, "test")
+    materials = probe_deployer._get_materials()
+
+    container_envs = dict(
+        runner(
+            materials,
+            _container(resources, privileged=privileged),
+            monkeypatch,
+        ),
+    )
+
+    for env_key, expected_val in expected_envs.items():
+        assert container_envs.get(env_key) == expected_val, f"case {name}: {env_key}"
+    if not privileged:
+        assert "ASCEND_RT_VISIBLE_DEVICES" not in container_envs
+        assert "NPU_VISIBLE_DEVICES" not in container_envs
