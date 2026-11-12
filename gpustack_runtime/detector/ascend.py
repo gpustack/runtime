@@ -523,10 +523,17 @@ class AscendDetector(Detector):
             for dev_index in pydcmi.dcmiv2_get_device_list():
                 lookup_index = dev_index
                 if envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY:
-                    with contextlib.suppress(pydcmi.DCMIError):
+                    try:
                         lookup_index = pydcmi.dcmiv2_get_chip_phy_id_by_dev_id(
                             dev_index,
                         )
+                    except pydcmi.DCMIError:
+                        debug_log_warning(
+                            logger,
+                            "Failed to get physical id of device %d, skipping it this round",
+                            dev_index,
+                        )
+                        continue
                 dev_uuid = uuid_by_index.get(lookup_index)
                 if not dev_uuid:
                     continue

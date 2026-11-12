@@ -1804,3 +1804,26 @@ def test_detect_v2_physical_index_priority_uses_physical_id_and_merges_usage(
     assert [d.index for d in devices] == [0, 2]
     assert [d.appendix["physical_id"] for d in devices] == [0, 2]
     assert all(d.cores_utilization == _UnitV2().cores_utilization for d in devices)
+
+
+def test_detect_usage_v2_physical_index_priority_skips_failed_phy_id_lookup(
+    fake_pydcmi_v2,
+    monkeypatch,
+):
+    fake = fake_pydcmi_v2(
+        [
+            _UnitV2(dev_id=0, phy_id=0, cores_utilization=11),
+            _UnitV2(dev_id=1, phy_id=2, cores_utilization=22),
+            _UnitV2(dev_id=2, phy_id=4, cores_utilization=33),
+        ],
+    )
+    monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY", True)
+
+    devices = AscendDetector().detect_info()
+    # A transient physical-id failure on dev_id=2 must not fall back to
+    # lookup_index=2 and collide with dev_id=1 (whose physical_id is 2).
+    fake.units[2].phy_id_readable = False
+
+    AscendDetector().detect_usage(devices)
+
+    assert [d.cores_utilization for d in devices] == [11, 22, 0]
