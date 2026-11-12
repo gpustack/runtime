@@ -90,6 +90,7 @@ class FakePyixml:
         v2_memory: bool = True,
         health: int = 0,
         health_error_code: int | None = None,
+        minor_numbers: list[int | None] | None = None,
     ):
         self.calls: list[str] = []
         self.device_count = device_count
@@ -102,6 +103,7 @@ class FakePyixml:
         self.v1_memory_used = 4 * 1024**3
         self.health = health
         self.health_error_code = health_error_code
+        self.minor_numbers = minor_numbers
 
     # The method names below mirror pyixml's real (camelCase) API one-for-one,
     # so a test can monkeypatch this in as a drop-in for the module.
@@ -126,6 +128,12 @@ class FakePyixml:
 
     def nvmlDeviceGetMinorNumber(self, dev):  # noqa: N802
         self.calls.append("nvmlDeviceGetMinorNumber")
+        if self.minor_numbers is not None:
+            minor = self.minor_numbers[dev.index]
+            if minor is None:
+                msg = "minor number unreadable"
+                raise self.NVMLError(msg)
+            return minor
         return 10 + dev.index
 
     def nvmlDeviceGetName(self, dev):  # noqa: N802
@@ -269,6 +277,27 @@ def test_detect_info_keeps_the_minor_number_appendix(fake_pyixml):
     devices = IluvatarDetector().detect_info()
 
     assert [dev.appendix["minor_number"] for dev in devices] == [10, 11]
+
+
+def test_detect_info_physical_index_priority_skips_unreadable_minor_number(
+    fake_pyixml,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        envs,
+        "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY",
+        True,
+        raising=False,
+    )
+    fake_pyixml(minor_numbers=[1, None])
+
+    devices = IluvatarDetector().detect_info()
+
+    assert [
+        (dev.uuid, dev.index, dev.appendix.get("minor_number")) for dev in devices
+    ] == [
+        ("GPU-0", 1, 1),
+    ]
 
 
 def test_detect_info_issues_no_usage_calls(fake_pyixml):

@@ -162,9 +162,11 @@ class Device:
     """
     index: int = 0
     """
-    Index of the device, as the detector enumerates it.
+    Index of the device, as the detector enumerates it by default.
     Driver-physical numbering, which a device node path or a vendor tool needs,
-    lives in `appendix` instead, e.g. `minor_number` or `card_id`/`physical_id`.
+    lives in `appendix` (`minor_number` or `card_id`/`physical_id`), and is
+    also used as `index` when `GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY`
+    is enabled.
     """
     name: str = ""
     """

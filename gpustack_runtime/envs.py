@@ -62,6 +62,14 @@ if TYPE_CHECKING:
     e.g `{"cuda": "nvidia.com/devices", "rocm": "amd.com/devices"}`.
     Used to map the gpustack-runner's backend name to the corresponding resource key.
     """
+    GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY: bool = False
+    """
+    Use physical index priority at detecting devices.
+    When enabled, detectors that expose a distinct driver-physical index
+    (e.g. `physical_id` on Ascend, `minor_number` on NVIDIA and Iluvatar)
+    report that physical index as `Device.index` instead of the logical or
+    enumeration index.
+    """
     ## Deployer
     GPUSTACK_RUNTIME_DEPLOY: str | None = None
     """
@@ -412,6 +420,12 @@ variables: dict[str, Callable[[], Any]] = {
             "musa=mthreads.com/devices;"
             "cuda=nvidia.com/devices;"
             "hggc=alibabacloud.com/devices;",
+        ),
+    ),
+    "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY": lambda: to_bool(
+        getenv(
+            "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY",
+            "0",
         ),
     ),
     ## Deployer

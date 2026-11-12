@@ -309,11 +309,11 @@ def test_every_detector_accepts_no_usage():
         assert devices is None or isinstance(devices, list), det.name
 
 
-def test_no_physical_index_switch_survives():
-    # Device.index is the enumeration index now, with no switch to make it the
-    # driver-physical number. Asserted on the whole environment surface rather
-    # than on the retired name, so a renamed reincarnation fails as well.
-    assert [name for name in dir(envs) if "PHYSICAL_INDEX" in name] == []
+def test_physical_index_switch_defaults_to_false():
+    # Device.index defaults to the enumeration/logical index so NVIDIA (#6041)
+    # and Ascend (#6747) align with runtime/backend expectations out of the box,
+    # while keeping the switch available as an opt-in escape hatch.
+    assert envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY is False
 
 
 # --------------------------------------------------------------------------- #
