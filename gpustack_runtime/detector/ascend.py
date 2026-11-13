@@ -326,7 +326,15 @@ class AscendDetector(Detector):
                     )
                     continue
 
-                dev_bdf = pydcmi.dcmiv2_get_device_bdf(dev_index)
+                try:
+                    dev_bdf = pydcmi.dcmiv2_get_device_bdf(dev_index)
+                except pydcmi.DCMIError:
+                    debug_log_warning(
+                        logger,
+                        "Failed to fetch BDF of device %d, faking it",
+                        dev_index,
+                    )
+                    dev_bdf = f"0000:00:00.{dev_index:x}"
 
                 dev_uuid = _get_device_die_v2(dev_index, dev_bdf)
 
