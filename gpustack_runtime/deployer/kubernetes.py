@@ -426,8 +426,10 @@ class KubernetesWorkloadStatus(WorkloadStatus):
         # suffix, so list order is not time order: sort it. An Event carrying no
         # timestamp at all sorts first, i.e. loses to any that does.
         k_warnings.sort(
-            key=lambda e: (e.last_timestamp or e.event_time or e.first_timestamp)
-            or datetime.min.replace(tzinfo=UTC),
+            key=lambda e: (
+                (e.last_timestamp or e.event_time or e.first_timestamp)
+                or datetime.min.replace(tzinfo=UTC)
+            ),
         )
 
         # Among the warnings, the kubelet's image-pull failure is the one being
@@ -1788,11 +1790,14 @@ class KubernetesDeployer(EndoscopicDeployer):
                 )
 
             actual_pod = None
-            with contextlib.suppress(kubernetes.client.exceptions.ApiException):
+            try:
                 actual_pod = core_api.read_namespaced_pod(
                     name=pod_name,
                     namespace=workload.namespace,
                 )
+            except kubernetes.client.exceptions.ApiException as e:
+                if e.status != 404:
+                    raise
             if not actual_pod:
                 pod = core_api.create_namespaced_pod(
                     namespace=workload.namespace,
@@ -1804,22 +1809,21 @@ class KubernetesDeployer(EndoscopicDeployer):
                     pod_name,
                 )
             elif not equal_pods(actual_pod, pod):
-                # Delete the existing Pod first, then create a new one.
-                with watch(
-                    core_api.list_namespaced_pod,
-                    resource_version=_get_quorum_read_resource_version(),
-                    namespace=workload.namespace,
-                ) as es:
+                # Delete only the observed Pod, then confirm it is gone.
+                try:
                     core_api.delete_namespaced_pod(
                         name=pod_name,
                         namespace=workload.namespace,
+                        body=kubernetes.client.V1DeleteOptions(
+                            preconditions=kubernetes.client.V1Preconditions(
+                                uid=actual_pod.metadata.uid,
+                            ),
+                        ),
                     )
-                    for e in es:
-                        if (
-                            e["type"] == "DELETED"
-                            and e["object"].metadata.name == pod_name
-                        ):
-                            break
+                except kubernetes.client.exceptions.ApiException as e:
+                    if e.status != 404:
+                        raise
+                _wait_for_pod_deletion(core_api, actual_pod, workload.namespace)
                 pod = core_api.create_namespaced_pod(
                     namespace=workload.namespace,
                     body=pod,
@@ -1830,6 +1834,11 @@ class KubernetesDeployer(EndoscopicDeployer):
                     pod_name,
                 )
         except kubernetes.client.exceptions.ApiException as e:
+            msg = f"Failed to create pod for workload {workload.name}{_detail_api_call_error(e)}"
+            raise OperationError(msg) from e
+        except OperationError:
+            raise
+        except Exception as e:
             msg = f"Failed to create pod for workload {workload.name}{_detail_api_call_error(e)}"
             raise OperationError(msg) from e
 
@@ -3095,6 +3104,37 @@ def equal_containers(
     aenv = {e.name: e.value for e in a.env or []}
     benv = {e.name: e.value for e in b.env or []}
     return all(not (k not in benv or benv[k] != v) for k, v in aenv.items())
+
+
+def _wait_for_pod_deletion(
+    core_api: kubernetes.client.CoreV1Api,
+    pod: kubernetes.client.V1Pod,
+    namespace: str,
+) -> None:
+    """Wait for the observed Pod to disappear before creating its replacement."""
+    name = pod.metadata.name
+    uid = pod.metadata.uid
+    grace = _pod_termination_grace_period_seconds(pod.spec)
+    deadline = time.monotonic() + grace + 120
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            msg = f"Timed out waiting for pod {namespace}/{name} to be deleted"
+            raise OperationError(msg)
+        try:
+            current = core_api.read_namespaced_pod(
+                name=name,
+                namespace=namespace,
+                _request_timeout=min(remaining, 10),
+            )
+        except kubernetes.client.exceptions.ApiException as e:
+            if e.status == 404:
+                return
+            raise
+        if current.metadata.uid != uid:
+            msg = f"Pod {namespace}/{name} was replaced while waiting for deletion"
+            raise OperationError(msg)
+        time.sleep(min(1, max(0, deadline - time.monotonic())))
 
 
 def _pod_termination_grace_period_seconds(
