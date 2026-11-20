@@ -134,6 +134,8 @@ class KubernetesWorkloadPlan(WorkloadPlan):
             it should be unique in the deployer.
         labels (dict[str, str] | None):
             Labels to attach to the workload.
+        annotations (dict[str, str] | None):
+            Annotations to attach to the workload's Pod.
         host_network (bool):
             Indicates if the containers of the workload use the host network.
         host_ipc (bool):
@@ -1449,7 +1451,7 @@ class KubernetesDeployer(EndoscopicDeployer):
                 name=pod_name,
                 namespace=workload.namespace,
                 labels=workload.labels or {},
-                annotations={},
+                annotations=dict(workload.annotations or {}),
             ),
             spec=kubernetes.client.V1PodSpec(
                 containers=[],

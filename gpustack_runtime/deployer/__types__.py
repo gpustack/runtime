@@ -851,6 +851,8 @@ class WorkloadPlan(WorkloadSecurity):
             Name for the workload, it should be unique in the deployer.
         labels (dict[str, str] | None):
             Labels for the workload.
+        annotations (dict[str, str] | None):
+            Annotations for the workload, applied by deployers that support them.
         instance_type (str | None):
             Name of the operator InstanceType the workload deploys onto.
         host_network (bool):
@@ -889,6 +891,12 @@ class WorkloadPlan(WorkloadSecurity):
     labels: dict[str, str] | None = None
     """
     Labels for the workload.
+    """
+    annotations: dict[str, str] | None = None
+    """
+    Annotations for the workload.
+    Only the Kubernetes deployer applies them, onto the Pod, e.g. to
+    hint the operator's device plugin which accelerators to allocate.
     """
     instance_type: str | None = None
     """
