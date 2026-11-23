@@ -57,7 +57,7 @@
     {
       "path": "mkdocs.yml",
       "merge_system_rule": true,
-      "rule": "MkDocs configuration. A new page under docs/ must be registered in the nav tree or it will not be published. Flag navigation entries that point to a missing page or conflict with the documentation structure."
+      "rule": "MkDocs configuration. Pages omitted from nav are still built and published, but are excluded from global navigation and previous/next links; check whether a new page under docs/ is intended to be discoverable in nav rather than claiming it is unpublished. Flag navigation entries that point to a missing page or conflict with the documentation structure."
     }
   ]
 }
