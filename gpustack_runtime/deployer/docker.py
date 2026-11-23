@@ -26,7 +26,9 @@ from gpustack_runner import split_image
 from tqdm import tqdm
 
 from .. import envs
+from ..detector import ManufacturerEnum
 from ..logging import debug_log_exception, debug_log_warning
+from .__hostfs__ import is_host_root_mount_path, normalize_mount_path
 from .__types__ import (
     DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
     UNKNOWN_RUNTIME_ENV,
@@ -59,6 +61,12 @@ from .__utils__ import (
     sensitive_env_var,
 )
 from .cdi import dump_config as cdi_dump_config
+from .cdi.ascend import (
+    is_a5_arch_family as is_ascend_a5_arch_family,
+)
+from .cdi.ascend import (
+    resolve_a5_conditional_mounts as resolve_ascend_a5_conditional_mounts,
+)
 from .cdi.ascend import (
     warn_incompatible_ranktable as warn_incompatible_ascend_ranktable,
 )
@@ -783,6 +791,40 @@ class DockerDeployer(EndoscopicDeployer):
             create_options["mounts"] = mount_binding
 
     @staticmethod
+    def _append_ascend_a5_conditional_mounts(create_options: dict[str, Any]):
+        """
+        Append eligible Ascend A5 read-only host mounts without duplicating
+        any existing mount target.
+        """
+        conditional_paths = resolve_ascend_a5_conditional_mounts()
+        if not conditional_paths:
+            return
+
+        c_mounts: list[docker.types.Mount] = create_options.get("mounts") or []
+        existing_targets = {
+            normalize_mount_path(m.get("Target")) for m in c_mounts if m.get("Target")
+        }
+        for path in conditional_paths:
+            if normalize_mount_path(path) in existing_targets:
+                logger.debug(
+                    "Skipping Ascend A5 conditional mount %s: target already mounted",
+                    path,
+                )
+                continue
+            c_mounts.append(
+                docker.types.Mount(
+                    type="bind",
+                    source=path,
+                    target=path,
+                    read_only=True,
+                ),
+            )
+            existing_targets.add(normalize_mount_path(path))
+
+        if c_mounts:
+            create_options["mounts"] = c_mounts
+
+    @staticmethod
     def _parameterize_healthcheck(
         chk: ContainerCheck,
     ) -> dict[str, Any]:
@@ -997,6 +1039,7 @@ class DockerDeployer(EndoscopicDeployer):
             }
 
             # Parameterize resources.
+            needs_ascend_a5_mounts = False
             if c.resources:
                 cdi = (
                     envs.GPUSTACK_RUNTIME_DOCKER_RESOURCE_INJECTION_POLICY.lower()
@@ -1106,6 +1149,17 @@ class DockerDeployer(EndoscopicDeployer):
                             )
                         else:
                             create_options["environment"][ren] = ",".join(r_vs)
+                            if self.get_manufacturer(
+                                ren,
+                            ) == ManufacturerEnum.ASCEND and any(
+                                is_ascend_a5_arch_family(family)
+                                for family in self.get_device_arch_families(
+                                    ren,
+                                    resource_values,
+                                    all_devices=(r_v == "all" or privileged),
+                                )
+                            ):
+                                needs_ascend_a5_mounts = True
 
                     # If not requesting all devices but privileged,
                     # must configure visible devices.
@@ -1176,6 +1230,8 @@ class DockerDeployer(EndoscopicDeployer):
             try:
                 if c.profile == ContainerProfileEnum.RUN:
                     create_options = self._mutate_create_options(create_options)
+                if needs_ascend_a5_mounts:
+                    self._append_ascend_a5_conditional_mounts(create_options)
                 if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
                     clogger.info(
                         f"Creating container %s with options:{os.linesep}%s",
@@ -1300,10 +1356,11 @@ class DockerDeployer(EndoscopicDeployer):
             }
         ## - Container customized mounts
         mirrored_mounts: list[dict[str, Any]] = [
-            # Always filter out Docker Socket mount.
+            # Always filter out Docker Socket and host-root mounts.
             m
             for m in (self_container.attrs["Mounts"] or [])
-            if not m.get("Destination").endswith("/docker.sock")
+            if not (m.get("Destination") or "").endswith("/docker.sock")
+            and not is_host_root_mount_path(m.get("Destination"))
         ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_mounts = [
@@ -1355,9 +1412,12 @@ class DockerDeployer(EndoscopicDeployer):
 
             if mirrored_mounts:
                 c_mounts: list[dict[str, Any]] = create_options.get("mounts") or []
-                c_mounts_paths = {m.get("Target") for m in c_mounts}
+                c_mounts_paths = {
+                    normalize_mount_path(m.get("Target")) for m in c_mounts
+                }
                 for m in mirrored_mounts:
-                    if m.get("Destination") in c_mounts_paths:
+                    norm_dest = normalize_mount_path(m.get("Destination"))
+                    if norm_dest in c_mounts_paths:
                         continue
                     type_ = m.get("Type", "volume")
                     source = m.get("Source")
@@ -1380,7 +1440,7 @@ class DockerDeployer(EndoscopicDeployer):
                             propagation=propagation,
                         ),
                     )
-                    c_mounts_paths.add(target)
+                    c_mounts_paths.add(norm_dest)
                 create_options["mounts"] = c_mounts
 
             if mirrored_devices:

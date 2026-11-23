@@ -26,6 +26,7 @@ from gpustack_runner import parse_image
 from .. import envs
 from ..logging import debug_log_exception
 from . import ContainerCheck, ContainerMountModeEnum, OperationError
+from .__hostfs__ import is_host_root_mount_path
 from .__types__ import (
     DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
     Container,
@@ -2006,9 +2007,12 @@ class KubernetesDeployer(EndoscopicDeployer):
                 if e.name not in igs
             ]
         ## - Container volume mounts
-        mirrored_volume_mounts: list[kubernetes.client.V1VolumeMount] = (
-            self_container.volume_mounts or []
-        )
+        mirrored_volume_mounts: list[kubernetes.client.V1VolumeMount] = [
+            # Always filter out host-root mounts.
+            m
+            for m in (self_container.volume_mounts or [])
+            if not is_host_root_mount_path(m.mount_path)
+        ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_volume_mounts = [
                 # Filter out ignored volume mounts.

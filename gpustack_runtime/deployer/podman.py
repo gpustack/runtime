@@ -29,6 +29,7 @@ from tqdm import tqdm
 
 from .. import envs
 from ..logging import debug_log_exception, debug_log_warning
+from .__hostfs__ import is_host_root_mount_path, normalize_mount_path
 from .__patches__ import patch_render_payload
 from .__types__ import (
     DEFAULT_TERMINATION_GRACE_PERIOD_SECONDS,
@@ -1299,10 +1300,11 @@ class PodmanDeployer(EndoscopicDeployer):
             }
         ## - Container customized mounts
         mirrored_mounts: list[dict[str, Any]] = [
-            # Always filter out Podman Socket mount.
+            # Always filter out Podman Socket and host-root mounts.
             m
             for m in (self_container.attrs["Mounts"] or [])
-            if not m.get("Destination").endswith("/podman.sock")
+            if not (m.get("Destination") or "").endswith("/podman.sock")
+            and not is_host_root_mount_path(m.get("Destination"))
         ]
         if igs := envs.GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES:
             mirrored_mounts = [
@@ -1352,9 +1354,13 @@ class PodmanDeployer(EndoscopicDeployer):
 
             if mirrored_mounts:
                 c_mounts: list[dict[str, Any]] = create_options.get("mounts") or []
-                c_mounts_paths = {m.get("Target") for m in c_mounts}
+                c_mounts_paths = {
+                    normalize_mount_path(m.get("Target") or m.get("target"))
+                    for m in c_mounts
+                }
                 for m in mirrored_mounts:
-                    if m.get("Destination") in c_mounts_paths:
+                    norm_dest = normalize_mount_path(m.get("Destination"))
+                    if norm_dest in c_mounts_paths:
                         continue
                     type_ = m.get("Type", "volume")
                     source = m.get("Source")
@@ -1377,7 +1383,7 @@ class PodmanDeployer(EndoscopicDeployer):
                             "propagation": propagation,
                         },
                     )
-                    c_mounts_paths.add(target)
+                    c_mounts_paths.add(norm_dest)
                 create_options["mounts"] = c_mounts
 
             if mirrored_devices:
