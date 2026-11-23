@@ -289,6 +289,26 @@ def test_docker_env_a5_deduplicates_explicit_and_mirrored_targets(
         "/custom/ranktable.json"
     )
 
+    # Also verify inline-content ContainerFiles exclude automatic host binds.
+    inline_opts = _create_docker_container(
+        _ascend_materials("Ascend950PR"),
+        _container(
+            {"huawei.com/devices": "0"},
+            files=[
+                ContainerFile(
+                    path="/etc/hccl_rootinfo.json",
+                    content='{"version": "2.0"}',
+                ),
+                ContainerFile(
+                    path="lib//route.conf",
+                    content="inline-route\n",
+                ),
+            ],
+        ),
+        monkeypatch,
+    )
+    assert inline_opts.get("mounts", []) == []
+
 
 def test_docker_mirrored_deployment_excludes_host_root(monkeypatch):
     monkeypatch.setattr(envs, "GPUSTACK_RUNTIME_DEPLOY_HOST_ROOT", "/host")

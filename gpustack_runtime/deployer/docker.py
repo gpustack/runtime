@@ -791,10 +791,13 @@ class DockerDeployer(EndoscopicDeployer):
             create_options["mounts"] = mount_binding
 
     @staticmethod
-    def _append_ascend_a5_conditional_mounts(create_options: dict[str, Any]):
+    def _append_ascend_a5_conditional_mounts(
+        create_options: dict[str, Any],
+        c: Container,
+    ):
         """
         Append eligible Ascend A5 read-only host mounts without duplicating
-        any existing mount target.
+        any existing mount or declared container file target.
         """
         conditional_paths = resolve_ascend_a5_conditional_mounts()
         if not conditional_paths:
@@ -804,10 +807,14 @@ class DockerDeployer(EndoscopicDeployer):
         existing_targets = {
             normalize_mount_path(m.get("Target")) for m in c_mounts if m.get("Target")
         }
+        if files := c.files:
+            for f in files:
+                if f.path:
+                    existing_targets.add(normalize_mount_path(f"/{f.path.lstrip('/')}"))
         for path in conditional_paths:
             if normalize_mount_path(path) in existing_targets:
                 logger.debug(
-                    "Skipping Ascend A5 conditional mount %s: target already mounted",
+                    "Skipping Ascend A5 conditional mount %s: target already mounted or declared",
                     path,
                 )
                 continue
@@ -1231,7 +1238,7 @@ class DockerDeployer(EndoscopicDeployer):
                 if c.profile == ContainerProfileEnum.RUN:
                     create_options = self._mutate_create_options(create_options)
                 if needs_ascend_a5_mounts:
-                    self._append_ascend_a5_conditional_mounts(create_options)
+                    self._append_ascend_a5_conditional_mounts(create_options, c)
                 if envs.GPUSTACK_RUNTIME_DEPLOY_PRINT_CONVERSION:
                     clogger.info(
                         f"Creating container %s with options:{os.linesep}%s",
