@@ -143,6 +143,12 @@ if TYPE_CHECKING:
     The volume mount destinations to ignore during mirrored deployment.
     Works only when `GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT` is enabled.
     """
+    GPUSTACK_RUNTIME_DEPLOY_HOST_ROOT: str = "/host"
+    """
+    Path where the host root filesystem is mounted read-only inside the deployer container.
+    Used to inspect host files (such as Ascend A5 `/etc/hccl_rootinfo.json` and `/lib/route.conf`).
+    If empty, host-root file inspection is disabled.
+    """
     GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE: bool = True
     """
     Correct the gpustack-runner image by rendering it with the host's detection.
@@ -500,6 +506,12 @@ variables: dict[str, Callable[[], Any]] = {
             "GPUSTACK_RUNTIME_DEPLOY_MIRRORED_DEPLOYMENT_IGNORE_VOLUMES",
         ),
         sep=";",
+    ),
+    "GPUSTACK_RUNTIME_DEPLOY_HOST_ROOT": lambda: trim_str(
+        getenv(
+            "GPUSTACK_RUNTIME_DEPLOY_HOST_ROOT",
+            "/host",
+        ),
     ),
     "GPUSTACK_RUNTIME_DEPLOY_CORRECT_RUNNER_IMAGE": lambda: to_bool(
         getenv(

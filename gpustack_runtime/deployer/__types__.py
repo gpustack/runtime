@@ -1499,6 +1499,12 @@ class DevicesMaterial:
     the value is the CPU cores string.
     For example, {"0": "0-7"}.
     """
+    arch_families: dict[str, str] = field(default_factory=dict)
+    """
+    Mapping devices to architecture family names,
+    the key is the device index string,
+    the value is the architecture family string (e.g., "Ascend950PR").
+    """
 
 
 UNKNOWN_RUNTIME_ENV = "UNKNOWN_RUNTIME_VISIBLE_DEVICES"
@@ -1630,6 +1636,7 @@ class Deployer(ABC):
                     dev_backend_aligned_values: dict[str, str] = {}
                     dev_numa_affinities: dict[str, str] = {}
                     dev_cpus_affinities: dict[str, str] = {}
+                    dev_arch_families: dict[str, str] = {}
                     for dev_i, dev in enumerate(devs):
                         dev_index = str(dev.index)
                         dev_appendix = dev.appendix or {}
@@ -1653,6 +1660,9 @@ class Deployer(ABC):
                         dev_cpus_affinities[dev_index] = map_numa_node_to_cpu_affinity(
                             dev_numa_affinities[dev_index],
                         )
+                        dev_arch_families[dev_index] = str(
+                            dev_appendix.get("arch_family", ""),
+                        )
 
                     materials[ren] = DevicesMaterial(
                         manufacturer=manu,
@@ -1673,6 +1683,7 @@ class Deployer(ABC):
                         },
                         numa_affinities=dev_numa_affinities,
                         cpus_affinities=dev_cpus_affinities,
+                        arch_families=dev_arch_families,
                     )
 
         return materials
@@ -1716,6 +1727,41 @@ class Deployer(ABC):
             return ManufacturerEnum.UNKNOWN
 
         return m[runtime_env].manufacturer
+
+    def get_device_arch_families(
+        self,
+        runtime_env: str,
+        resource_values: list[str] | None = None,
+        *,
+        all_devices: bool = False,
+    ) -> list[str]:
+        """
+        Return the architecture family names for requested devices of a runtime env.
+
+        Args:
+            runtime_env:
+                The runtime visible devices environment variable name.
+            resource_values:
+                The requested device index strings.
+            all_devices:
+                When True, return architecture families for all detected devices
+                under runtime_env.
+
+        Returns:
+            A list of non-empty architecture family names.
+
+        """
+        m = self._get_materials()
+        if runtime_env not in m:
+            return []
+
+        rm = m[runtime_env]
+        if all_devices or not resource_values or resource_values == ["all"]:
+            return [f for f in rm.arch_families.values() if f]
+
+        return [
+            family for v in resource_values if (family := rm.arch_families.get(v, ""))
+        ]
 
     def get_runtime_envs(
         self,
