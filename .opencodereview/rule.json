@@ -1,0 +1,63 @@
+{
+  "include": [
+    "gpustack_runtime/**/*.py",
+    "deploy/**",
+    "pack/**",
+    "README.md",
+    "mkdocs.yml"
+  ],
+  "exclude": [
+    "gpustack_runtime/_version.py",
+    "gpustack_runtime/_version_appendix.py",
+    "gpustack_runtime/deployer/__patches__.py",
+    "gpustack_runtime/detector/py*/**",
+    "docs/**",
+    "site/**",
+    "dist/**",
+    "specs/**",
+    "tests/**",
+    "**/__pycache__/**"
+  ],
+  "rules": [
+    {
+      "path": "gpustack_runtime/detector/**/*.py",
+      "merge_system_rule": true,
+      "rule": "Accelerator detectors, topology probing, and health checks. Every module must start with `from __future__ import annotations as __future_annotations__`. Detectors must degrade to an empty result and log at debug level on hosts without that vendor rather than raising. A new detector must be registered in gpustack_runtime/detector/__init__.py. Verify ctypes/vendor library calls and error handling against the matching py* binding (do not review py*/** internals, which are excluded). Flag shared mutable state or caching bugs, physical-vs-logical device index confusion, and missing or stale Google-style docstrings on public APIs. A behavior change or bug fix requires focused sample-based tests under tests/gpustack_runtime/detector/ that do not require real hardware. State this as a reminder only — tests/ is excluded from this review, so never claim a test is present or absent, and never infer absence from not having seen it."
+    },
+    {
+      "path": "gpustack_runtime/deployer/**/*.py",
+      "merge_system_rule": true,
+      "rule": "Container runtime deployers (Docker, Kubernetes, Podman), CDI generators, hostfs inspection, and mirrored deployment. Every module must start with `from __future__ import annotations as __future_annotations__`. Deployers must raise OperationError or UnsupportedError from gpustack_runtime/deployer/__types__.py rather than leaking runtime-client exceptions through the public API. A new deployer must be registered in gpustack_runtime/deployer/__init__.py. Treat host-path binds, hostfs symlink resolution, privileged/capability escalation, secret or sensitive environment variable logging, and mirrored deployment exclusions (never mirroring docker.sock, podman.sock, or the configured host root such as /host) as security-sensitive. Flag duplicate mount targets, partial-failure resource leaks, and unsafe shared state. A behavior change or bug fix requires focused mocked-client tests under tests/gpustack_runtime/deployer/ without requiring a live container runtime. State this as a reminder only — tests/ is excluded from this review, so never claim a test is present or absent, and never infer absence from not having seen it."
+    },
+    {
+      "path": "gpustack_runtime/cmds/**/*.py",
+      "merge_system_rule": true,
+      "rule": "CLI subcommands under the gpustack-runtime entrypoint. Every module must start with `from __future__ import annotations as __future_annotations__`. Flag unhandled runtime exceptions leaking raw tracebacks where explicit error messages and exit codes are expected, unsafe argument handling, or breaking changes to CLI flags and structured output formats."
+    },
+    {
+      "path": "gpustack_runtime/envs.py",
+      "merge_system_rule": true,
+      "rule": "Environment variable registry. Flag any mismatch in name, type, default value, or parsing semantics between the TYPE_CHECKING declarations and the runtime variables mapping. Require Google-style docstrings on new or changed variables since they render into the published API reference."
+    },
+    {
+      "path": "deploy/**",
+      "merge_system_rule": true,
+      "rule": "Deployment manifests. Flag invalid resource names, selectors, probes, RBAC permissions, overly broad privileges or host mounts, secrets exposed in plain text, or configuration that diverges from gpustack_runtime."
+    },
+    {
+      "path": "pack/**",
+      "merge_system_rule": true,
+      "rule": "Container image build definitions and scripts. Flag leaked build secrets or tokens, broken multi-arch build assumptions, unsafe shell scripting, or mismatches with pyproject.toml and runtime entrypoints."
+    },
+    {
+      "path": "README.md",
+      "merge_system_rule": true,
+      "rule": "Canonical repository README. Flag credentials or other secrets in examples, and documentation that contradicts the CLI, environment variables, or shipped library behavior."
+    },
+    {
+      "path": "mkdocs.yml",
+      "merge_system_rule": true,
+      "rule": "MkDocs configuration. Pages omitted from nav are still built and published, but are excluded from global navigation and previous/next links; check whether a new page under docs/ is intended to be discoverable in nav rather than claiming it is unpublished. Flag navigation entries that point to a missing page or conflict with the documentation structure."
+    }
+  ]
+}
