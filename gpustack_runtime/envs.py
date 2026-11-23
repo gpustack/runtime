@@ -616,7 +616,7 @@ variables: dict[str, Callable[[], Any]] = {
             "hygon.com/devices=HYGON_VISIBLE_DEVICES;"
             "iluvatar.ai/devices=IX_VISIBLE_DEVICES;"
             "metax-tech.com/devices=CUDA_VISIBLE_DEVICES;"
-            "mthreads.com/devices=METHERDS_VISIBLE_DEVICES;"
+            "mthreads.com/devices=MTHREADS_VISIBLE_DEVICES;"
             "nvidia.com/devices=NVIDIA_VISIBLE_DEVICES;"
             "alibabacloud.com/devices=NVIDIA_VISIBLE_DEVICES;",
         ),
