@@ -98,6 +98,7 @@ class NVIDIADetector(Detector):
             return None
 
         ret: Devices = []
+        unqueryable_error: pynvml.NVMLError | None = None
 
         try:
             pynvml.nvmlInit()
@@ -128,19 +129,36 @@ class NVIDIADetector(Detector):
 
             dev_count = pynvml.nvmlDeviceGetCount()
             for dev_idx in range(dev_count):
-                dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
+                # Every other query of a card below degrades on its own; these
+                # do not. A card that cannot answer them, for example one that
+                # has fallen off the bus, is skipped instead of failing the
+                # detection of every other card.
+                try:
+                    dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
+                    dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
+                    # Unversioned on purpose, unlike the memory query above: pynvml
+                    # exposes no v2 PCI accessor to prefer or fall back to --
+                    # `nvmlDeviceGetPciInfo` is its alias of `nvmlDeviceGetPciInfo_v3`,
+                    # a superset of the v2 structure the operator's `GetPciInfoV`
+                    # prefers, and `nvmlPciInfo_v2_t` is declared but unused. The
+                    # operator never reads the structure's string either, its
+                    # `GetBusId()` formatting the BDF from domain/bus/device.
+                    dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
+                    dev_name = pynvml.nvmlDeviceGetName(dev)
+                    dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+                except pynvml.NVMLError as e:
+                    if not _is_unqueryable_device_error(e):
+                        raise
+                    debug_log_warning(
+                        logger,
+                        "Failed to query device %d, skipping it: %s",
+                        dev_idx,
+                        e,
+                    )
+                    unqueryable_error = e
+                    continue
 
-                dev_cc_t = pynvml.nvmlDeviceGetCudaComputeCapability(dev)
                 dev_cc = ".".join(map(str, dev_cc_t))
-
-                # Unversioned on purpose, unlike the memory query above: pynvml
-                # exposes no v2 PCI accessor to prefer or fall back to --
-                # `nvmlDeviceGetPciInfo` is its alias of `nvmlDeviceGetPciInfo_v3`,
-                # a superset of the v2 structure the operator's `GetPciInfoV`
-                # prefers, and `nvmlPciInfo_v2_t` is declared but unused. The
-                # operator never reads the structure's string either, its
-                # `GetBusId()` formatting the BDF from domain/bus/device.
-                dev_pci_info = pynvml.nvmlDeviceGetPciInfo(dev)
                 dev_bdf = str(dev_pci_info.busIdLegacy).lower()
 
                 dev_numa = get_numa_node_by_bdf(dev_bdf)
@@ -189,10 +207,6 @@ class NVIDIADetector(Detector):
                 # device-manager; they are not separate allocatable devices
                 # in this inventory. A MIG-enabled card is marked ``mig``
                 # in the appendix instead.
-
-                dev_name = pynvml.nvmlDeviceGetName(dev)
-
-                dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
 
                 dev_cores = None
                 with contextlib.suppress(pynvml.NVMLError):
@@ -277,6 +291,11 @@ class NVIDIADetector(Detector):
             debug_log_exception(logger, "Failed to process devices fetching")
             raise
 
+        if not ret and unqueryable_error is not None:
+            # No card could be queried: fail as before, rather than report a
+            # host without cards.
+            raise unqueryable_error
+
         return ret
 
     def detect_usage(self, devices: Devices | None = None) -> Devices | None:
@@ -316,9 +335,21 @@ class NVIDIADetector(Detector):
 
             dev_count = pynvml.nvmlDeviceGetCount()
             for dev_idx in range(dev_count):
-                dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
-
-                dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+                # As in detect_info: a card that cannot be queried is skipped,
+                # so the other cards keep their usage.
+                try:
+                    dev = pynvml.nvmlDeviceGetHandleByIndex(dev_idx)
+                    dev_uuid = pynvml.nvmlDeviceGetUUID(dev)
+                except pynvml.NVMLError as e:
+                    if not _is_unqueryable_device_error(e):
+                        raise
+                    debug_log_warning(
+                        logger,
+                        "Failed to query device %d usage, skipping it: %s",
+                        dev_idx,
+                        e,
+                    )
+                    continue
 
                 dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
                 if dev_cores_util is None:
@@ -489,6 +520,30 @@ class NVIDIADetector(Detector):
             raise
 
         return ret
+
+
+def _is_unqueryable_device_error(e: pynvml.NVMLError) -> bool:
+    """
+    Whether an NVML error means the card itself cannot be queried: it has
+    fallen off the bus (NVML_ERROR_GPU_IS_LOST, often reported as
+    NVML_ERROR_UNKNOWN), needs a reset, lacks power, or has an interrupt
+    problem. Other errors concern the driver or the call, not one card.
+
+    Args:
+        e:
+            The NVML error to classify.
+
+    Returns:
+        True if the error is specific to the card being queried.
+
+    """
+    return getattr(e, "value", None) in (
+        pynvml.NVML_ERROR_GPU_IS_LOST,
+        pynvml.NVML_ERROR_UNKNOWN,
+        pynvml.NVML_ERROR_RESET_REQUIRED,
+        pynvml.NVML_ERROR_INSUFFICIENT_POWER,
+        pynvml.NVML_ERROR_IRQ_ISSUE,
+    )
 
 
 def _get_memory_info(

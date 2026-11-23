@@ -115,6 +115,15 @@ class _FakeDevice:
     verdict that names the aggregate counter cannot be satisfied by the
     volatile one.
     """
+    query_error_code: int | None = None
+    """
+    The error code the card's identity query raises, as a card that has fallen
+    off the bus does, or None for a card that answers.
+    """
+    query_error_at: str = "handle"
+    """
+    The identity query that raises query_error_code: "handle" or "name".
+    """
     ecc_counter_error_code: int | None = None
     """
     The error code the ECC counter query raises, or None for a readable one.
@@ -142,6 +151,15 @@ class _FakeDevice:
     """
 
 
+def _raise_query_error(device: _FakeDevice, query: str):
+    """
+    Raise the card's query error, if it has one for this query.
+    """
+    if device.query_error_code is not None and device.query_error_at == query:
+        msg = f"device query failed at {query}"
+        raise _NVMLError(msg, device.query_error_code)
+
+
 class _FakeNVML:
     """
     A pynvml stand-in exposing only what the NVIDIA detector touches, recording
@@ -151,6 +169,11 @@ class _FakeNVML:
     NVMLError = _NVMLError
     NVML_SUCCESS = 0
     NVML_ERROR_NOT_SUPPORTED = 3
+    NVML_ERROR_NO_PERMISSION = 4
+    NVML_ERROR_INSUFFICIENT_POWER = 8
+    NVML_ERROR_IRQ_ISSUE = 11
+    NVML_ERROR_GPU_IS_LOST = 15
+    NVML_ERROR_RESET_REQUIRED = 16
     NVML_ERROR_UNKNOWN = 999
     NVML_VALUE_TYPE_DOUBLE = 0
     NVML_VALUE_TYPE_UNSIGNED_INT = 1
@@ -235,7 +258,9 @@ class _FakeNVML:
 
     def nvmlDeviceGetHandleByIndex(self, index):  # noqa: N802
         self.calls.append("nvmlDeviceGetHandleByIndex")
-        return self.devices[index]
+        device = self.devices[index]
+        _raise_query_error(device, "handle")
+        return device
 
     # Identity and capability.
 
@@ -245,6 +270,7 @@ class _FakeNVML:
 
     def nvmlDeviceGetName(self, handle):  # noqa: N802
         self.calls.append("nvmlDeviceGetName")
+        _raise_query_error(handle, "name")
         return handle.name
 
     def nvmlDeviceGetCudaComputeCapability(self, handle):  # noqa: N802
@@ -609,6 +635,59 @@ def test_detect_info_physical_index_priority_skips_unreadable_minor_number(
     ]
 
 
+@pytest.mark.parametrize(
+    "error_code, query",
+    [
+        (_FakeNVML.NVML_ERROR_GPU_IS_LOST, "handle"),
+        (_FakeNVML.NVML_ERROR_UNKNOWN, "handle"),
+        (_FakeNVML.NVML_ERROR_RESET_REQUIRED, "handle"),
+        (_FakeNVML.NVML_ERROR_INSUFFICIENT_POWER, "handle"),
+        (_FakeNVML.NVML_ERROR_IRQ_ISSUE, "handle"),
+        (_FakeNVML.NVML_ERROR_GPU_IS_LOST, "name"),
+    ],
+)
+def test_detect_info_skips_a_card_that_cannot_be_queried(fake_nvml, error_code, query):
+    fake_nvml(
+        [
+            _FakeDevice(uuid="GPU-0"),
+            _FakeDevice(
+                uuid="GPU-1",
+                query_error_code=error_code,
+                query_error_at=query,
+            ),
+            _FakeDevice(uuid="GPU-2"),
+        ],
+    )
+
+    devices = NVIDIADetector().detect_info()
+
+    assert [(dev.uuid, dev.index) for dev in devices] == [("GPU-0", 0), ("GPU-2", 2)]
+
+
+def test_detect_info_fails_on_another_query_error(fake_nvml):
+    fake_nvml(
+        [
+            _FakeDevice(uuid="GPU-0"),
+            _FakeDevice(
+                uuid="GPU-1",
+                query_error_code=_FakeNVML.NVML_ERROR_NO_PERMISSION,
+            ),
+        ],
+    )
+
+    with pytest.raises(_NVMLError):
+        NVIDIADetector().detect_info()
+
+
+def test_detect_info_fails_when_no_card_can_be_queried(fake_nvml):
+    fake_nvml(
+        [_FakeDevice(query_error_code=_FakeNVML.NVML_ERROR_GPU_IS_LOST)],
+    )
+
+    with pytest.raises(_NVMLError):
+        NVIDIADetector().detect_info()
+
+
 @pytest.mark.usefixtures("health_check")
 def test_detect_info_reports_the_memory_health(fake_nvml):
     fake_nvml([_FakeDevice(ecc_errors=1)])
@@ -853,6 +932,24 @@ def test_detect_usage_merges_into_the_given_devices(fake_nvml):
     assert [device.uuid for device in devices] == ["GPU-0", "GPU-1"]
     assert [device.name for device in devices] == ["NVIDIA L4"] * 2
     assert [device.memory for device in devices] == [23034] * 2
+
+
+def test_detect_usage_skips_a_card_that_cannot_be_queried(fake_nvml):
+    fake = fake_nvml(
+        [
+            _FakeDevice(uuid="GPU-0"),
+            _FakeDevice(uuid="GPU-1"),
+            _FakeDevice(uuid="GPU-2"),
+        ],
+    )
+    detector = NVIDIADetector()
+    devices = detector.detect_info()
+    # The card falls off the bus between the two queries.
+    fake.devices[1].query_error_code = _FakeNVML.NVML_ERROR_GPU_IS_LOST
+
+    detector.detect_usage(devices)
+
+    assert [device.temperature for device in devices] == [47, None, 47]
 
 
 def test_detect_usage_detects_the_information_first(fake_nvml):
