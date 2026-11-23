@@ -952,6 +952,17 @@ def test_detect_usage_skips_a_card_that_cannot_be_queried(fake_nvml):
     assert [device.temperature for device in devices] == [47, None, 47]
 
 
+def test_detect_usage_fails_when_no_card_can_be_queried(fake_nvml):
+    fake = fake_nvml([_FakeDevice(uuid="GPU-0"), _FakeDevice(uuid="GPU-1")])
+    detector = NVIDIADetector()
+    devices = detector.detect_info()
+    for device in fake.devices:
+        device.query_error_code = _FakeNVML.NVML_ERROR_GPU_IS_LOST
+
+    with pytest.raises(_NVMLError):
+        detector.detect_usage(devices)
+
+
 def test_detect_usage_detects_the_information_first(fake_nvml):
     fake_nvml([_FakeDevice()])
 

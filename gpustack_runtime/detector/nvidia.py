@@ -329,6 +329,7 @@ class NVIDIADetector(Detector):
         # metrics list is joined by device identity, never by index, as an index
         # is not stable across a re-detection.
         usages: Devices = []
+        unqueryable_error: pynvml.NVMLError | None = None
 
         try:
             pynvml.nvmlInit()
@@ -349,6 +350,7 @@ class NVIDIADetector(Detector):
                         dev_idx,
                         e,
                     )
+                    unqueryable_error = e
                     continue
 
                 dev_cores_util = _get_sm_util_from_gpm_metrics(dev)
@@ -421,6 +423,10 @@ class NVIDIADetector(Detector):
         except Exception:
             debug_log_exception(logger, "Failed to process devices usage fetching")
             raise
+
+        if not usages and unqueryable_error is not None:
+            # As in detect_info: no card could be queried, so fail as before.
+            raise unqueryable_error
 
         return merge_devices_usage(devices, usages)
 
