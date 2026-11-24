@@ -688,6 +688,56 @@ def test_detect_info_fails_when_no_card_can_be_queried(fake_nvml):
         NVIDIADetector().detect_info()
 
 
+def test_detect_info_keeps_mig_indexes_when_the_last_card_cannot_be_queried(
+    fake_nvml,
+):
+    # MIG indexes are numbered above the cards' indexes. Skipping the card with
+    # the largest index must not renumber the MIG devices of the other cards.
+    def mig_indexes(lost: bool) -> list[int]:
+        error = {"query_error_code": _FakeNVML.NVML_ERROR_GPU_IS_LOST} if lost else {}
+        fake_nvml(
+            [
+                _mig_card(),
+                _FakeDevice(uuid="GPU-1"),
+                _FakeDevice(uuid="GPU-2", **error),
+            ],
+        )
+        devices = NVIDIADetector().detect_info()
+        return [mig["index"] for mig in devices[0].appendix["mig_devices"]]
+
+    assert mig_indexes(lost=False) == [3, 4]
+    assert mig_indexes(lost=True) == [3, 4]
+
+
+def test_detect_info_keeps_physical_mig_indexes_when_a_card_cannot_be_queried(
+    fake_nvml,
+    monkeypatch,
+):
+    # With minor numbers as indexes, the card count is not the index namespace:
+    # a card without a readable minor number is already left out.
+    monkeypatch.setattr(
+        nvidia.envs,
+        "GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY",
+        True,
+        raising=False,
+    )
+
+    def mig_indexes(lost: bool) -> list[int]:
+        error = {"query_error_code": _FakeNVML.NVML_ERROR_GPU_IS_LOST} if lost else {}
+        fake_nvml(
+            [
+                _FakeDevice(uuid="GPU-A", minor_number=0, **error),
+                _mig_card(minor_number=1),
+                _FakeDevice(uuid="GPU-C", minor_number=None),
+            ],
+        )
+        devices = NVIDIADetector().detect_info()
+        card = next(dev for dev in devices if dev.index == 1)
+        return [mig["index"] for mig in card.appendix["mig_devices"]]
+
+    assert mig_indexes(lost=True) == mig_indexes(lost=False)
+
+
 @pytest.mark.usefixtures("health_check")
 def test_detect_info_reports_the_memory_health(fake_nvml):
     fake_nvml([_FakeDevice(ecc_errors=1)])
