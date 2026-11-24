@@ -480,6 +480,7 @@ def index_mig_devices(
     devices: Devices,
     mig_devices: dict[int, list[dict]],
     slots: int,
+    reserved: int = 0,
 ) -> None:
     """
     Number the given cards' MIG devices in place.
@@ -503,9 +504,13 @@ def index_mig_devices(
             found at, which the block offset is added to.
         slots:
             The number of MIG devices a card can host, i.e. the block size.
+        reserved:
+            The number of card indexes taken even if no detected card reports
+            them, e.g. by a card the detector skipped, so that skipping the
+            card with the largest index does not renumber the MIG devices.
 
     """
-    base = max((dev.index for dev in devices), default=-1) + 1
+    base = max(max((dev.index for dev in devices), default=-1) + 1, reserved)
     for dev_idx, migs in mig_devices.items():
         for mig in migs:
             mig["index"] += base + dev_idx * slots

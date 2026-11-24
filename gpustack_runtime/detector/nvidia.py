@@ -283,7 +283,12 @@ class NVIDIADetector(Detector):
                     ),
                 )
 
-            index_mig_devices(ret, devs_mig_devices, devs_mig_slots)
+            index_mig_devices(
+                ret,
+                devs_mig_devices,
+                devs_mig_slots,
+                reserved=dev_count if unqueryable_error else 0,
+            )
         except pynvml.NVMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
