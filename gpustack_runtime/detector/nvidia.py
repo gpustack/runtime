@@ -283,12 +283,15 @@ class NVIDIADetector(Detector):
                     ),
                 )
 
-            index_mig_devices(
-                ret,
-                devs_mig_devices,
-                devs_mig_slots,
-                reserved=dev_count if unqueryable_error else 0,
-            )
+            # A skipped card's enumeration index stays taken. Minor numbers are
+            # not the enumeration range, so they get no reservation.
+            reserved = 0
+            if (
+                unqueryable_error
+                and not envs.GPUSTACK_RUNTIME_DETECT_PHYSICAL_INDEX_PRIORITY
+            ):
+                reserved = dev_count
+            index_mig_devices(ret, devs_mig_devices, devs_mig_slots, reserved=reserved)
         except pynvml.NVMLError:
             debug_log_exception(logger, "Failed to fetch devices")
             raise
